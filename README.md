@@ -7,8 +7,42 @@ architecture before anything is changed**. Markdown files in your documentation
 repository are the source of truth; the database holds only workspaces,
 conversations, questions, decisions and analysis results.
 
-> Milestones 1–3 status: backend complete and tested (76 tests). The React
-> frontend and the document inventory arrive in later milestones.
+> Milestones 1–5 complete. Backend (103 tests) and frontend (TypeScript-clean,
+> browser-verified) are both working together.
+
+## Running the whole thing
+
+Two processes. Start the backend first:
+
+```bash
+cd backend
+..\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+```
+
+Then the frontend, in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
+```
+
+Vite proxies `/api` to the backend, so the browser stays same-origin and CORS
+never bites in development. Point it elsewhere with
+`VITE_BACKEND_URL=http://127.0.0.1:9000 npm run dev`.
+
+### The three panels
+
+| Panel | Contains |
+| --- | --- |
+| **Left — Workspace** | Repositories, the real documentation tree, Git revision |
+| **Centre — Conversation** | The architectural discussion, mode switch, citations |
+| **Right — Context** | Document viewer, inventory plan, proposals (collapsible) |
+
+The centre panel is the point of the application; the right panel collapses so
+the discussion can take the full width.
+
+## Layout
 
 ## Principles encoded in the code
 
@@ -16,7 +50,10 @@ conversations, questions, decisions and analysis results.
 | --- | --- |
 | Filesystem is the source of truth for documents | `services/documents.py` (read-only access) |
 | **The AI cannot write files** | `services/tools.py` exposes six read-only tools; a test asserts no tool name implies a write |
-| No writes without explicit human approval | `services/proposals.py` + `api/routes_proposals.py` — `accept_proposal` is the only writer |
+| **A plan is not an action** | `services/inventory.py` produces a plan; `routes_inventory.py` only moves on approval |
+| Classification follows content, not filenames | the inventory prompt shows document *text*; a test asserts the model sees it |
+| Admitting uncertainty is a feature | ambiguous items are flagged and are **never** auto-applied |
+| No writes without explicit human approval | `services/proposals.py` + `routes_proposals.py` — `accept_proposal` is the only writer |
 | Source repositories are read-only | `_writable_repository()` returns 403 for `kind="source"` |
 | No filesystem access outside authorized repos | `services/paths.py` — every path goes through `safe_path` |
 | Original always preserved through Git | `apply_change()` refuses to touch untracked files |
@@ -56,6 +93,34 @@ Conversation modes (`explore` / `investigate` / `apply`) change **only the
 system prompt**. Switching mode never discards the transcript, so a discussion
 can move from exploring an idea to recording a decision without losing context.
 
+## The inventory
+
+The AI reads every document's **contents** and proposes where each one belongs
+in the target structure (`foundation/`, `architecture/{components,flows,
+contracts,decisions}/`, `development/`, `operations/`). It also reports
+overlapping documents and anything it cannot confidently place.
+
+```
+plan   POST   /inventory/runs                      -> a plan; moves nothing
+read   GET    /inventory/runs/{id}                 -> the plan with reasons
+decide POST   /inventory/runs/{id}/apply           -> approve some or all
+       POST   /inventory/runs/{id}/items/{i}/apply -> approve one
+       POST   /inventory/runs/{id}/items/{i}/skip  -> decline one
+```
+
+Two deliberate constraints:
+
+- **Ambiguous items are never auto-applied.** If the model says it cannot
+  place a document, the application refuses to guess on your behalf. It is
+  reported and left for you.
+- **A hallucinated folder is discarded.** A suggested path that is not in the
+  target structure is rejected and the item is marked ambiguous, so the model
+  cannot invent a location.
+
+The inventory may create a target folder that does not exist yet (that is how
+the structure gets established), but a *manually* requested move into a
+non-existent folder is still refused, because that is more likely a typo.
+
 ## Layout
 
 ```
@@ -77,6 +142,7 @@ backend/
       routes_documents.py
       routes_proposals.py
       routes_chat.py
+      routes_inventory.py
     services/
       paths.py          PATH SANDBOX — security boundary
       documents.py      read-only document access
@@ -85,7 +151,18 @@ backend/
       proposals.py      planning + the single apply path
       tools.py          the AI's read-only toolbelt
       agent.py          the tool-calling loop
-  tests/                76 tests + a mock LLM server for manual runs
+      inventory.py      content-based document classification
+  tests/                103 tests + a mock LLM server for manual runs
+frontend/
+  src/
+    api/client.ts       typed API client (the only place URLs are built)
+    markdown.tsx        small Markdown renderer; no innerHTML, no dependencies
+    App.tsx             state and orchestration
+    components/
+      WorkspacePanel.tsx    left: repositories + document tree
+      ConversationPanel.tsx centre: messages, mode switch, citations
+      ContextPanel.tsx      right: document / inventory / proposals
+  scripts/smoke.mjs     browser smoke test (playwright)
 ```
 
 ## Configuring the AI
@@ -180,6 +257,14 @@ curl -X POST localhost:8000/api/workspaces/1/conversations \
 curl -X POST localhost:8000/api/workspaces/1/conversations/1/messages \
   -H "content-type: application/json" \
   -d '{"content":"I think our memory architecture is unnecessarily complicated."}'
+
+# 7. Inventory the documentation -- a plan, nothing is moved
+curl -X POST localhost:8000/api/workspaces/1/inventory/runs \
+  -H "content-type: application/json" -d '{}'
+
+# 8. Approve the whole plan (or individual items)
+curl -X POST localhost:8000/api/workspaces/1/inventory/runs/1/apply \
+  -H "content-type: application/json" -d '{}'
 ```
 
 After accepting, `git status` in your documentation repo will show the change
@@ -203,7 +288,22 @@ ALLOWED_WORKSPACE_ROOTS=["C:/src/gaia-docs","C:/src/gaia"]
   readable diffs, untracked-file protection, no auto-commit.
 - **Milestone 3 (done)** — LLM provider abstraction + architecture chat
   (explore / investigate / apply) with citable references and read-only tools.
-- **Milestone 4** — AI document inventory and an approval-gated organization
-  proposal (reuses the Milestone 2 proposal machinery).
-- **Milestone 5** — React three-panel UI over everything above.
-- **Later** — open questions, decision records, reconciliation.
+- **Milestone 4 (done)** — AI document inventory: content-based classification,
+  overlap and ambiguity detection, and an approval-gated organisation plan.
+- **Milestone 5 (done)** — React three-panel UI: document explorer, architecture
+  chat with citations, and the approval-gated inventory plan.
+- **Later** — open questions, decision records, reconciliation, streaming.
+
+## Notes and known limitations
+
+- **Chat is synchronous.** A long tool loop holds the request open. Streaming
+  would be the natural next improvement.
+- **The inventory runs in one request** with no progress feedback, and
+  documents are truncated at 12,000 characters when classifying.
+- **No UI yet for open questions or decisions** — the data model and endpoint
+  groundwork exists in the backend schema, but the views are not built.
+- **The Markdown renderer is intentionally small** (headings, lists, tables,
+  code, quotes). It renders into React elements rather than `innerHTML`, so
+  document content cannot inject markup.
+- **The frontend has no unit tests.** It is verified by a TypeScript build plus
+  the Playwright smoke scripts. Component tests would be worth adding.

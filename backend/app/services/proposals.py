@@ -41,9 +41,20 @@ def _assert_markdown(path: str, label: str) -> None:
 
 
 def plan_move(
-    root: str | Path, source: str, target_dir: str, new_name: str | None = None
+    root: str | Path,
+    source: str,
+    target_dir: str,
+    new_name: str | None = None,
+    allow_missing_dir: bool = False,
 ) -> PlannedChange:
-    """Plan moving (or renaming) a document. No filesystem mutation occurs."""
+    """Plan moving (or renaming) a document. No filesystem mutation occurs.
+
+    ``allow_missing_dir`` is set only by the inventory, whose job is to
+    establish the target structure and therefore needs to be able to file a
+    document into a folder that does not exist yet. A manually requested move
+    into a non-existent folder is still refused, because it is more likely a
+    typo than an intention.
+    """
     _assert_markdown(source, "Source")
     if new_name is not None:
         _assert_markdown(new_name, "New name")
@@ -63,10 +74,11 @@ def plan_move(
     if src_path.suffix.lower() not in DOC_SUFFIXES:
         raise ProposalError(f"Not a document file: {source}")
 
-    if not dest_dir.exists():
-        raise ProposalError(f"Target directory does not exist: {target_dir}")
-    if not dest_dir.is_dir():
-        raise ProposalError(f"Target is not a directory: {target_dir}")
+    if not allow_missing_dir:
+        if not dest_dir.exists():
+            raise ProposalError(f"Target directory does not exist: {target_dir}")
+        if not dest_dir.is_dir():
+            raise ProposalError(f"Target is not a directory: {target_dir}")
 
     filename = new_name or src_path.name
     if "/" in filename or "\\" in filename:

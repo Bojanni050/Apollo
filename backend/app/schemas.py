@@ -233,4 +233,57 @@ class SendMessageOut(BaseModel):
     assistant_message: MessageOut
 
 
+class InventoryRunRequest(BaseModel):
+    repository_id: int | None = None
+    path: str = "."
+
+
+class InventoryItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_path: str
+    purpose: str
+    suggested_path: str | None = None
+    confidence: float | None = None
+    overlaps: list | None = None
+    ambiguous: bool
+    note: str | None = None
+    decision: str  # pending | applied | skipped
+    # The target path including the original filename, if a move is proposed.
+    target_path: str | None = None
+    needs_move: bool = False
+
+
+class InventoryRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workspace_id: int
+    status: str
+    summary: str | None = None
+    created_at: dt.datetime
+    items: list[InventoryItemOut] = Field(default_factory=list)
+
+
+class InventoryApplyRequest(BaseModel):
+    item_ids: list[int] = Field(default_factory=list)
+    # Guard against acting on a stale view of the plan.
+    expected_source_paths: dict[str, str] | None = None
+
+
+class InventoryApplyOut(BaseModel):
+    run_id: int
+    applied: list[str]
+    skipped: list[dict[str, str]]
+    requires_manual_commit: bool = True
+
+
+class InventoryDecideOut(BaseModel):
+    run_id: int
+    item: InventoryItemOut
+    applied_path: str | None = None
+    requires_manual_commit: bool = True
+
+
 DocumentNodeOut.model_rebuild()

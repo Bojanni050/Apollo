@@ -14,7 +14,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import routes_chat, routes_documents, routes_proposals, routes_workspaces
+from app.api import (
+    routes_chat,
+    routes_documents,
+    routes_inventory,
+    routes_proposals,
+    routes_workspaces,
+)
 from app.config import settings
 from app.db import init_db
 
@@ -59,3 +65,4 @@ app.include_router(routes_workspaces.router, prefix="/api")
 app.include_router(routes_documents.router, prefix="/api")
 app.include_router(routes_proposals.router, prefix="/api")
 app.include_router(routes_chat.router, prefix="/api")
+app.include_router(routes_inventory.router, prefix="/api")
