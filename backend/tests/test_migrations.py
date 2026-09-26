@@ -164,10 +164,16 @@ def test_already_applied_ancestors_are_not_pending() -> None:
         engine.dispose()
 
     # Stepping back one revision must report exactly one outstanding migration.
+    # Not hardcoded: the head changes with every new migration.
+    from app.migrations import script_directory
+
+    revisions = list(script_directory().iterate_revisions("head", "base"))
+    # After downgrading one step, the head itself is the one pending revision.
+    expected = revisions[0].revision if revisions else None
     command.downgrade(config, "-1")
     engine = create_engine(MIGRATION_URL)
     try:
-        assert pending_revisions(engine) == ["0002_inventory_confidence"]
+        assert pending_revisions(engine) == [expected]
     finally:
         engine.dispose()
 
@@ -299,8 +305,12 @@ def test_existing_create_all_database_is_adopted_by_stamping() -> None:
     _drop_and_create()
 
     # Simulate the old behaviour: create the schema with no migration record.
+    # The vector type needs the pgvector extension, which migrations normally
+    # create; a create_all-only database must have it available too.
     engine = create_engine(MIGRATION_URL)
     try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(bind=engine)
         with engine.begin() as connection:
             connection.execute(text(

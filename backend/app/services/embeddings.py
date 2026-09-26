@@ -1,0 +1,367 @@
+"""Embedding providers for semantic indexing.
+
+Application code depends only on the :class:`EmbeddingProvider` protocol, never
+on a vendor SDK or a model identifier. Which model serves which content type is
+pure configuration (``CODE_EMBEDDING_MODEL`` / ``DOCUMENT_EMBEDDING_MODEL``),
+and every embedding row records the model name and dimension it was produced
+with, so a model change can never silently mix incompatible vectors.
+
+Providers
+---------
+``RemoteEmbeddingProvider``
+    An OpenAI-compatible ``/embeddings`` endpoint (the Jina API, a local
+    inference server, vLLM, ...). Uses only the standard library, like the LLM
+    provider. Network I/O runs in a worker thread so the async ``embed`` never
+    blocks the event loop.
+
+``LocalEmbeddingProvider``
+    A deterministic hash-based fallback so the application -- and its test
+    suite -- works with no paid external API and no network access. It is not
+    a semantic embedder; it exists so that indexing, storage and retrieval are
+    fully exercisable offline, and so a deployment without an embedding
+    endpoint degrades instead of crashing.
+
+The rest of the application is synchronous (sync SQLAlchemy, sync agent
+loop), so this module also exposes thin synchronous wrappers
+(:func:`embed_code`, :func:`embed_documents`) that drive the async protocol to
+completion.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import math
+import re
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
+
+from app.config import settings
+
+
+class EmbeddingError(RuntimeError):
+    """Raised for user-correctable embedding problems (bad config, API)."""
+
+
+class EmbeddingDimensionError(EmbeddingError):
+    """Raised when a provider returns vectors whose shape is not usable."""
+
+
+@runtime_checkable
+class EmbeddingProvider(Protocol):
+    """The minimal surface the indexer needs from any embedder."""
+
+    @property
+    def model_name(self) -> str: ...
+
+    @property
+    def dimension(self) -> int: ...
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed ``texts``, returning one vector per input, in order."""
+        ...
+
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    """Batched embedding output plus the model metadata stored alongside."""
+
+    vectors: list[list[float]]
+    model_name: str
+    dimension: int
+
+
+@dataclass(frozen=True)
+class _ModelSpec:
+    """A known embedding model: its API identifier and native dimension.
+
+    The API identifier is what a remote endpoint expects; the configured name
+    (e.g. ``jina-code-embeddings-1.5b``) is the stable identity recorded with
+    every vector. Unknown models are still allowed -- they simply require the
+    provider response to define their dimension.
+    """
+
+    api_id: str
+    dimension: int
+
+
+#: Jina Code Embeddings 1.5B: source code; supports natural-language ->
+#: code retrieval. 768 output dimensions.
+CODE_MODEL_SPEC = _ModelSpec(api_id="jina-embeddings-v3", dimension=768)
+#: BAAI/bge-m3 for Markdown, ADRs and architecture documentation: 1024 dims.
+DOCUMENT_MODEL_SPEC = _ModelSpec(api_id="BAAI/bge-m3", dimension=1024)
+
+#: Configured model name -> spec, for dimension lookup. Filled lazily from
+#: settings so the mapping follows configuration rather than hardcoding a
+#: single pair of names.
+MODEL_SPECS: dict[str, _ModelSpec] = {}
+
+
+def _model_spec(model: str) -> _ModelSpec | None:
+    if not MODEL_SPECS:
+        MODEL_SPECS[settings.code_embedding_model] = CODE_MODEL_SPEC
+        MODEL_SPECS[settings.document_embedding_model] = DOCUMENT_MODEL_SPEC
+    return MODEL_SPECS.get(model)
+
+
+def model_dimension(model: str) -> int:
+    """The embedding dimension for ``model``, raising when unknowable.
+
+    An unknown model is a configuration error the operator must fix (set
+    CODE_EMBEDDING_MODEL / DOCUMENT_EMBEDDING_MODEL to a supported model), not
+    something to guess: a wrong guess writes vectors no query will ever match.
+    """
+    spec = _model_spec(model)
+    if spec is None:
+        raise EmbeddingError(
+            f"Unknown embedding model {model!r}. Configure CODE_EMBEDDING_MODEL "
+            "or DOCUMENT_EMBEDDING_MODEL to a supported model."
+        )
+    return spec.dimension
+
+
+class RemoteEmbeddingProvider:
+    """An OpenAI-compatible /embeddings endpoint.
+
+    Works with the Jina API (``https://api.jina.ai/v1``), a local inference
+    server, or any endpoint that accepts ``{"model": ..., "input": [...]}``
+    and returns ``{"data": [{"embedding": [...]}]}``. Credentials come only
+    from the environment; nothing is hardcoded and nothing is stored.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        dimension: int | None = None,
+        timeout: int = 60,
+        batch_size: int | None = None,
+    ) -> None:
+        self._model = model
+        self.base_url = (base_url or "").rstrip("/")
+        self.api_key = api_key
+        self.timeout = timeout
+        self.batch_size = max(1, batch_size or settings.embedding_batch_size)
+        spec = _model_spec(model)
+        self._dimension = dimension or (spec.dimension if spec else None)
+        if not self.base_url:
+            raise EmbeddingError(
+                "No embedding endpoint configured. Set EMBEDDING_API_BASE_URL, "
+                "or leave it unset to use the built-in local provider."
+            )
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    @property
+    def dimension(self) -> int:
+        if self._dimension is None:
+            raise EmbeddingError(
+                f"The dimension of embedding model {self._model!r} is not known. "
+                "Use a supported model or set its dimension explicitly."
+            )
+        return self._dimension
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        # urllib is blocking; run the batches in a worker thread so the event
+        # loop (and anything sharing it) keeps serving during the call.
+        return await asyncio.to_thread(self._embed_all, texts)
+
+    def _embed_all(self, texts: list[str]) -> list[list[float]]:
+        spec = _model_spec(self._model)
+        api_model = spec.api_id if spec else self._model
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), self.batch_size):
+            batch = texts[start : start + self.batch_size]
+            vectors.extend(self._embed_batch(api_model, batch))
+        return vectors
+
+    def _embed_batch(self, api_model: str, batch: list[str]) -> list[list[float]]:
+        payload = {"model": api_model, "input": batch}
+        request = urllib.request.Request(
+            f"{self.base_url}/embeddings",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        if self.api_key:
+            # Sent only to the configured endpoint, never stored anywhere.
+            request.add_header("Authorization", f"Bearer {self.api_key}")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise EmbeddingError(f"Embedding endpoint returned HTTP {exc.code}.") from exc
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise EmbeddingError(f"Could not reach embedding endpoint: {exc}") from exc
+
+        data = body.get("data") or []
+        if not isinstance(data, list) or len(data) != len(batch):
+            raise EmbeddingError(
+                f"Embedding endpoint returned {len(data)} vectors for {len(batch)} inputs."
+            )
+        vectors: list[list[float]] = []
+        for item in data:
+            vector = item.get("embedding") if isinstance(item, dict) else None
+            if not isinstance(vector, list) or not vector:
+                raise EmbeddingError("Embedding endpoint returned a malformed vector.")
+            vectors.append([float(x) for x in vector])
+        return vectors
+
+
+class LocalEmbeddingProvider:
+    """A deterministic, dependency-free fallback embedder.
+
+    Produces fixed-dimension vectors from character-shingle hashes. It is
+    *not* semantic: two synonyms do not land closer than two unrelated words.
+    What it does guarantee is that identical content always yields the
+    identical vector, that different content yields different vectors, and
+    that cosine similarity behaves monotonically for shared vocabulary -- which
+    is exactly what the indexing, storage and retrieval layers need to be
+    correct and testable offline.
+
+    Choosing it is explicit: it is used when no ``EMBEDDING_API_BASE_URL`` is
+    configured, so a deployment is never silently downgraded to it.
+    """
+
+    def __init__(self, model: str, dimension: int | None = None) -> None:
+        self._model = model
+        spec = _model_spec(model)
+        self._dimension = dimension or (spec.dimension if spec else None)
+        if not self._dimension or self._dimension < 2:
+            raise EmbeddingError(
+                f"The local provider needs an explicit dimension for model {model!r}."
+            )
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        # Pure in-process computation; nothing to await.
+        return [self._one(text) for text in texts]
+
+    def _one(self, text: str) -> list[float]:
+        # 3-gram character shingles keep short identifiers and formatting
+        # distinct while still overlapping on shared words, so similarity
+        # tracks shared vocabulary.
+        normalized = re.sub(r"\s+", " ", text).strip().lower()
+        shingles = [normalized[i : i + 3] for i in range(max(1, len(normalized) - 2))]
+        vector = [0.0] * self._dimension
+        for shingle in shingles:
+            digest = hashlib.sha256(f"{self._model}:{shingle}".encode("utf-8"))
+            slot = int.from_bytes(digest.digest()[:8], "big") % self._dimension
+            vector[slot] += 1.0
+        return self._normalize(vector)
+
+    @staticmethod
+    def _normalize(vector: list[float]) -> list[float]:
+        magnitude = math.sqrt(sum(x * x for x in vector))
+        if magnitude == 0:
+            return vector
+        return [x / magnitude for x in vector]
+
+
+def _build_provider(model: str) -> EmbeddingProvider:
+    if settings.embedding_api_base_url:
+        return RemoteEmbeddingProvider(
+            model,
+            base_url=settings.embedding_api_base_url,
+            api_key=settings.embedding_api_key,
+        )
+    return LocalEmbeddingProvider(model)
+
+
+#: Provider cache: one instance per model name, built on first use. Rebuilding
+#: on every call would re-read settings and re-create sessions for nothing.
+_PROVIDERS: dict[str, EmbeddingProvider] = {}
+
+
+def code_provider() -> EmbeddingProvider:
+    """The provider for source code (Jina Code Embeddings 1.5B by default)."""
+    model = settings.code_embedding_model
+    if model not in _PROVIDERS:
+        _PROVIDERS[model] = _build_provider(model)
+    return _PROVIDERS[model]
+
+
+def document_provider() -> EmbeddingProvider:
+    """The provider for documentation (BAAI/bge-m3 by default)."""
+    model = settings.document_embedding_model
+    if model not in _PROVIDERS:
+        _PROVIDERS[model] = _build_provider(model)
+    return _PROVIDERS[model]
+
+
+def reset_providers() -> None:
+    """Drop cached providers (used when settings change, e.g. in tests)."""
+    _PROVIDERS.clear()
+    MODEL_SPECS.clear()
+
+
+def _empty_result(model: str) -> EmbeddingResult:
+    return EmbeddingResult(vectors=[], model_name=model, dimension=model_dimension(model))
+
+
+async def aembed_code(texts: list[str]) -> EmbeddingResult:
+    """Embed code units with the configured code model (async protocol)."""
+    if not texts:
+        return _empty_result(settings.code_embedding_model)
+    provider = code_provider()
+    vectors = await provider.embed(texts)
+    _validate(provider, vectors)
+    return EmbeddingResult(vectors, provider.model_name, provider.dimension)
+
+
+async def aembed_documents(texts: list[str]) -> EmbeddingResult:
+    """Embed documentation chunks with the configured documentation model."""
+    if not texts:
+        return _empty_result(settings.document_embedding_model)
+    provider = document_provider()
+    vectors = await provider.embed(texts)
+    _validate(provider, vectors)
+    return EmbeddingResult(vectors, provider.model_name, provider.dimension)
+
+
+def run_async(coro: Any) -> Any:
+    """Run a coroutine to completion from synchronous code.
+
+    The request path and the agent loop are synchronous; the embedding
+    protocol is async (remote providers are I/O-bound). This bridge keeps one
+    calling convention without forcing asyncio onto every caller.
+    """
+    return asyncio.run(coro)
+
+
+def embed_code(texts: list[str]) -> EmbeddingResult:
+    """Synchronous facade over :func:`aembed_code`."""
+    return run_async(aembed_code(texts))
+
+
+def embed_documents(texts: list[str]) -> EmbeddingResult:
+    """Synchronous facade over :func:`aembed_documents`."""
+    return run_async(aembed_documents(texts))
+
+
+def _validate(provider: EmbeddingProvider, vectors: list[list[float]]) -> None:
+    """Reject malformed or inconsistent provider output before it is stored.
+
+    Every vector must have the provider's declared dimension; a shorter or
+    longer vector would be written as an unusable row that can never match a
+    query, and worse, would claim a model it does not correspond to.
+    """
+    expected = provider.dimension
+    for index, vector in enumerate(vectors):
+        if len(vector) != expected:
+            raise EmbeddingDimensionError(
+                f"Embedding {index} has dimension {len(vector)}, expected {expected} "
+                f"for model {provider.model_name!r}."
+            )

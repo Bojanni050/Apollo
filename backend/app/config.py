@@ -132,6 +132,46 @@ class Settings(BaseSettings):
     # production, where an empty list means no repository can be registered.
     allow_unrestricted_workspace_roots: bool = False
 
+    # ---- Source repositories (architecture evidence) ---------------------
+    # Root under which GitHub repository sources are cloned/pulled. Machine-
+    # specific by design (never portable, never part of .sources.yaml), and
+    # deliberately outside the workspace-root allow-list: these checkouts are
+    # managed by the application, not registered by the operator.
+    source_checkout_root: str = "./gaia_source_checkouts"
+
+    # ---- Semantic indexing (embeddings + pgvector) ------------------------
+    # Model names are configuration, never code: changing either one changes
+    # which vectors are compatible with the index (see services/embeddings.py,
+    # which detects the mismatch and requires a re-index).
+    #
+    # Default code model: Jina Code Embeddings 1.5B -- trained for
+    # natural-language -> code retrieval. Default documentation model: BAAI
+    # bge-m3, a strong multilingual general-purpose embedder.
+    code_embedding_model: str = "jina-code-embeddings-1.5b"
+    document_embedding_model: str = "BAAI/bge-m3"
+    # How many texts are embedded per provider call. Larger batches amortize
+    # request overhead; smaller batches keep memory bounded on big indexes.
+    embedding_batch_size: int = Field(default=32, ge=1, le=512)
+    # Default result limit for vector searches. Kept small on purpose: the
+    # results are evidence for an AI to reason over, not a result page.
+    vector_search_limit: int = Field(default=5, ge=1, le=50)
+    # Optional base URL/key for a remote embedding API (OpenAI-compatible or
+    # Jina-style). When unset, the deterministic local fallback provider is
+    # used, so the application works with no paid external API.
+    embedding_api_base_url: str | None = None
+    embedding_api_key: str | None = None
+
+    @property
+    def effective_source_checkout_root(self) -> str:
+        """Resolve a relative checkout root against the backend directory, so
+        it does not depend on whatever the current working directory is."""
+        from pathlib import PurePath
+
+        value = self.source_checkout_root or "./gaia_source_checkouts"
+        if PurePath(value).is_absolute():
+            return value
+        return str((BACKEND_DIR / value).resolve())
+
     # ---- LLM provider (OpenAI-compatible) -------------------------------
     llm_base_url: str | None = None
     llm_api_key: str | None = None

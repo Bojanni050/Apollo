@@ -1,7 +1,7 @@
 """Workspace and repository configuration endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -70,9 +70,10 @@ def update_workspace(
 
 
 @router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_workspace(workspace_id: int, db: Session = Depends(get_db)) -> None:
+def delete_workspace(workspace_id: int, db: Session = Depends(get_db)) -> Response:
     db.delete(get_workspace(db, workspace_id))
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -166,6 +167,9 @@ def update_repository(
     "/workspaces/{workspace_id}/repositories/{repository_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def remove_repository(workspace_id: int, repository_id: int, db: Session = Depends(get_db)) -> None:
+def remove_repository(
+    workspace_id: int, repository_id: int, db: Session = Depends(get_db)
+) -> Response:
     db.delete(get_repository(db, workspace_id, repository_id))
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

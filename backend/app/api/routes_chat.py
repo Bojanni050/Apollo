@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -162,9 +163,10 @@ def update_conversation(
 )
 def delete_conversation(
     workspace_id: int, conversation_id: int, db: Session = Depends(get_db)
-) -> None:
+) -> Response:
     db.delete(_get_conversation(db, workspace_id, conversation_id))
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

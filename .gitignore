@@ -37,3 +37,5 @@ src-tauri/gen/
 *.db-journal
 *.db-wal
 *.db-shm
+# Managed checkouts for GitHub repository sources (SOURCE_CHECKOUT_ROOT)
+gaia_source_checkouts/

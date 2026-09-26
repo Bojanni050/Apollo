@@ -49,6 +49,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export type RepoKind = 'documentation' | 'source'
+export type SourceType = 'local' | 'github'
+export type SourceStatus = 'pending' | 'ready' | 'error' | 'missing'
 export type Mode = 'explore' | 'investigate' | 'apply'
 export type EvidenceType =
   | 'verified_implementation'
@@ -68,6 +70,109 @@ export interface Repository {
   is_git_repo: boolean
   current_branch: string | null
   head_revision: string | null
+  // Source-repository metadata (absent for documentation repositories).
+  source_type?: SourceType | null
+  source_url?: string | null
+  status?: SourceStatus | null
+  status_message?: string | null
+  last_synced_at?: string | null
+}
+
+export interface SourceCreatePayload {
+  name: string
+  location: string
+  source_type?: SourceType | null
+  branch?: string | null
+  description?: string | null
+}
+
+export interface SourceSyncResult {
+  repository: Repository
+  action: 'cloned' | 'updated' | 'refreshed'
+  status: SourceStatus
+  message: string | null
+  branch: string | null
+  revision: string | null
+}
+
+export interface ManifestEntry {
+  index: number
+  repo: string
+  path: string
+  branch: string | null
+  source_type: SourceType
+  valid: boolean
+  error: string | null
+  action: 'add' | 'duplicate'
+  existing_name: string | null
+}
+
+export interface IndexCounts {
+  files_discovered: number
+  files_processed: number
+  code_units_indexed: number
+  documents_indexed: number
+  document_chunks_indexed: number
+  embeddings_generated: number
+  failed_files: string[]
+  errors: string[]
+}
+
+export interface IndexStatus {
+  status: 'idle' | 'indexing' | 'completed' | 'failed'
+  message: string | null
+  started_at: string | null
+  finished_at: string | null
+  counts: IndexCounts
+  code_embedding_model: string
+  document_embedding_model: string
+  reindex_required: boolean
+  reindex_reasons: string[]
+}
+
+export interface SemanticSearchHit {
+  kind: 'code' | 'document'
+  repository_id: number
+  repository: string
+  file_path: string
+  content: string
+  score: number
+  symbol: string | null
+  node_type: string | null
+  start_line: number | null
+  end_line: number | null
+  section: string | null
+  source: string
+}
+
+export interface SemanticSearchResult {
+  query: string
+  mode: string
+  repository_id: number | null
+  lexical_hits: number
+  semantic_hits: number
+  hits: SemanticSearchHit[]
+}
+
+export interface ManifestPreview {
+  total: number
+  valid_count: number
+  invalid_count: number
+  new_count: number
+  duplicate_count: number
+  entries: ManifestEntry[]
+}
+
+export interface ManifestImportResult {
+  imported: Repository[]
+  duplicates: string[]
+  invalid: { repo: string; path: string; error: string }[]
+  manifest_path: string | null
+}
+
+export interface SourceFile {
+  path: string
+  size: number
 }
 
 export interface Workspace {
@@ -636,6 +741,70 @@ export const api = {
   },
   pickNativeFolder: () =>
     request<NativePickResult>('/system/pick-native-folder', { method: 'POST' }),
+
+  // -- repository sources (architecture evidence) ------------------------
+  listSources: (workspaceId: number) =>
+    request<Repository[]>(`/workspaces/${workspaceId}/sources`),
+  addSource: (workspaceId: number, payload: SourceCreatePayload) =>
+    request<Repository>(`/workspaces/${workspaceId}/sources`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  removeSource: (workspaceId: number, repositoryId: number) =>
+    request<void>(`/workspaces/${workspaceId}/sources/${repositoryId}`, {
+      method: 'DELETE',
+    }),
+  syncSource: (workspaceId: number, repositoryId: number) =>
+    request<SourceSyncResult>(
+      `/workspaces/${workspaceId}/sources/${repositoryId}/sync`,
+      { method: 'POST' },
+    ),
+  validateSourcesManifest: (workspaceId: number, content: string) =>
+    request<ManifestPreview>(`/workspaces/${workspaceId}/sources/manifest/validate`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  importSourcesManifest: (workspaceId: number, content: string, confirm: boolean) =>
+    request<ManifestImportResult>(`/workspaces/${workspaceId}/sources/manifest/import`, {
+      method: 'POST',
+      body: JSON.stringify({ content, confirm }),
+    }),
+  getSourcesManifest: (workspaceId: number) =>
+    request<ManifestPreview>(`/workspaces/${workspaceId}/sources/manifest`),
+  listSourceFiles: (workspaceId: number, repositoryId: number, path = '.', limit = 200) =>
+    request<{ repository_id: number; repository: string; path: string; files: SourceFile[] }>(
+      `/workspaces/${workspaceId}/sources/${repositoryId}/files?path=${encodeURIComponent(path)}&limit=${limit}`,
+    ),
+  searchSourceCode: (workspaceId: number, repositoryId: number, q: string, limit = 20) =>
+    request<{ repository_id: number; repository: string; query: string; hits: { path: string; line: number; snippet: string; score: number }[] }>(
+      `/workspaces/${workspaceId}/sources/${repositoryId}/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+
+  // -- semantic indexing (embeddings + pgvector) ---------------------------
+  getIndexStatus: (workspaceId: number) =>
+    request<IndexStatus>(`/workspaces/${workspaceId}/sources/index`),
+  triggerIndexing: (workspaceId: number, reindex = false) =>
+    request<IndexStatus>(`/workspaces/${workspaceId}/sources/index`, {
+      method: 'POST',
+      body: JSON.stringify({ background: true, reindex }),
+    }),
+  reindexWorkspace: (workspaceId: number) =>
+    request<IndexStatus>(`/workspaces/${workspaceId}/sources/reindex`, {
+      method: 'POST',
+      body: JSON.stringify({ background: true }),
+    }),
+  semanticSearch: (
+    workspaceId: number,
+    q: string,
+    opts: { mode?: 'semantic' | 'hybrid' | 'lexical'; kind?: 'all' | 'code' | 'document'; repositoryId?: number; limit?: number } = {},
+  ) => {
+    const params = new URLSearchParams({ q, mode: opts.mode || 'hybrid', kind: opts.kind || 'all' })
+    if (opts.repositoryId) params.set('repository_id', String(opts.repositoryId))
+    if (opts.limit) params.set('limit', String(opts.limit))
+    return request<SemanticSearchResult>(
+      `/workspaces/${workspaceId}/sources/search?${params.toString()}`,
+    )
+  },
 }
 
 

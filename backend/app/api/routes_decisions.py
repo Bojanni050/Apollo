@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from fastapi.responses import Response
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -236,12 +237,13 @@ def delete_decision(
     workspace_id: int,
     decision_id: int,
     db: Session = Depends(get_db),
-) -> None:
+) -> Response:
     """Delete an architectural decision."""
     get_workspace(db, workspace_id)
     decision = get_decision(db, workspace_id, decision_id)
     db.delete(decision)
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

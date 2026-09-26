@@ -844,6 +844,65 @@ These are deliberate scope decisions for this phase, not oversights:
 - **TLS is assumed to be handled by a reverse proxy.** The app itself serves
   plain HTTP; terminate TLS in front of it in any real deployment.
 
+## Repository sources (.sources.yaml)
+
+A workspace can use source-code repositories as first-class architecture
+evidence, alongside its documentation repository. A source is the same
+`Repository` row with `kind="source"` -- never writable -- plus a source type:
+
+```
+RepositorySource
+├── local    an existing local Git checkout (never cloned or copied)
+└── github   cloned/pulled into a managed checkout on explicit sync
+```
+
+GitHub sources are read-oriented: sync only ever clones or fast-forward pulls
+into `SOURCE_CHECKOUT_ROOT`; nothing ever pushes, commits or modifies the
+remote. Private repository authentication is **not** supported in this
+milestone, and credentials are never stored anywhere -- a URL with embedded
+credentials is rejected outright.
+
+Sources can be registered one by one, or imported from a `.sources.yaml`
+manifest:
+
+```yaml
+sources:
+  - repo: Gaia
+    path: https://github.com/Bojanni050/Gaia-Cloud
+```
+
+The import flow is preview-then-confirm: `POST .../sources/manifest/validate`
+returns per-entry validation (type, duplicates, errors) without changing
+anything, and `POST .../sources/manifest/import` applies it -- but only with
+`confirm: true`. Invalid entries are reported with reasons, never silently
+skipped. Import is idempotent by repository identity (a normalized URL or a
+resolved local path), not by display name, so re-importing the same manifest
+creates nothing. The workspace retains its `.sources.yaml` under the managed
+checkout root as the portable description; local checkout paths stay
+machine-specific configuration.
+
+The AI treats sources differently from documentation: the `search_code`,
+`read_source`, `list_source_files` and `source_structure` tools give it
+targeted retrieval over code/config/schemas (ignoring `node_modules`,
+`.git`, build output and the repository's own `.gitignore`; refusing binary
+files), and every code claim is cited as `verified_implementation` with
+repository and file, so findings can say "the docs claim X, but
+`src/reasoning/reason_iq.py` implements Y".
+
+```
+GET    /api/workspaces/{id}/sources                          list sources
+POST   /api/workspaces/{id}/sources                          add source
+DELETE /api/workspaces/{id}/sources/{rid}                     remove source
+POST   /api/workspaces/{id}/sources/{rid}/sync                clone / pull
+GET    /api/workspaces/{id}/sources/{rid}/files                list text files
+GET    /api/workspaces/{id}/sources/{rid}/file?path=…         read a slice
+GET    /api/workspaces/{id}/sources/{rid}/search?q=…           search code
+GET    /api/workspaces/{id}/sources/{rid}/structure            project layout
+POST   /api/workspaces/{id}/sources/manifest/validate          preview
+POST   /api/workspaces/{id}/sources/manifest/import           import
+GET    /api/workspaces/{id}/sources/manifest                   retained manifest
+```
+
 ## Roadmap
 
 - **Milestone 1 (done)** â€” workspaces, repositories, path sandbox, document

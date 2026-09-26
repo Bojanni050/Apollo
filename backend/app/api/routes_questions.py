@@ -1,6 +1,7 @@
 """OpenQuestion management endpoints."""
 from __future__ import annotations
 
+from fastapi.responses import Response
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -176,12 +177,13 @@ def delete_question(
     workspace_id: int,
     question_id: int,
     db: Session = Depends(get_db),
-) -> None:
+) -> Response:
     """Delete an open question."""
     get_workspace(db, workspace_id)
     question = get_question(db, workspace_id, question_id)
     db.delete(question)
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/questions/{question_id}/decisions", response_model=list[DecisionOut])
