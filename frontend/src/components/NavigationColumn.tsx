@@ -1,0 +1,299 @@
+import { useState } from 'react'
+import type { Workspace } from '../api/client'
+
+export type NavSection =
+  | 'all'
+  | 'docs'
+  | 'repos'
+  | 'decisions'
+  | 'questions'
+  | 'proposals'
+  | 'conversations'
+  | 'inventory'
+  | 'pulse'
+
+export interface ObjectCounts {
+  all: number
+  docs: number
+  repos: number
+  decisions: number
+  questions: number
+  proposals: number
+  conversations: number
+  inventory: number
+  pulseWoven: number
+}
+
+interface Props {
+  workspace: Workspace | null
+  workspaces: Workspace[]
+  activeSection: NavSection
+  onSelectSection: (section: NavSection) => void
+  counts: ObjectCounts
+  onNewObject: () => void
+  onFocusSearch: () => void
+  onSelectWorkspace: (ws: Workspace) => void
+  onAddRepository: () => void
+}
+
+export function NavigationColumn({
+  workspace,
+  workspaces,
+  activeSection,
+  onSelectSection,
+  counts,
+  onNewObject,
+  onFocusSearch,
+  onSelectWorkspace,
+  onAddRepository,
+}: Props) {
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
+
+  return (
+    <aside className="nav-column">
+      {/* 1. App / Workspace Header */}
+      <div className="nav-header">
+        <div className="nav-brand-title">
+          <span className="nav-brand-hash">#</span>
+          <span className="nav-brand-name">
+            {workspace ? workspace.name.toLowerCase().replace(/\s+/g, '-') : 'mindstack'}
+          </span>
+        </div>
+      </div>
+
+      {/* 2. Quick Action Buttons */}
+      <div className="nav-actions-group">
+        <button
+          type="button"
+          className="nav-action-btn"
+          onClick={onNewObject}
+          title="Create a new object (⌘N)"
+        >
+          <span className="nav-action-left">
+            <span className="nav-action-icon">+</span>
+            <span>New object</span>
+          </span>
+          <span className="nav-action-shortcut">⌘N</span>
+        </button>
+
+        <button
+          type="button"
+          className="nav-action-btn"
+          onClick={onFocusSearch}
+          title="Search documents and objects (⌘K)"
+        >
+          <span className="nav-action-left">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <span>Search</span>
+          </span>
+          <span className="nav-action-shortcut">⌘K</span>
+        </button>
+      </div>
+
+      {/* 3. Primary & Object Types Navigation */}
+      <div className="nav-scroll-area">
+        {/* All Objects */}
+        <div className="nav-list">
+          <button
+            type="button"
+            className={`nav-item ${activeSection === 'all' ? 'active' : ''}`}
+            onClick={() => onSelectSection('all')}
+          >
+            <span className="nav-item-left">
+              <svg className="nav-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+              </svg>
+              <span>All objects</span>
+            </span>
+            <span className="nav-item-count">{counts.all}</span>
+          </button>
+        </div>
+
+        {/* Section: Object Types */}
+        <div className="nav-section-group">
+          <div className="nav-section-title">OBJECT TYPES</div>
+          <div className="nav-list">
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'docs' ? 'active' : ''}`}
+              onClick={() => onSelectSection('docs')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">📝</span>
+                <span>Notes &amp; Docs</span>
+              </span>
+              <span className="nav-item-count">{counts.docs}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'repos' ? 'active' : ''}`}
+              onClick={() => onSelectSection('repos')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">👤</span>
+                <span>Repositories</span>
+              </span>
+              <span className="nav-item-count">{counts.repos}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'decisions' ? 'active' : ''}`}
+              onClick={() => onSelectSection('decisions')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">⚖️</span>
+                <span>Decisions (ADRs)</span>
+              </span>
+              <span className="nav-item-count">{counts.decisions}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'questions' ? 'active' : ''}`}
+              onClick={() => onSelectSection('questions')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">❓</span>
+                <span>Open Questions</span>
+              </span>
+              <span className="nav-item-count">{counts.questions}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'proposals' ? 'active' : ''}`}
+              onClick={() => onSelectSection('proposals')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">💡</span>
+                <span>Ideas &amp; Proposals</span>
+              </span>
+              <span className="nav-item-count">{counts.proposals}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'conversations' ? 'active' : ''}`}
+              onClick={() => onSelectSection('conversations')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">💬</span>
+                <span>Conversations</span>
+              </span>
+              <span className="nav-item-count">{counts.conversations}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'inventory' ? 'active' : ''}`}
+              onClick={() => onSelectSection('inventory')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">📦</span>
+                <span>Inventory Runs</span>
+              </span>
+              <span className="nav-item-count">{counts.inventory}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Section: Filters */}
+        <div className="nav-section-group">
+          <div className="nav-section-title">FILTERS</div>
+          <div className="nav-list">
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'pulse' ? 'active' : ''}`}
+              onClick={() => onSelectSection('pulse')}
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">💡</span>
+                <span>Pulse-woven</span>
+              </span>
+              <span className="nav-item-count">{counts.pulseWoven || 1}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Bottom Pinned Section */}
+      <div className="nav-footer">
+        <button
+          type="button"
+          className="nav-ai-pulse-btn"
+          onClick={() => onSelectSection('pulse')}
+        >
+          <span className="ai-pulse-left">
+            <span className="ai-pulse-glyph">✦</span>
+            <span>AI Pulse</span>
+          </span>
+          <span className="ai-pulse-badge">*new</span>
+        </button>
+
+        <div className="nav-user-row">
+          <div
+            className="nav-user-info"
+            onClick={() => setWorkspaceMenuOpen((v) => !v)}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="nav-user-avatar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div className="nav-user-meta">
+              <span className="nav-workspace-name">
+                {workspace?.name || 'Personal workspace'}
+              </span>
+              <span className="nav-workspace-sub">
+                {counts.all} objects · solo mode
+              </span>
+            </div>
+            <span className="nav-chevron">▾</span>
+          </div>
+
+          {workspaceMenuOpen && (
+            <div className="workspace-popup-menu">
+              <div className="popup-section-title">Switch Workspace</div>
+              {workspaces.map((ws) => (
+                <button
+                  key={ws.id}
+                  type="button"
+                  className={`popup-menu-item ${ws.id === workspace?.id ? 'active' : ''}`}
+                  onClick={() => {
+                    onSelectWorkspace(ws)
+                    setWorkspaceMenuOpen(false)
+                  }}
+                >
+                  <span>📁 {ws.name}</span>
+                  {ws.id === workspace?.id && <span>✓</span>}
+                </button>
+              ))}
+              <div className="popup-divider" />
+              <button
+                type="button"
+                className="popup-menu-item"
+                onClick={() => {
+                  setWorkspaceMenuOpen(false)
+                  onAddRepository()
+                }}
+              >
+                <span>+ Add Repository</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </aside>
+  )
+}

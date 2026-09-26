@@ -1,0 +1,55 @@
+[package]
+name = "gaia-docs-architect"
+version = "0.1.0"
+description = "AI-powered documentation and architecture workspace for the Gaia ecosystem"
+authors = ["Bojan"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# The library target is required so the mobile entry point can reuse it.
+[lib]
+name = "gaia_docs_architect_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The Python backend is started as a child process with std::process, so the
+# `tauri-plugin-shell` (and its `shell:allow-execute` permission) is
+# deliberately NOT used. That keeps the frontend's ability to run arbitrary
+# commands out of the app entirely -- a smaller attack surface, and one less
+# thing to get wrong in the capability configuration.
+#
+# Only what is needed to serve HTTP health checks and pick a free port.
+ureq = { version = "2", features = ["json"] }
+
+# Job Objects let Windows kill the whole child tree when this process exits, so
+# the API cannot outlive the app even on a forced termination. This is the
+# documented, supported way to do it; the Win32 API surface used is tiny.
+# Win32_Security is needed because CreateJobObjectW takes a SECURITY_ATTRIBUTES
+# pointer in its signature.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-opener = "2"
+
+[profile.release]
+# A smaller, faster binary: strip symbols, optimise for size, LTO and a
+# single codegen unit. The app is I/O bound, so compile time is traded for a
+# lean executable without any runtime cost.
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

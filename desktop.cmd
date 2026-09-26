@@ -2,13 +2,14 @@
 REM =============================================================================
 REM Open Apollo in a desktop window (double-click this file).
 REM
-REM Runs scripts\desktop.py, which starts the API in a background thread, builds
-REM the frontend if needed, and opens a native window. No browser, no second
-REM terminal.
+REM Runs the Tauri 2 app in src-tauri\, which starts the Python API as a child
+REM process, waits for it to answer, and opens a native window on it. The API is
+REM stopped when the window closes.
 REM
-REM First run only: if pywebview is not installed, run
-REM   .venv\Scripts\python -m pip install -e .\backend[desktop]
-REM The window is closed by closing it; the server stops with it.
+REM Requires Rust (https://rustup.rs/), the MSVC build tools and the WebView2
+REM runtime. A release installer is produced with:  npm run build
+REM
+REM Without Rust, use start.cmd for the browser version.
 REM =============================================================================
 setlocal
 
@@ -25,15 +26,28 @@ if not exist "%PYTHON%" (
     exit /b 1
 )
 
-REM --browser opens in your normal browser instead, which needs no GUI extras.
-"%PYTHON%" "%ROOT%scripts\desktop.py" %*
+where cargo >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo   Rust is not installed, so the desktop app cannot be built.
+    echo   Install it from https://rustup.rs/ then re-run this file.
+    echo.
+    echo   The app still runs without it:  start.cmd
+    echo.
+    pause
+    endlocal
+    exit /b 1
+)
+
+cd /d "%ROOT%"
+call npm run dev
 set "EXITCODE=%ERRORLEVEL%"
 
 if not "%EXITCODE%"=="0" (
     echo.
     echo The desktop app exited with code %EXITCODE%.
-    echo The window is closed by closing it. If no window appeared, try:
-    echo   %PYTHON% scripts\desktop.py --browser
+    echo `npm run build` gives a fuller error, or use start.cmd for the browser
+    echo version.
 )
 
 echo.

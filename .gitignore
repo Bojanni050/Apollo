@@ -19,6 +19,17 @@ vite.err
 # Local dev runtime state written by scripts\dev.ps1: logs and pid files.
 .dev/
 
+# Rust / Tauri build output. src-tauri\src, Cargo.toml, tauri.conf.json,
+# capabilities\ and icons\ are all source and are committed.
+#
+# Cargo.lock is deliberately NOT ignored: this crate is an application, not a
+# library, so its exact dependency versions are what make a build reproducible.
+src-tauri/target/
+src-tauri/gen/
+
+# Tauri bundle output.
+*.msi
+
 # Backend / Alembic / database test artefacts.
 # .pgtest is a throwaway local PostgreSQL cluster used when Docker is
 # unavailable; its data directory must never be committed.

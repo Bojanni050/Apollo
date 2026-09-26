@@ -35,9 +35,11 @@ dependencies = [
 # pytest-asyncio is required by the async test modules; pytest-timeout keeps a
 # hung request from stalling the whole suite.
 dev = ["pytest", "pytest-asyncio", "httpx", "pytest-timeout"]
-# The desktop shell (scripts\desktop.py). Kept optional so a server-only
-# deployment never pulls in a GUI toolkit and its webview bindings.
-desktop = ["pywebview>=5.0"]
+
+# There is deliberately no `desktop` extra. The desktop shell is the Tauri 2
+# app in src-tauri\, which starts this backend as a child process, so it needs
+# Rust and Node rather than a Python package. A server-only deployment
+# therefore never pulls in any GUI toolkit.
 
 [tool.setuptools]
 # Declared explicitly rather than left to flat-layout auto-discovery. The
