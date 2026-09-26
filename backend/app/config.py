@@ -139,6 +139,28 @@ class Settings(BaseSettings):
     # managed by the application, not registered by the operator.
     source_checkout_root: str = "./gaia_source_checkouts"
 
+    # ---- Semantic indexing (embeddings + pgvector) ------------------------
+    # Model names are configuration, never code: changing either one changes
+    # which vectors are compatible with the index (see services/embeddings.py,
+    # which detects the mismatch and requires a re-index).
+    #
+    # Default code model: Jina Code Embeddings 1.5B -- trained for
+    # natural-language -> code retrieval. Default documentation model: BAAI
+    # bge-m3, a strong multilingual general-purpose embedder.
+    code_embedding_model: str = "jina-code-embeddings-1.5b"
+    document_embedding_model: str = "BAAI/bge-m3"
+    # How many texts are embedded per provider call. Larger batches amortize
+    # request overhead; smaller batches keep memory bounded on big indexes.
+    embedding_batch_size: int = Field(default=32, ge=1, le=512)
+    # Default result limit for vector searches. Kept small on purpose: the
+    # results are evidence for an AI to reason over, not a result page.
+    vector_search_limit: int = Field(default=5, ge=1, le=50)
+    # Optional base URL/key for a remote embedding API (OpenAI-compatible or
+    # Jina-style). When unset, the deterministic local fallback provider is
+    # used, so the application works with no paid external API.
+    embedding_api_base_url: str | None = None
+    embedding_api_key: str | None = None
+
     @property
     def effective_source_checkout_root(self) -> str:
         """Resolve a relative checkout root against the backend directory, so

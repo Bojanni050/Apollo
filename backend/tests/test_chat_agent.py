@@ -146,6 +146,9 @@ def test_tool_schemas_only_expose_read_tools() -> None:
         "draft_question",
         "draft_decision",
         "check_architectural_consistency",
+        "semantic_search_code",
+        "semantic_search_documents",
+        "hybrid_search",
     }
     # No tool may be capable of writing. This is the structural guarantee that
     # the AI cannot modify a file or database, whatever it is told.

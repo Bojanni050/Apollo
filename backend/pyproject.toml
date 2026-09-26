@@ -20,6 +20,15 @@ dependencies = [
     # Parsing .sources.yaml manifests. Only safe_load is ever used: a manifest
     # is configuration, never a program.
     "PyYAML>=6.0",
+    # AST-aware code parsing for semantic indexing (Python first; the parser
+    # abstraction in services/parsing.py adds languages by registering them).
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+    # Vector storage in PostgreSQL via the pgvector extension. The SQLAlchemy
+    # type compiles to `vector` on PostgreSQL and falls back to JSON on SQLite
+    # (see services/vector_store.py).
+    "pgvector>=0.3",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

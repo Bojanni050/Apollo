@@ -629,3 +629,55 @@ class ConsistencyCheckOut(BaseModel):
 
 DocumentNodeOut.model_rebuild()
 
+
+
+# ---------------------------------------------------------------------------
+# Semantic indexing and retrieval (embeddings + pgvector)
+# ---------------------------------------------------------------------------
+
+
+class IndexCountsOut(BaseModel):
+    files_discovered: int = 0
+    files_processed: int = 0
+    code_units_indexed: int = 0
+    documents_indexed: int = 0
+    document_chunks_indexed: int = 0
+    embeddings_generated: int = 0
+    failed_files: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class IndexStatusOut(BaseModel):
+    status: str
+    message: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    counts: IndexCountsOut = Field(default_factory=IndexCountsOut)
+    code_embedding_model: str
+    document_embedding_model: str
+    reindex_required: bool = False
+    reindex_reasons: list[str] = Field(default_factory=list)
+
+
+class SemanticSearchHitOut(BaseModel):
+    kind: str
+    repository_id: int
+    repository: str
+    file_path: str
+    content: str
+    score: float
+    symbol: str | None = None
+    node_type: str | None = None
+    start_line: int | None = None
+    end_line: int | None = None
+    section: str | None = None
+    source: str
+
+
+class SemanticSearchOut(BaseModel):
+    query: str
+    mode: str
+    repository_id: int | None = None
+    lexical_hits: int = 0
+    semantic_hits: int = 0
+    hits: list[SemanticSearchHitOut] = Field(default_factory=list)

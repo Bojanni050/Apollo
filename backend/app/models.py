@@ -55,11 +55,31 @@ from app.db import Base
 #: plain JSON on SQLite, which has no JSONB equivalent.
 JSONType = JSON().with_variant(JSONB(), "postgresql")
 
+#: Embedding vectors. On PostgreSQL this is pgvector's ``vector`` type (the
+#: extension itself is enabled by migration 0005). The column is deliberately
+#: untyped -- ``vector`` without a fixed dimension -- because the dimension is
+#: a property of the *configured embedding model*, not of the schema: Jina
+#: code embeddings are 768-d, BGE-M3 document embeddings are 1024-d, and a
+#: model change must not require a column rewrite. Each row carries its own
+#: ``embedding_model`` and ``embedding_dimension`` so searches never compare
+#: vectors from different models, and the HNSW index (see migration 0005) is
+#: an expression index casting to the configured model's dimension. On
+#: SQLite, where pgvector does not exist, vectors fall back to JSON: local
+#: development and the unit suite get exact (non-indexed) similarity search
+#: instead of approximate indexed search -- same semantics, no fake indexes.
+try:
+    from pgvector.sqlalchemy import Vector
+
+    EmbeddingType = JSON().with_variant(Vector(), "postgresql")
+except ImportError:  # pragma: no cover - pgvector is a declared dependency
+    EmbeddingType = JSON()
+
 #: Allowed values for the small enum-like columns. Kept here so the CHECK
 #: constraints, the schemas and the documentation cannot drift apart.
 REPOSITORY_KINDS = ("documentation", "source")
 SOURCE_TYPES = ("local", "github")
 SOURCE_STATUSES = ("pending", "ready", "error", "missing")
+CHUNK_KINDS = ("code", "document")
 MESSAGE_ROLES = ("user", "assistant", "system")
 CONVERSATION_MODES = ("explore", "investigate", "apply")
 PROPOSAL_STATUSES = ("pending", "accepted", "rejected")
@@ -479,3 +499,107 @@ class InventoryItem(Base):
 
     run: Mapped[InventoryRun] = relationship(back_populates="items")
 
+
+
+class CodeChunk(TimestampMixin, Base):
+    """One complete Tree-sitter node extracted from a source repository.
+
+    A row is the unit of code evidence: the exact source of a function or class
+    (``content``), where it lives (``repository_id`` + ``file_path``), what it
+    is (``node_type`` + ``symbol`` + ``signature``), its exact line boundaries,
+    and its embedding under the model recorded in ``embedding_model``.
+
+    ``identifier`` is deterministic (same repository, file, node and content
+    hash -> same identifier), which is what makes indexing idempotent: repeated
+    indexing of unchanged content upserts the same row instead of duplicating
+    it. ``enriched_content`` is the representation that was embedded -- source
+    enriched with repository/file/symbol context -- kept separate so the
+    verbatim source is never modified.
+    """
+
+    __tablename__ = "code_chunks"
+    __table_args__ = (
+        UniqueConstraint("repository_id", "identifier", name="uq_code_chunks_identifier"),
+        Index("ix_code_chunks_repository_file", "repository_id", "file_path"),
+        Index("ix_code_chunks_content_hash", "repository_id", "content_hash"),
+        Index(
+            "ix_code_chunks_model",
+            "repository_id",
+            "embedding_model",
+            "embedding_dimension",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repository_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    language: Mapped[str] = mapped_column(String(50), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(300), nullable=False)
+    signature: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    start_line: Mapped[int] = mapped_column(nullable=False)
+    end_line: Mapped[int] = mapped_column(nullable=False)
+    #: The exact, unmodified source of the node.
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Repository/file/symbol context + source: what the embedder received.
+    enriched_content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Deterministic per-unit key (see services/parsing.py).
+    identifier: Mapped[str] = mapped_column(String(1200), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    embedding_dimension: Mapped[int] = mapped_column(nullable=False)
+    embedding: Mapped[list | None] = mapped_column(EmbeddingType, nullable=True)
+
+    #: The owning repository; chunk queries join on this to scope a workspace.
+    repository: Mapped[Repository] = relationship()
+
+
+class DocumentChunk(TimestampMixin, Base):
+    """One section-aligned chunk of a documentation file.
+
+    Chunks follow the document's own structure -- a Markdown heading opens a
+    new section -- rather than arbitrary character cuts, so retrieved evidence
+    is a meaningful fragment of the documentation (a section of an ADR, one
+    component's description) and a citation can name the section honestly.
+
+    Document *content* remains on disk in the documentation repository; this
+    row is the indexing artifact for semantic retrieval, not a copy of the
+    document system.
+    """
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint("repository_id", "identifier", name="uq_document_chunks_identifier"),
+        Index("ix_document_chunks_repository_file", "repository_id", "file_path"),
+        Index("ix_document_chunks_content_hash", "repository_id", "content_hash"),
+        Index(
+            "ix_document_chunks_model",
+            "repository_id",
+            "embedding_model",
+            "embedding_dimension",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_id: Mapped[str] = mapped_column(String(1200), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    #: The heading this chunk sits under; the file's own structure.
+    section: Mapped[str] = mapped_column(String(300), default="", server_default="", nullable=False)
+    start_line: Mapped[int] = mapped_column(nullable=False)
+    end_line: Mapped[int] = mapped_column(nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Deterministic per-chunk key (see services/indexing.py).
+    identifier: Mapped[str] = mapped_column(String(1200), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(200), nullable=False)
+    embedding_dimension: Mapped[int] = mapped_column(nullable=False)
+    embedding: Mapped[list | None] = mapped_column(EmbeddingType, nullable=True)
+
+    #: The owning repository; chunk queries join on this to scope a workspace.
+    repository: Mapped[Repository] = relationship()

@@ -217,6 +217,172 @@ def _source_repositories(ctx: ToolContext) -> list[Repository]:
     return [r for r in ctx.repositories if r.kind == "source"]
 
 
+# --------------------------------------------------------------------------
+# Semantic retrieval tools (embeddings + pgvector)
+#
+# These extend the existing retrieval tools with vector similarity. They use
+# the same ToolContext and citation mechanism, record the same evidence types,
+# and degrade explicitly: with no index (or a model mismatch) the tool says
+# so and points at the indexing action instead of pretending to find nothing.
+# --------------------------------------------------------------------------
+
+
+def _semantic_failure(message: str) -> str:
+    return (
+        f"{message} Semantic search needs the workspace to be indexed first; "
+        "ask the operator to trigger indexing (POST /api/workspaces/{id}/sources/index) "
+        "or use the lexical search_code/search_documents tools meanwhile."
+    )
+
+
+def _format_evidence(evidence, citations: list[Citation], ctx: ToolContext) -> str:
+    """Render one Evidence as a cited, bounded block of exact source."""
+    repo = ctx.by_name(evidence.repository) if evidence.repository else None
+    revision = (
+        git.head_revision(repo.local_path) if repo and git.is_repo(repo.local_path) else None
+    )
+    citations.append(
+        Citation(
+            repository=evidence.repository,
+            path=evidence.file_path,
+            start_line=evidence.start_line,
+            end_line=evidence.end_line,
+            revision=revision,
+            evidence_type=(
+                "verified_implementation" if evidence.kind == "code" else "documented_intention"
+            ),
+            note=(
+                f"{evidence.symbol or evidence.node_type} (semantic score {evidence.score:.3f})"
+                if evidence.kind == "code"
+                else f"section: {evidence.section or 'document'} (semantic score {evidence.score:.3f})"
+            ),
+        )
+    )
+    location = evidence.source
+    body = evidence.content
+    return f"--- {location} ---\n{_clip(body)}"
+
+
+def tool_semantic_search_code(
+    ctx: ToolContext, query: str, repository: str = "", limit: int = 5
+) -> str:
+    """Semantically search source code across the workspace's source repositories.
+
+    Understands natural language ("where is intent reasoning implemented?")
+    and returns complete functions/classes with exact file, symbol and line
+    range. Use it when lexical search_code cannot find the concept because the
+    wording differs.
+    """
+    from app.services import retrieval
+
+    if ctx.db is None:
+        return "Error: Database session not available."
+    repository_id = None
+    if repository:
+        repo = _resolve_repo(ctx, repository)
+        if repo.kind != "source":
+            return f"Error: {repository!r} is not a source repository."
+        repository_id = repo.id
+    try:
+        results = retrieval.search_codebase(
+            ctx.db,
+            query,
+            n_results=max(1, min(int(limit or 5), 20)),
+            repository_id=repository_id,
+            workspace_id=ctx.workspace.id,
+        )
+    except retrieval.RetrievalError as exc:
+        return _semantic_failure(f"Error: {exc}")
+    if not results:
+        return f"No semantically similar code found for {query!r}."
+    blocks = [
+        _format_evidence(e, ctx.citations, ctx)
+        for e in results
+    ]
+    header = f"Semantic code search for {query!r} (top {len(results)}):"
+    return _clip(header + "\n" + "\n".join(blocks))
+
+
+def tool_semantic_search_documents(
+    ctx: ToolContext, query: str, limit: int = 5
+) -> str:
+    """Semantically search documentation (architecture, ADRs, decisions).
+
+    Matches meaning rather than exact words, and returns the section and exact
+    content of each matching chunk. Use it when the question is phrased
+    differently from the documentation.
+    """
+    from app.services import retrieval
+
+    if ctx.db is None:
+        return "Error: Database session not available."
+    try:
+        results = retrieval.search_documents_semantically(
+            ctx.db,
+            query,
+            n_results=max(1, min(int(limit or 5), 20)),
+            workspace_id=ctx.workspace.id,
+        )
+    except retrieval.RetrievalError as exc:
+        return _semantic_failure(f"Error: {exc}")
+    if not results:
+        return f"No semantically similar documentation found for {query!r}."
+    blocks = [_format_evidence(e, ctx.citations, ctx) for e in results]
+    header = f"Semantic documentation search for {query!r} (top {len(results)}):"
+    return _clip(header + "\n" + "\n".join(blocks))
+
+
+def tool_hybrid_search(
+    ctx: ToolContext,
+    query: str,
+    repository: str = "",
+    kind: str = "all",
+    limit: int = 5,
+) -> str:
+    """Search code AND documentation together (lexical + semantic + metadata).
+
+    The strongest tool for architecture questions such as "does the code still
+    match the decision that ReasonIQ is background-only?": it retrieves both
+    the decision/ADR and the implementing source code as evidence. kind can be
+    "code", "document" or "all" (default). Returns evidence; contradictions
+    are for you to reason over, not to declare automatically.
+    """
+    from app.services import retrieval
+
+    if ctx.db is None:
+        return "Error: Database session not available."
+    repository_id = None
+    if repository:
+        repo = _resolve_repo(ctx, repository)
+        repository_id = repo.id
+    kinds = ("code", "document")
+    if kind == "code":
+        kinds = ("code",)
+    elif kind == "document":
+        kinds = ("document",)
+    elif kind != "all":
+        return f"Error: kind must be 'code', 'document' or 'all', not {kind!r}."
+    try:
+        result = retrieval.hybrid_search(
+            ctx.db,
+            query,
+            n_results=max(1, min(int(limit or 5), 20)),
+            repository_id=repository_id,
+            workspace_id=ctx.workspace.id,
+            kinds=kinds,
+        )
+    except retrieval.RetrievalError as exc:
+        return _semantic_failure(f"Error: {exc}")
+    if not result.evidence:
+        return f"No code or documentation evidence found for {query!r}."
+    blocks = [_format_evidence(e, ctx.citations, ctx) for e in result.evidence]
+    header = (
+        f"Hybrid retrieval for {query!r}: {result.lexical_hits} lexical, "
+        f"{result.semantic_hits} semantic hits (top {len(result.evidence)}):"
+    )
+    return _clip(header + "\n" + "\n".join(blocks))
+
+
 def tool_search_code(
     ctx: ToolContext, query: str, repository: str = "", limit: int = 10
 ) -> str:
@@ -982,6 +1148,100 @@ def tool_schemas(repository_names: list[str]) -> list[dict[str, Any]]:
         {
             "type": "function",
             "function": {
+                "name": "semantic_search_code",
+                "description": (
+                    "Semantically search SOURCE CODE in the workspace's source repositories. "
+                    "Understands natural language (e.g. 'where is intent reasoning implemented?') "
+                    "and returns complete functions/classes with the exact repository, file, symbol "
+                    "and line range. Prefer it over search_code when the question is phrased "
+                    "differently from the code. Requires the workspace to be indexed."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to find, in natural language or keywords.",
+                        },
+                        "repository": {
+                            **_repo_property(),
+                            "description": "Restrict the search to one source repository."
+                            + repo_hint,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum results (default 5).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "semantic_search_documents",
+                "description": (
+                    "Semantically search documentation (architecture docs, ADRs, decisions) "
+                    "by meaning rather than exact words. Returns the document, file, section "
+                    "and exact content. Requires the workspace to be indexed."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to find, in natural language or keywords.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum results (default 5).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "hybrid_search",
+                "description": (
+                    "Retrieve code AND documentation evidence for one question, combining "
+                    "lexical search, vector similarity and code-unit metadata. Use it for "
+                    "architecture questions like 'does the code still match the decision that "
+                    "X is background-only?' -- it returns both the decision/ADR and the "
+                    "implementing code. Evidence only: reason over it, never declare a "
+                    "contradiction automatically."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The question or concept to find evidence for.",
+                        },
+                        "repository": {
+                            **_repo_property(),
+                            "description": "Restrict the search to one repository." + repo_hint,
+                        },
+                        "kind": {
+                            "type": "string",
+                            "enum": ["all", "code", "document"],
+                            "description": "What to search (default 'all').",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum results (default 5).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "check_architectural_consistency",
                 "description": (
                     "Check a proposed Decision or draft against existing approved architectural decisions and ADRs. "
@@ -1051,5 +1311,8 @@ TOOL_REGISTRY: dict[str, ToolFunction] = {
     "draft_question": tool_draft_question,
     "draft_decision": tool_draft_decision,
     "check_architectural_consistency": tool_check_architectural_consistency,
+    "semantic_search_code": tool_semantic_search_code,
+    "semantic_search_documents": tool_semantic_search_documents,
+    "hybrid_search": tool_hybrid_search,
 }
 

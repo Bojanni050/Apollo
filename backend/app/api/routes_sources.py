@@ -19,12 +19,16 @@ from app.api.deps import get_repository, get_workspace, resolve_repo_root
 from app.db import get_db
 from app.models import Repository, Workspace
 from app.schemas import (
+    IndexCountsOut,
+    IndexStatusOut,
     ManifestEntryOut,
     ManifestImportIn,
     ManifestImportOut,
     ManifestPreviewOut,
     ManifestValidateIn,
     RepositoryOut,
+    SemanticSearchHitOut,
+    SemanticSearchOut,
     SourceCreate,
     SourceFileListOut,
     SourceFileOut,
@@ -400,3 +404,191 @@ def source_structure(
         repository=repo.name,
         structure=inspection.project_structure(root, max_depth=depth),
     )
+
+
+# ---------------------------------------------------------------------------
+# Semantic indexing (embeddings + pgvector): status, trigger, re-index, search
+# ---------------------------------------------------------------------------
+
+
+def _index_status_out(workspace_id: int, db: Session) -> IndexStatusOut:
+    """The live status plus model-compatibility information.
+
+    ``reindex_required`` is the honest signal the UI needs: it says the stored
+    vectors were embedded by a different model than the one now configured,
+    so semantic search would compare incompatible spaces until the operator
+    re-indexes.
+    """
+    from app.config import settings
+    from app.services import indexing
+
+    status = indexing.get_status(workspace_id)
+    compatibility = indexing.model_compatibility(db, workspace_id)
+    return IndexStatusOut(
+        status=status.status,
+        message=status.message,
+        started_at=status.started_at,
+        finished_at=status.finished_at,
+        counts=IndexCountsOut(**status.counts.as_dict()),
+        code_embedding_model=settings.code_embedding_model,
+        document_embedding_model=settings.document_embedding_model,
+        reindex_required=compatibility["reindex_required"],
+        reindex_reasons=compatibility["reasons"],
+    )
+
+
+@router.get("/sources/index", response_model=IndexStatusOut)
+def index_status(workspace_id: int, db: Session = Depends(get_db)) -> IndexStatusOut:
+    """The workspace's semantic index status (idle/indexing/completed/failed)."""
+    get_workspace(db, workspace_id)
+    return _index_status_out(workspace_id, db)
+
+
+@router.post("/sources/index", response_model=IndexStatusOut)
+def trigger_indexing(
+    workspace_id: int,
+    background: bool = Query(
+        True, description="Run in the background (default); false runs synchronously."
+    ),
+    reindex: bool = Query(False, description="Discard existing vectors first (model change)."),
+    db: Session = Depends(get_db),
+) -> IndexStatusOut:
+    """Start (or re-start) semantic indexing for every repository of the workspace.
+
+    Never modifies any repository: the indexer only reads files and writes
+    chunk rows. Background mode returns immediately with status=indexing;
+    synchronous mode waits and reports the finished status (used by tests and
+    small workspaces).
+    """
+    from app.services import indexing
+
+    workspace = get_workspace(db, workspace_id)
+    if background:
+        indexing.start_indexing(db, workspace.id, force_reindex=reindex)
+        db.commit()
+    elif reindex:
+        indexing.reindex_now(db, workspace.id)
+    else:
+        indexing.index_workspace_now(db, workspace.id)
+    return _index_status_out(workspace_id, db)
+
+
+@router.post("/sources/reindex", response_model=IndexStatusOut)
+def reindex_workspace(
+    workspace_id: int,
+    background: bool = Query(True),
+    db: Session = Depends(get_db),
+) -> IndexStatusOut:
+    """Controlled re-index: discard this workspace's vectors and rebuild them.
+
+    Required when the configured embedding model changes -- existing vectors
+    are in a different space and must never be silently queried alongside the
+    new model's vectors.
+    """
+    from app.services import indexing
+
+    workspace = get_workspace(db, workspace_id)
+    if background:
+        indexing.start_indexing(db, workspace.id, force_reindex=True)
+        db.commit()
+    else:
+        indexing.reindex_now(db, workspace.id)
+    return _index_status_out(workspace_id, db)
+
+
+@router.get("/sources/search", response_model=SemanticSearchOut)
+def semantic_search(
+    workspace_id: int,
+    q: str = Query(..., min_length=1),
+    mode: str = Query("hybrid", pattern="^(semantic|hybrid|lexical)$"),
+    kind: str = Query("all", pattern="^(all|code|document)$"),
+    repository_id: int | None = Query(None),
+    limit: int = Query(5, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> SemanticSearchOut:
+    """Search across indexed code and documentation.
+
+    ``mode=lexical`` is the existing keyword search; ``semantic`` uses the
+    vector index; ``hybrid`` (default) combines both with AST/code-unit
+    metadata. Never injects the whole index: results are bounded by ``limit``.
+    """
+    from app.services import retrieval
+
+    get_workspace(db, workspace_id)
+    kinds = ("code", "document") if kind == "all" else (kind,)
+
+    if mode == "hybrid":
+        result = retrieval.hybrid_search(
+            db,
+            q,
+            n_results=limit,
+            repository_id=repository_id,
+            workspace_id=workspace_id,
+            kinds=kinds,
+        )
+        return SemanticSearchOut(
+            query=q,
+            mode="hybrid",
+            repository_id=repository_id,
+            lexical_hits=result.lexical_hits,
+            semantic_hits=result.semantic_hits,
+            hits=[SemanticSearchHitOut(**_hit_fields(e)) for e in result.evidence],
+        )
+
+    if mode == "semantic":
+        evidence: list = []
+        if "code" in kinds:
+            evidence.extend(
+                retrieval.search_codebase(
+                    db, q, n_results=limit, repository_id=repository_id, workspace_id=workspace_id
+                )
+            )
+        if "document" in kinds:
+            evidence.extend(
+                retrieval.search_documents_semantically(db, q, n_results=limit, workspace_id=workspace_id)
+            )
+        evidence.sort(key=lambda e: e.score, reverse=True)
+        return SemanticSearchOut(
+            query=q,
+            mode="semantic",
+            repository_id=repository_id,
+            semantic_hits=len(evidence),
+            hits=[SemanticSearchHitOut(**_hit_fields(e)) for e in evidence[:limit]],
+        )
+
+    # Lexical-only: reuse the existing searches through the hybrid machinery
+    # with vectors excluded, so keyword behaviour is unchanged and no semantic
+    # results leak into a keyword-only request.
+    result = retrieval.hybrid_search(
+        db,
+        q,
+        n_results=limit,
+        repository_id=repository_id,
+        workspace_id=workspace_id,
+        kinds=kinds,
+        include_semantic=False,
+    )
+    return SemanticSearchOut(
+        query=q,
+        mode="lexical",
+        repository_id=repository_id,
+        lexical_hits=result.lexical_hits,
+        hits=[SemanticSearchHitOut(**_hit_fields(e)) for e in result.evidence],
+    )
+
+
+def _hit_fields(evidence) -> dict:
+    return {
+        "kind": evidence.kind,
+        "repository_id": evidence.repository_id,
+        "repository": evidence.repository,
+        "file_path": evidence.file_path,
+        "content": evidence.content,
+        "score": evidence.score,
+        "symbol": evidence.symbol,
+        "node_type": evidence.node_type,
+        "start_line": evidence.start_line,
+        "end_line": evidence.end_line,
+        "section": evidence.section,
+        "source": evidence.source,
+    }

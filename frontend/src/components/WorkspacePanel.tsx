@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ApiError,
   api,
   type DocNode,
+  type IndexStatus,
   type ManifestPreview,
   type RepoKind,
   type Repository,
@@ -625,6 +626,8 @@ export function WorkspacePanel({
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'DOCS' | 'ADRS' | 'PDF' | 'DOCX' | 'TXT'>('ALL')
   const [viewMode, setViewMode] = useState<'cards' | 'tree'>('cards')
+  const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null)
+  const [indexBusy, setIndexBusy] = useState(false)
 
   const docs = workspace.repositories.filter((r) => r.kind === 'documentation')
   const sources = workspace.repositories.filter((r) => r.kind === 'source')
@@ -649,6 +652,45 @@ export function WorkspacePanel({
       if (onRepositoryAdded) await onRepositoryAdded()
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const refreshIndexStatus = async () => {
+    try {
+      const status = await api.getIndexStatus(workspace.id)
+      setIndexStatus(status)
+      return status
+    } catch (err) {
+      console.error(err)
+      return null
+    }
+  }
+
+  // Poll the semantic index status while a run is in flight, so the counts
+  // update live; fetch once on mount otherwise. No polling when idle.
+  useEffect(() => {
+    void refreshIndexStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace.id])
+
+  useEffect(() => {
+    if (indexStatus?.status !== 'indexing') return
+    const timer = setInterval(() => void refreshIndexStatus(), 2000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indexStatus?.status])
+
+  const handleTriggerIndexing = async (reindex: boolean) => {
+    setIndexBusy(true)
+    try {
+      const status = reindex
+        ? await api.reindexWorkspace(workspace.id)
+        : await api.triggerIndexing(workspace.id)
+      setIndexStatus(status)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIndexBusy(false)
     }
   }
 
@@ -858,6 +900,67 @@ export function WorkspacePanel({
             </button>
           </span>
         </div>
+
+        {/* Semantic index: status, model info, re-index when models change. */}
+        {indexStatus && (
+          <div
+            className="faint"
+            style={{
+              fontSize: 10,
+              padding: '4px 0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              flexWrap: 'wrap',
+            }}
+            title={`Code embeddings: ${indexStatus.code_embedding_model} · Document embeddings: ${indexStatus.document_embedding_model}`}
+          >
+            <span>🔎</span>
+            <span>
+              semantic index: <strong>{indexStatus.status}</strong>
+              {indexStatus.status === 'indexing' && indexStatus.counts
+                ? ` (${indexStatus.counts.files_processed}/${indexStatus.counts.files_discovered} files)`
+                : ''}
+            </span>
+            {indexStatus.status === 'completed' && indexStatus.counts &&
+              (indexStatus.counts.code_units_indexed > 0 ||
+                indexStatus.counts.document_chunks_indexed > 0) && (
+                <span>
+                  · {indexStatus.counts.code_units_indexed} code units,{' '}
+                  {indexStatus.counts.document_chunks_indexed} doc chunks
+                </span>
+              )}
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
+              <button
+                type="button"
+                className="btn text-sm"
+                style={{ padding: '0 4px', fontSize: 10 }}
+                disabled={indexBusy || indexStatus.status === 'indexing'}
+                onClick={() => void handleTriggerIndexing(false)}
+                title="Index code and documentation for semantic search (embeddings + pgvector)"
+              >
+                {indexStatus.status === 'indexing' ? '…' : '⇪ Index'}
+              </button>
+            </span>
+            {indexStatus.reindex_required && (
+              <div
+                style={{ width: '100%', color: 'var(--warn, #a60)' }}
+                title={indexStatus.reindex_reasons.join(' ')}
+              >
+                ⚠ Embedding model changed — re-index required.
+                <button
+                  type="button"
+                  className="btn text-sm"
+                  style={{ padding: '0 4px', fontSize: 10, marginLeft: 4 }}
+                  disabled={indexBusy || indexStatus.status === 'indexing'}
+                  onClick={() => void handleTriggerIndexing(true)}
+                >
+                  Re-index
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {sources.length === 0 ? (
           <div className="faint" style={{ fontSize: 11, padding: '4px 0' }}>

@@ -1246,9 +1246,13 @@ def test_migration_downgrade_and_upgrade_cycle() -> None:
         assert pending_revisions(engine) == []
         assert EXPECTED_TABLES <= set(inspect(engine).get_table_names())
 
-        # Downgrade 1 revision (0002 -> 0001)
+        # Downgrade 1 revision; the head is then the one pending migration.
+        # Not hardcoded: the head changes with every new migration.
+        from app.migrations import script_directory
+
+        head = script_directory().get_current_head()
         command.downgrade(cfg, "-1")
-        assert pending_revisions(engine) == ["0002_inventory_confidence"]
+        assert pending_revisions(engine) == [head]
 
         # Upgrade back to head
         command.upgrade(cfg, "head")
