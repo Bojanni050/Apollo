@@ -14,11 +14,11 @@ conversations, questions, decisions and analysis results.
 
 ### As a desktop app (Tauri 2)
 
-> **First time on this machine?** Run **`first-run.cmd`** first: it installs
-> everything and builds `frontend\dist`, which the desktop app serves and
-> refuses to start without.
+> **First time on this machine?** Run **`apollo.cmd desktop`**: it installs
+> everything (venv, packages, Tauri CLI) and builds `frontend\dist`, which the
+> desktop app serves and refuses to start without, then starts the app.
 
-Double-click **`desktop.cmd`**, or:
+Double-click **`desktop.cmd`**, or use the one entry point:
 
 ```bash
 npm run dev      # development build, with hot reload
@@ -92,12 +92,16 @@ are frequently taken by other projects on the same machine. Override them with
 
 | Script | What it does |
 | --- | --- |
+| **`apollo.cmd`** | **One entry point for everything** (menu when double-clicked): `start`, `desktop`, `release`, `release-start`, `first-run`, `stop` |
 | `first-run.cmd` / `first-run.bat` | **First run:** install everything, then build the frontend bundle |
 | `start.cmd` / `start.bat` | **Start everything** (backend + frontend), then open the browser |
 | `stop.cmd` / `stop.bat` | Stop both servers (`-Clean` also deletes `.dev\`) |
+| `desktop.cmd` | Start the desktop app (expects first-run to have been done) |
 | `scripts\dev.ps1` | The same thing as `start.cmd`, if you prefer to run it from a terminal |
 | `scripts\first-run.ps1` | The same thing as `first-run.cmd`, from a terminal |
 | `scripts\setup.ps1` | Install dependencies and create `backend\.env` (no frontend build; `first-run` adds it) |
+| `scripts\release.ps1` | Build a release (`tauri build`: the exe plus NSIS/MSI installers); `-Start` runs the built exe afterwards |
+| `scripts\desktop.ps1` | The same thing as `desktop.cmd`, from a terminal |
 | `scripts\start-backend.ps1` | Start only the API |
 | `scripts\start-frontend.ps1` | Start only the dev server |
 | `scripts\test.ps1` | Run the backend tests and the frontend build |

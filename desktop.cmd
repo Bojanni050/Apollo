@@ -2,64 +2,25 @@
 REM =============================================================================
 REM Open Apollo in a desktop window (double-click this file).
 REM
-REM Runs the Tauri 2 app in src-tauri\, which starts the Python API as a child
-REM process, waits for it to answer, and opens a native window on it. The API is
-REM stopped when the window closes.
+REM Delegates to scripts\desktop.ps1: the Tauri 2 app in src-tauri\ starts the
+REM Python API as a child process, waits for it to answer, and opens a native
+REM window on it. The API is stopped when the window closes.
 REM
-REM Requires Rust (https://rustup.rs/), the MSVC build tools and the WebView2
-REM runtime. A release installer is produced with:  npm run build
+REM Expects first-run to have been done (apollo.cmd desktop does that
+REM automatically, including on a fresh machine).
 REM
-REM Without Rust, use start.cmd for the browser version.
+REM The one entry point for everything is apollo.cmd: menu, start, desktop,
+REM release, release-start, first-run, stop.
 REM =============================================================================
 setlocal
-
-set "ROOT=%~dp0"
-set "PYTHON=%ROOT%.venv\Scripts\python.exe"
-
-if not exist "%PYTHON%" (
-    echo.
-    echo   No virtualenv found at %PYTHON%
-    echo   Run first-run.cmd first: it installs everything and builds the frontend.
-    echo.
-    pause
-    endlocal
-    exit /b 1
-)
-
-if not exist "%ROOT%node_modules\.bin\tauri.cmd" (
-    echo.
-    echo   The Tauri CLI is not installed at node_modules\.bin\tauri.cmd
-    echo   Run first-run.cmd first: it installs everything, including the Tauri CLI.
-    echo.
-    pause
-    endlocal
-    exit /b 1
-)
-
-where cargo >nul 2>&1
-if errorlevel 1 (
-    echo.
-    echo   Rust is not installed, so the desktop app cannot be built.
-    echo   Install it from https://rustup.rs/ then re-run this file.
-    echo.
-    echo   The app still runs without it:  start.cmd
-    echo.
-    pause
-    endlocal
-    exit /b 1
-)
-
-cd /d "%ROOT%"
-call npm run dev
+set "SCRIPT_DIR=%~dp0scripts"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\desktop.ps1" %*
 set "EXITCODE=%ERRORLEVEL%"
-
 if not "%EXITCODE%"=="0" (
     echo.
     echo The desktop app exited with code %EXITCODE%.
-    echo `npm run build` gives a fuller error, or use start.cmd for the browser
-    echo version.
+    echo Use apollo.cmd for the menu, or apollo.cmd start for the browser version.
 )
-
 echo.
 pause
 endlocal
