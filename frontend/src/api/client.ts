@@ -171,9 +171,11 @@ export interface OpenQuestion {
   conversation_id: number | null
   resolution: string | null
   resolved_at: string | null
+  addressed_by?: number[]
   created_at: string
   updated_at: string
 }
+
 
 export interface Decision {
   id: number
@@ -207,6 +209,25 @@ export interface DecisionApproveResult {
   git_status: GitStatusEntry[]
   message?: string | null
 }
+
+export interface ConsistencyFinding {
+  type: 'conflict' | 'overlap' | 'compatible'
+  decision_id: number
+  title: string
+  reason: string
+  proposed_claim?: string
+  existing_claim?: string
+  markdown_path?: string | null
+}
+
+export interface ConsistencyCheckResult {
+  status: 'No apparent conflict' | 'Potential conflict' | 'Potential overlap' | 'Insufficient evidence'
+  summary: string
+  candidates_evaluated: Array<{ id: number; title: string; status?: string; markdown_path?: string | null }>
+  findings: ConsistencyFinding[]
+  evidence: Array<{ decision_id: number; title: string; path?: string | null }>
+}
+
 
 
 
@@ -497,5 +518,43 @@ export const api = {
       `/workspaces/${workspaceId}/decisions/${decisionId}/approve`,
       { method: 'POST' },
     ),
+  linkQuestionDecision: (workspaceId: number, questionId: number, decisionId: number) =>
+    request<Decision>(
+      `/workspaces/${workspaceId}/questions/${questionId}/decisions/${decisionId}`,
+      { method: 'POST' },
+    ),
+  unlinkQuestionDecision: (workspaceId: number, questionId: number, decisionId: number) =>
+    request<Decision>(
+      `/workspaces/${workspaceId}/questions/${questionId}/decisions/${decisionId}`,
+      { method: 'DELETE' },
+    ),
+  getQuestionDecisions: (workspaceId: number, questionId: number) =>
+    request<Decision[]>(`/workspaces/${workspaceId}/questions/${questionId}/decisions`),
+  getDecisionQuestions: (workspaceId: number, decisionId: number) =>
+    request<OpenQuestion[]>(`/workspaces/${workspaceId}/decisions/${decisionId}/questions`),
+  checkDecisionConsistency: (workspaceId: number, decisionId: number) =>
+    request<ConsistencyCheckResult>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/consistency-check`,
+      { method: 'POST' },
+    ),
+  checkProposalConsistency: (
+    workspaceId: number,
+    payload: {
+      title: string
+      decision?: string
+      context?: string
+      rationale?: string
+      consequences?: string
+      decision_id?: number
+    },
+  ) =>
+    request<ConsistencyCheckResult>(
+      `/workspaces/${workspaceId}/decisions/consistency-check`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
 }
+
 

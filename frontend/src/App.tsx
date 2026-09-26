@@ -470,7 +470,10 @@ export default function App() {
             <QuestionsPanel
               workspace={workspace}
               questions={questions}
+              decisions={decisions}
               onRefreshQuestions={refreshQuestions}
+              onRefreshDecisions={refreshDecisions}
+              onOpenDecision={() => setView('decisions')}
             />
           )}
           {view === 'decisions' && workspace && (
@@ -480,11 +483,14 @@ export default function App() {
               decisions={decisions}
               questions={questions}
               onRefreshDecisions={refreshDecisions}
+              onRefreshQuestions={refreshQuestions}
               onRefreshTree={() => reloadTree(workspace, repository)}
               onSelectDocument={openDocument}
+              onOpenQuestion={() => setView('questions')}
             />
           )}
         </div>
+
 
         {contextOpen && (
           <div className="panel">

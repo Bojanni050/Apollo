@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ApiError,
   api,
+  type ConsistencyCheckResult,
   type Decision,
   type DecisionApproveResult,
   type DecisionStatus,
@@ -17,8 +18,10 @@ interface Props {
   decisions: Decision[]
   questions: OpenQuestion[]
   onRefreshDecisions: () => Promise<void>
+  onRefreshQuestions?: () => Promise<void>
   onRefreshTree: () => Promise<void>
   onSelectDocument: (path: string) => void
+  onOpenQuestion?: (questionId: number) => void
 }
 
 type SubTab = 'details' | 'adr' | 'diff' | 'status'
@@ -29,10 +32,13 @@ export function DecisionsPanel({
   decisions,
   questions,
   onRefreshDecisions,
+  onRefreshQuestions = async () => {},
   onRefreshTree,
   onSelectDocument,
+  onOpenQuestion,
 }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
+
   const [filter, setFilter] = useState<'all' | DecisionStatus>('all')
   const [search, setSearch] = useState('')
   const [subTab, setSubTab] = useState<SubTab>('details')
@@ -65,7 +71,67 @@ export function DecisionsPanel({
   const [relatedDocuments, setRelatedDocuments] = useState('')
   const [markdownPath, setMarkdownPath] = useState('')
 
+  // Consistency check states
+  const [consistencyResult, setConsistencyResult] = useState<ConsistencyCheckResult | null>(null)
+  const [checkingConsistency, setCheckingConsistency] = useState(false)
+  const [consistencyError, setConsistencyError] = useState<string | null>(null)
+  const [linkQuestionId, setLinkQuestionId] = useState<string>('')
+
   const selectedDecision = decisions.find((d) => d.id === selectedId) ?? null
+
+  const linkedQuestionIds = new Set(
+    (selectedDecision?.related_questions || []).map((r) => String(r)),
+  )
+  const availableQuestionsToLink = questions.filter(
+    (q) => !linkedQuestionIds.has(String(q.id)) && !linkedQuestionIds.has(q.uid),
+  )
+
+  const handleCheckConsistency = async () => {
+    if (!selectedDecision) return
+    setCheckingConsistency(true)
+    setConsistencyError(null)
+    try {
+      const res = await api.checkDecisionConsistency(workspace.id, selectedDecision.id)
+      setConsistencyResult(res)
+    } catch (e) {
+      setConsistencyError(e instanceof ApiError ? e.message : 'Failed to perform consistency check.')
+    } finally {
+      setCheckingConsistency(false)
+    }
+  }
+
+  const handleLinkQuestion = async () => {
+    if (!selectedDecision || !linkQuestionId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.linkQuestionDecision(workspace.id, Number(linkQuestionId), selectedDecision.id)
+      await Promise.all([onRefreshDecisions(), onRefreshQuestions()])
+      setLinkQuestionId('')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to link question.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUnlinkQuestion = async (qRef: string | number) => {
+    if (!selectedDecision) return
+    const matched = questions.find((q) => String(q.id) === String(qRef) || q.uid === String(qRef))
+    const qId = matched ? matched.id : Number(qRef)
+    if (isNaN(qId)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.unlinkQuestionDecision(workspace.id, qId, selectedDecision.id)
+      await Promise.all([onRefreshDecisions(), onRefreshQuestions()])
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to unlink question.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
 
   const filteredDecisions = decisions.filter((d) => {
     if (filter !== 'all' && d.status !== filter) return false
@@ -691,6 +757,17 @@ export function DecisionsPanel({
 
                 <span className="spacer" style={{ flex: 1 }} />
 
+                {/* Consistency Check Button */}
+                <button
+                  className="btn"
+                  onClick={handleCheckConsistency}
+                  disabled={checkingConsistency || busy}
+                  title="Check this proposed decision against existing approved decisions and ADRs"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  {checkingConsistency ? '🔍 Checking...' : '🔍 Check Consistency'}
+                </button>
+
                 {/* Explicit Approve Button */}
                 <button
                   className={`btn ${selectedDecision.status === 'approved' ? '' : 'primary'}`}
@@ -754,6 +831,141 @@ export function DecisionsPanel({
                 ) : null}
               </div>
             </div>
+
+            {/* Consistency Check Result Card */}
+            {checkingConsistency && (
+              <div className="section" style={{ background: 'var(--panel-2)', borderRadius: 'var(--radius)', padding: 14, margin: '14px 0', border: '1px solid var(--border)' }}>
+                <span className="faint" style={{ fontSize: 12 }}>
+                  Analyzing proposed decision against approved architecture and ADRs...
+                </span>
+              </div>
+            )}
+
+            {consistencyError && (
+              <div className="error-banner" style={{ margin: '14px 0' }}>
+                <span>{consistencyError}</span>
+                <button className="btn small" onClick={() => setConsistencyError(null)} style={{ marginLeft: 'auto' }}>
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {consistencyResult && (
+              <div
+                className="section consistency-report-card"
+                style={{
+                  background: 'var(--panel-2)',
+                  borderRadius: 'var(--radius)',
+                  padding: 16,
+                  margin: '14px 0',
+                  border: `1px solid ${
+                    consistencyResult.status === 'Potential conflict'
+                      ? 'var(--danger, #e06c75)'
+                      : consistencyResult.status === 'Potential overlap'
+                      ? 'var(--accent, #61afef)'
+                      : consistencyResult.status === 'No apparent conflict'
+                      ? 'var(--ok, #98c379)'
+                      : 'var(--border)'
+                  }`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Architectural Consistency Check
+                  </span>
+                  <span
+                    className={`tag ${
+                      consistencyResult.status === 'Potential conflict'
+                        ? 'danger'
+                        : consistencyResult.status === 'Potential overlap'
+                        ? 'accent'
+                        : consistencyResult.status === 'No apparent conflict'
+                        ? 'ok'
+                        : 'dim'
+                    }`}
+                    style={{ fontSize: 11, fontWeight: 600 }}
+                  >
+                    {consistencyResult.status}
+                  </span>
+                  <span className="spacer" style={{ flex: 1 }} />
+                  <button
+                    className="btn small"
+                    onClick={() => setConsistencyResult(null)}
+                    title="Dismiss consistency findings"
+                  >
+                    ✕ Dismiss
+                  </button>
+                </div>
+
+                <p style={{ fontSize: 13, margin: '4px 0 10px', color: 'var(--text)' }}>
+                  {consistencyResult.summary}
+                </p>
+
+                {consistencyResult.findings.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    {consistencyResult.findings.map((f, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          background: 'var(--bg)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--radius)',
+                          padding: '10px 12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span
+                            className={`tag ${
+                              f.type === 'conflict' ? 'danger' : f.type === 'overlap' ? 'accent' : 'ok'
+                            }`}
+                            style={{ fontSize: 10, textTransform: 'uppercase' }}
+                          >
+                            {f.type}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>
+                            Decision #{f.decision_id}: {f.title}
+                          </span>
+                          {f.markdown_path && (
+                            <span className="mono faint" style={{ fontSize: 10 }}>
+                              📄 {f.markdown_path}
+                            </span>
+                          )}
+                          <span className="spacer" style={{ flex: 1 }} />
+                          <button
+                            type="button"
+                            className="btn small"
+                            onClick={() => setSelectedId(f.decision_id)}
+                            title="Inspect this existing decision"
+                          >
+                            Inspect Decision
+                          </button>
+                        </div>
+                        <p style={{ fontSize: 12, margin: '4px 0', color: 'var(--text-faint)' }}>
+                          {f.reason}
+                        </p>
+                        {f.proposed_claim && f.existing_claim && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6, fontSize: 11 }}>
+                            <div style={{ padding: '4px 8px', background: 'var(--panel)', borderRadius: 4 }}>
+                              <span className="faint" style={{ display: 'block', fontWeight: 600 }}>Proposed:</span>
+                              <span>{f.proposed_claim}</span>
+                            </div>
+                            <div style={{ padding: '4px 8px', background: 'var(--panel)', borderRadius: 4 }}>
+                              <span className="faint" style={{ display: 'block', fontWeight: 600 }}>Existing Approved:</span>
+                              <span>{f.existing_claim}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="faint" style={{ fontSize: 11, marginTop: 10 }}>
+                  Evaluated against {consistencyResult.candidates_evaluated.length} relevant approved decision(s). This check reports observations only and does not change approval status.
+                </div>
+              </div>
+            )}
+
 
             {/* Sub-Navigation Tabs: Details vs ADR Preview vs Git Diff */}
             <div className="subtabs">
@@ -842,13 +1054,14 @@ export function DecisionsPanel({
                   )}
                 </div>
 
-                {/* Related Questions */}
-                {selectedDecision.related_questions && selectedDecision.related_questions.length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h3 style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--text-faint)', margin: '0 0 6px' }}>
-                      Related Open Questions
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* Addresses Open Questions */}
+                <div style={{ marginBottom: 20 }}>
+                  <h3 style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--text-faint)', margin: '0 0 6px' }}>
+                    Addresses Open Questions ({selectedDecision.related_questions?.length || 0})
+                  </h3>
+
+                  {selectedDecision.related_questions && selectedDecision.related_questions.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                       {selectedDecision.related_questions.map((qRef, i) => {
                         const matched = questions.find(
                           (q) => String(q.id) === String(qRef) || q.uid === String(qRef),
@@ -865,16 +1078,68 @@ export function DecisionsPanel({
                               {matched ? matched.title : `Question reference #${qRef}`}
                             </span>
                             {matched && (
-                              <span className={`tag ${matched.status === 'open' ? 'warn' : 'ok'}`} style={{ marginLeft: 'auto' }}>
+                              <span className={`tag ${matched.status === 'open' ? 'warn' : 'ok'}`} style={{ fontSize: 10 }}>
                                 {matched.status}
                               </span>
                             )}
+                            <span className="spacer" style={{ flex: 1 }} />
+                            {matched && onOpenQuestion && (
+                              <button
+                                type="button"
+                                className="btn small"
+                                onClick={() => onOpenQuestion(matched.id)}
+                                title="Inspect this question"
+                              >
+                                View
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn small danger"
+                              onClick={() => handleUnlinkQuestion(qRef)}
+                              disabled={busy}
+                              title="Unlink question from this decision"
+                            >
+                              Unlink
+                            </button>
                           </div>
                         )
                       })}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="faint" style={{ fontStyle: 'italic', margin: '4px 0 8px', fontSize: 12 }}>
+                      Does not currently address any open questions.
+                    </p>
+                  )}
+
+                  {/* Link Question Selector */}
+                  {availableQuestionsToLink.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                      <select
+                        className="select small"
+                        value={linkQuestionId}
+                        onChange={(e) => setLinkQuestionId(e.target.value)}
+                        style={{ flex: 1, maxWidth: 360 }}
+                      >
+                        <option value="">-- Select Open Question to Link --</option>
+                        {availableQuestionsToLink.map((q) => (
+                          <option key={q.id} value={q.id}>
+                            #{q.id} [{q.status}] {q.title}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="btn small primary"
+                        disabled={!linkQuestionId || busy}
+                        onClick={handleLinkQuestion}
+                      >
+                        + Link Question
+                      </button>
+                    </div>
+                  )}
+                </div>
+
 
                 {/* Related Documents */}
                 {selectedDecision.related_documents && selectedDecision.related_documents.length > 0 && (

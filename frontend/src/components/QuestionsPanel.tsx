@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   ApiError,
   api,
+  type Decision,
   type OpenQuestion,
   type QuestionStatus,
   type Workspace,
@@ -11,10 +12,20 @@ import { renderMarkdown } from '../markdown'
 interface Props {
   workspace: Workspace
   questions: OpenQuestion[]
+  decisions?: Decision[]
   onRefreshQuestions: () => Promise<void>
+  onRefreshDecisions?: () => Promise<void>
+  onOpenDecision?: (decisionId: number) => void
 }
 
-export function QuestionsPanel({ workspace, questions, onRefreshQuestions }: Props) {
+export function QuestionsPanel({
+  workspace,
+  questions,
+  decisions = [],
+  onRefreshQuestions,
+  onRefreshDecisions,
+  onOpenDecision,
+}: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [filter, setFilter] = useState<'all' | QuestionStatus>('all')
   const [search, setSearch] = useState('')
@@ -22,6 +33,7 @@ export function QuestionsPanel({ workspace, questions, onRefreshQuestions }: Pro
   const [isEditing, setIsEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [linkDecisionId, setLinkDecisionId] = useState<string>('')
 
   // Form states
   const [title, setTitle] = useState('')
@@ -32,6 +44,7 @@ export function QuestionsPanel({ workspace, questions, onRefreshQuestions }: Pro
   const [resolution, setResolution] = useState('')
 
   const selectedQuestion = questions.find((q) => q.id === selectedId) ?? null
+
 
   const filteredQuestions = questions.filter((q) => {
     if (filter !== 'all' && q.status !== filter) return false
@@ -150,6 +163,49 @@ export function QuestionsPanel({ workspace, questions, onRefreshQuestions }: Pro
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : 'Failed to delete question.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addressedDecisions = selectedQuestion
+    ? decisions.filter((d) => {
+        if (selectedQuestion.addressed_by && selectedQuestion.addressed_by.includes(d.id)) {
+          return true
+        }
+        const qRefs = [String(selectedQuestion.id), selectedQuestion.uid]
+        return (d.related_questions || []).some((r) => qRefs.includes(String(r)))
+      })
+    : []
+
+  const availableDecisionsToLink = decisions.filter(
+    (d) => !addressedDecisions.some((ad) => ad.id === d.id),
+  )
+
+  const handleLinkDecision = async () => {
+    if (!selectedQuestion || !linkDecisionId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.linkQuestionDecision(workspace.id, selectedQuestion.id, Number(linkDecisionId))
+      await Promise.all([onRefreshQuestions(), onRefreshDecisions?.()])
+      setLinkDecisionId('')
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to link decision.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUnlinkDecision = async (decisionId: number) => {
+    if (!selectedQuestion) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.unlinkQuestionDecision(workspace.id, selectedQuestion.id, decisionId)
+      await Promise.all([onRefreshQuestions(), onRefreshDecisions?.()])
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to unlink decision.')
     } finally {
       setBusy(false)
     }
@@ -509,7 +565,86 @@ export function QuestionsPanel({ workspace, questions, onRefreshQuestions }: Pro
                 </div>
               </div>
             )}
+
+            {/* Addressed by Decisions */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <h3 style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--text-faint)', margin: 0 }}>
+                  Addressed by Decisions ({addressedDecisions.length})
+                </h3>
+              </div>
+
+              {addressedDecisions.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {addressedDecisions.map((d) => (
+                    <div
+                      key={d.id}
+                      className="inventory-item"
+                      style={{ margin: 0, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <span className="tag accent">Decision #{d.id}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{d.title}</span>
+                      <span className={`tag ${d.status === 'approved' ? 'ok' : 'dim'}`} style={{ fontSize: 11 }}>
+                        {d.status}
+                      </span>
+                      <span className="spacer" style={{ flex: 1 }} />
+                      {onOpenDecision && (
+                        <button
+                          type="button"
+                          className="btn small"
+                          onClick={() => onOpenDecision(d.id)}
+                          title="Open decision details"
+                        >
+                          View
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn small danger"
+                        onClick={() => handleUnlinkDecision(d.id)}
+                        disabled={busy}
+                        title="Remove link to this decision"
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="faint" style={{ fontStyle: 'italic', margin: '4px 0 10px', fontSize: 12 }}>
+                  Not yet addressed by any architectural decision.
+                </p>
+              )}
+
+              {/* Link new decision selector */}
+              {availableDecisionsToLink.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    className="select small"
+                    value={linkDecisionId}
+                    onChange={(e) => setLinkDecisionId(e.target.value)}
+                    style={{ flex: 1, maxWidth: 360 }}
+                  >
+                    <option value="">-- Select Decision to Link --</option>
+                    {availableDecisionsToLink.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        #{d.id} [{d.status}] {d.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn small primary"
+                    disabled={!linkDecisionId || busy}
+                    onClick={handleLinkDecision}
+                  >
+                    + Link Decision
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+
         ) : (
           <div className="empty" style={{ paddingTop: 80 }}>
             <p>Select a question from the list to inspect details, or create a new one.</p>
