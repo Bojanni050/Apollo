@@ -36,6 +36,7 @@ from app.api import (
     routes_documents,
     routes_inventory,
     routes_proposals,
+    routes_pulse,
     routes_questions,
     routes_sources,
     routes_system,
@@ -160,6 +161,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_proposals.router, prefix="/api")
     application.include_router(routes_chat.router, prefix="/api")
     application.include_router(routes_inventory.router, prefix="/api")
+    application.include_router(routes_pulse.router, prefix="/api")
     application.include_router(routes_questions.router, prefix="/api")
     application.include_router(routes_decisions.router, prefix="/api")
     application.include_router(routes_sources.router, prefix="/api")

@@ -11,6 +11,7 @@ import {
   type Mode,
   type OpenQuestion,
   type Proposal,
+  type PulseRun,
   type Repository,
   type Workspace,
 } from './api/client'
@@ -61,6 +62,9 @@ export default function App() {
   const [_chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
   const [inventoryRun, setInventoryRun] = useState<InventoryRun | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
+  const [pulseRun, setPulseRun] = useState<PulseRun | null>(null)
+  const [pulseRunning, setPulseRunning] = useState(false)
+  const [pulseMode, setPulseMode] = useState<'suggest' | 'apply'>('suggest')
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
@@ -122,6 +126,7 @@ export default function App() {
       setDocumentMarkdown(null)
       setSelectedItem(null)
       setInventoryRun(null)
+      setPulseRun(null)
       setError(null)
 
       const repo = docsRepo(ws)
@@ -133,13 +138,15 @@ export default function App() {
       }
 
       try {
-        const [status, convs, props, runs, qs, decs] = await Promise.all([
+        const [status, convs, props, runs, qs, decs, pulseRuns, pulseSettings] = await Promise.all([
           api.chatStatus(ws.id).catch(() => null),
           api.listConversations(ws.id).catch(() => []),
           api.listProposals(ws.id).catch(() => []),
           api.listInventoryRuns(ws.id).catch(() => []),
           api.listQuestions(ws.id).catch(() => []),
           api.listDecisions(ws.id).catch(() => []),
+          api.listPulseRuns(ws.id).catch(() => []),
+          api.getPulseSettings(ws.id).catch(() => null),
         ])
         setChatStatus(status)
         setConversations(convs)
@@ -147,6 +154,8 @@ export default function App() {
         setQuestions(qs)
         setDecisions(decs)
         if (runs.length > 0) setInventoryRun(runs[0])
+        if (pulseRuns.length > 0) setPulseRun(pulseRuns[0])
+        if (pulseSettings) setPulseMode(pulseSettings.mode === 'apply' ? 'apply' : 'suggest')
         if (convs.length > 0) await openConversation(ws.id, convs[0].id)
         else await newConversation(ws.id)
       } catch (e) {
@@ -356,6 +365,66 @@ export default function App() {
     }
   }
 
+  // AI Pulse actions
+  const refreshPulseRun = async (workspaceId: number, runId: number) => {
+    setPulseRun(await api.getPulseRun(workspaceId, runId))
+  }
+
+  const runPulse = () =>
+    workspace &&
+    (async () => {
+      setPulseRunning(true)
+      setError(null)
+      try {
+        const run = await api.createPulseRun(workspace.id)
+        setPulseRun(run)
+      } catch (e) {
+        report(e)
+      } finally {
+        setPulseRunning(false)
+      }
+    })()
+
+  const changePulseMode = (mode: 'suggest' | 'apply') => {
+    if (!workspace) return
+    setPulseMode(mode)
+    api.updatePulseSettings(workspace.id, mode).catch((e) => {
+      setPulseMode(mode === 'apply' ? 'suggest' : 'apply')
+      report(e)
+    })
+  }
+
+  const applyPulseAll = () =>
+    pulseRun &&
+    workspace &&
+    withTreeRefresh(async () => {
+      await api.applyPulseRun(workspace.id, pulseRun.id)
+      await refreshPulseRun(workspace.id, pulseRun.id)
+    })
+
+  const applyPulseItem = (itemId: number) =>
+    pulseRun &&
+    workspace &&
+    withTreeRefresh(async () => {
+      await api.applyPulseItem(workspace.id, pulseRun.id, itemId)
+      await refreshPulseRun(workspace.id, pulseRun.id)
+    })
+
+  const skipPulseItem = (itemId: number) =>
+    pulseRun &&
+    workspace &&
+    (async () => {
+      setBusy(true)
+      try {
+        await api.skipPulseItem(workspace.id, pulseRun.id, itemId)
+        await refreshPulseRun(workspace.id, pulseRun.id)
+      } catch (e) {
+        report(e)
+      } finally {
+        setBusy(false)
+      }
+    })()
+
   // Object Creation Handlers
   const handleCreateDocument = async (title: string, path: string) => {
     setSelectedItem({
@@ -415,9 +484,9 @@ export default function App() {
       proposals: proposals.length,
       conversations: conversations.length,
       inventory: inventoryRun ? inventoryRun.items.length : 0,
-      pulseWoven: 1,
+      pulseWoven: pulseRun ? pulseRun.items.filter((i) => i.decision === 'pending').length : 0,
     }),
-    [flatDocs.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun],
+    [flatDocs.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun, pulseRun],
   )
 
   // Auth & Wizard gates
@@ -484,6 +553,11 @@ export default function App() {
           questions={questions}
           conversations={conversations}
           sources={sources}
+          pulseItems={pulseRun?.items || []}
+          pulseRunning={pulseRunning}
+          onRunPulse={runPulse}
+          pulseMode={pulseMode}
+          onPulseModeChange={changePulseMode}
         />
 
         {/* Column 3: File Content Canvas */}
@@ -523,6 +597,10 @@ export default function App() {
           onApplyInventoryAll={applyAll}
           onApplyInventoryItem={applyItem}
           onSkipInventoryItem={skipItem}
+          pulseRun={pulseRun}
+          onApplyPulseAll={applyPulseAll}
+          onApplyPulseItem={applyPulseItem}
+          onSkipPulseItem={skipPulseItem}
         />
       </div>
 

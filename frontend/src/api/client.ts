@@ -477,6 +477,32 @@ export interface InventoryRun {
   items: InventoryItem[]
 }
 
+export interface PulseConnection {
+  path: string
+  relation: 'relates-to' | 'supports' | 'contradicts' | 'extends' | string
+  why: string
+}
+
+export interface PulseItem {
+  id: number
+  file_path: string
+  summary: string | null
+  tags: string[]
+  connections: PulseConnection[]
+  confidence: number | null
+  decision: 'pending' | 'applied' | 'skipped'
+}
+
+export interface PulseRun {
+  id: number
+  workspace_id: number
+  status: string
+  summary: string | null
+  mode: 'suggest' | 'apply' | string
+  created_at: string
+  items: PulseItem[]
+}
+
 export interface GitStatus {
   repository_id: number
   repository: string
@@ -611,6 +637,38 @@ export const api = {
   skipInventoryItem: (workspaceId: number, runId: number, itemId: number) =>
     request<{ item: InventoryItem }>(
       `/workspaces/${workspaceId}/inventory/runs/${runId}/items/${itemId}/skip`,
+      { method: 'POST' },
+    ),
+  // -- AI Pulse --------------------------------------------------------------
+  getPulseSettings: (workspaceId: number) =>
+    request<{ mode: string }>(`/workspaces/${workspaceId}/pulse/settings`),
+  updatePulseSettings: (workspaceId: number, mode: 'suggest' | 'apply') =>
+    request<{ mode: string }>(`/workspaces/${workspaceId}/pulse/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    }),
+  createPulseRun: (workspaceId: number) =>
+    request<PulseRun>(`/workspaces/${workspaceId}/pulse/runs`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  listPulseRuns: (workspaceId: number) =>
+    request<PulseRun[]>(`/workspaces/${workspaceId}/pulse/runs`),
+  getPulseRun: (workspaceId: number, runId: number) =>
+    request<PulseRun>(`/workspaces/${workspaceId}/pulse/runs/${runId}`),
+  applyPulseRun: (workspaceId: number, runId: number, itemIds: number[] = []) =>
+    request<{ applied: string[]; skipped: { path: string; reason: string }[] }>(
+      `/workspaces/${workspaceId}/pulse/runs/${runId}/apply`,
+      { method: 'POST', body: JSON.stringify({ item_ids: itemIds }) },
+    ),
+  applyPulseItem: (workspaceId: number, runId: number, itemId: number) =>
+    request<{ item: PulseItem; applied_path: string | null }>(
+      `/workspaces/${workspaceId}/pulse/runs/${runId}/items/${itemId}/apply`,
+      { method: 'POST' },
+    ),
+  skipPulseItem: (workspaceId: number, runId: number, itemId: number) =>
+    request<{ item: PulseItem }>(
+      `/workspaces/${workspaceId}/pulse/runs/${runId}/items/${itemId}/skip`,
       { method: 'POST' },
     ),
 

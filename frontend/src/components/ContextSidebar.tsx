@@ -5,6 +5,7 @@ import type {
   InventoryRun,
   Mode,
   Proposal,
+  PulseRun,
   Repository,
 } from '../api/client'
 import { renderDiff } from '../markdown'
@@ -28,6 +29,10 @@ interface Props {
   onApplyInventoryAll: () => void
   onApplyInventoryItem: (id: number) => void
   onSkipInventoryItem: (id: number) => void
+  pulseRun: PulseRun | null
+  onApplyPulseAll: () => void
+  onApplyPulseItem: (id: number) => void
+  onSkipPulseItem: (id: number) => void
 }
 
 type Tab = 'related' | 'chat' | 'proposals'
@@ -51,6 +56,10 @@ export function ContextSidebar({
   onApplyInventoryAll,
   onApplyInventoryItem,
   onSkipInventoryItem,
+  pulseRun,
+  onApplyPulseAll,
+  onApplyPulseItem,
+  onSkipPulseItem,
 }: Props) {
   const [tab, setTab] = useState<Tab>('related')
   const [chatInput, setChatInput] = useState('')
@@ -293,6 +302,68 @@ export function ContextSidebar({
                         Skip
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pulseRun && (
+              <div style={{ marginTop: 20 }}>
+                <div className="context-section-label">AI PULSE RUN #{pulseRun.id}</div>
+                {pulseRun.summary && (
+                  <div className="item-status" style={{ margin: '6px 0 8px' }}>
+                    {pulseRun.summary}
+                  </div>
+                )}
+                {pulseRun.mode === 'suggest' &&
+                  pulseRun.items.some((it) => it.decision === 'pending') && (
+                    <div style={{ display: 'flex', gap: 6, margin: '8px 0 12px' }}>
+                      <button
+                        type="button"
+                        className="proposal-btn accept"
+                        onClick={onApplyPulseAll}
+                        disabled={busy}
+                      >
+                        Apply All Suggestions
+                      </button>
+                    </div>
+                  )}
+                {pulseRun.items.map((it) => (
+                  <div key={it.id} className="context-inventory-item">
+                    <div className="item-name">{it.file_path}</div>
+                    {it.tags.length > 0 && (
+                      <div className="item-status">
+                        tags: {it.tags.join(', ')}
+                      </div>
+                    )}
+                    {it.connections.map((c, idx) => (
+                      <div key={idx} className="item-status">
+                        {c.relation} → {c.path}
+                        {c.why ? ` (${c.why})` : ''}
+                      </div>
+                    ))}
+                    <div className="item-status">{it.decision}</div>
+                    {it.decision === 'pending' && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <button
+                          type="button"
+                          className="btn text-sm"
+                          style={{ fontSize: 11, padding: '2px 6px' }}
+                          onClick={() => onApplyPulseItem(it.id)}
+                          disabled={busy}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          type="button"
+                          className="btn text-sm"
+                          style={{ fontSize: 11, padding: '2px 6px' }}
+                          onClick={() => onSkipPulseItem(it.id)}
+                          disabled={busy}
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

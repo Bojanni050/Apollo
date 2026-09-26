@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { Conversation, Decision, DocNode, OpenQuestion, Repository, Workspace } from '../api/client'
+import type { Conversation, Decision, DocNode, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
 import type { NavSection } from './NavigationColumn'
 
 export interface ItemCard {
@@ -14,6 +14,7 @@ export interface ItemCard {
   rawQuestion?: OpenQuestion
   rawConversation?: Conversation
   rawRepo?: Repository
+  rawPulseItem?: PulseItem
 }
 
 interface Props {
@@ -30,6 +31,11 @@ interface Props {
   questions: OpenQuestion[]
   conversations: Conversation[]
   sources: Repository[]
+  pulseItems: PulseItem[]
+  pulseRunning?: boolean
+  onRunPulse?: () => void
+  pulseMode?: 'suggest' | 'apply'
+  onPulseModeChange?: (mode: 'suggest' | 'apply') => void
 }
 
 function flattenDocs(node: DocNode | null): DocNode[] {
@@ -60,6 +66,11 @@ export function FolderContentsColumn({
   questions,
   conversations,
   sources,
+  pulseItems,
+  pulseRunning = false,
+  onRunPulse,
+  pulseMode,
+  onPulseModeChange,
 }: Props) {
   // Convert current items into standard ItemCard format
   const items = useMemo<ItemCard[]>(() => {
@@ -113,45 +124,26 @@ export function FolderContentsColumn({
       }))
     }
 
-    // Default: 'all', 'docs', or 'pulse' -> show document files from tree
-    // If flatFiles is empty (e.g. before repo is loaded), we provide fallback sample cards so the UI matches the screenshot!
+    if (activeSection === 'pulse') {
+      return pulseItems.map((p) => ({
+        id: `pulse-${p.id}`,
+        title: p.file_path,
+        snippet: p.summary || 'No summary for this document.',
+        type: 'PULSE',
+        dateOrSize:
+          p.decision === 'pending'
+            ? 'SUGGESTED'
+            : p.decision === 'applied'
+              ? 'APPLIED'
+              : 'SKIPPED',
+        tags: p.tags,
+        rawPulseItem: p,
+      }))
+    }
+
+    // Default: 'all' or 'docs' -> show document files from tree
     if (flatFiles.length === 0) {
-      return [
-        {
-          id: 'demo-conflict',
-          title: 'The Conflict of Portability vs. Structure',
-          snippet:
-            "While Steph Ango advocates for 'file-over-app' to ensure long-term ownership, the 'object-based' nature of Capacities introduces a dependency on complex metadata that raw files often struggle to replicate.",
-          type: 'IDEAS',
-          dateOrSize: '6 JUL',
-          tags: ['pulse-weave', 'capacities'],
-        },
-        {
-          id: 'demo-ango',
-          title: 'Steph Ango',
-          snippet: "Founder of Obsidian, talks a lot about file-over-app and digital ownership.",
-          type: 'PEOPLE',
-          dateOrSize: '6 JUL',
-          tags: ['obsidian', 'file-over-app'],
-        },
-        {
-          id: 'demo-capacities',
-          title: 'Capacities is great',
-          snippet:
-            'I love how capacities lets you treat things as objects. Linking ideas to people feels organic.',
-          type: 'NOTES',
-          dateOrSize: '6 JUL',
-          tags: ['capacities', 'pkm', 'object-based'],
-        },
-        {
-          id: 'demo-untitled',
-          title: 'Untitled',
-          snippet: 'Draft architectural synthesis document notes.',
-          type: 'NOTES',
-          dateOrSize: '6 JUL',
-          tags: ['draft'],
-        },
-      ]
+      return []
     }
 
     return flatFiles.map((node) => {
@@ -171,7 +163,7 @@ export function FolderContentsColumn({
         rawNode: node,
       }
     })
-  }, [tree, activeSection, decisions, questions, conversations, sources])
+  }, [tree, activeSection, decisions, questions, conversations, sources, pulseItems])
 
   // Filter based on search query
   const filteredItems = useMemo(() => {
@@ -220,14 +212,47 @@ export function FolderContentsColumn({
           </span>
         </div>
 
-        <button
-          type="button"
-          className="folder-contents-new-btn"
-          onClick={onNewItem}
-          title="Create New Object"
-        >
-          New
-        </button>
+        {activeSection === 'pulse' ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {onPulseModeChange && (
+              <label
+                style={{
+                  display: 'flex',
+                  gap: 4,
+                  alignItems: 'center',
+                  fontSize: 11,
+                  opacity: 0.8,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={pulseMode === 'apply'}
+                  onChange={(e) => onPulseModeChange(e.target.checked ? 'apply' : 'suggest')}
+                />
+                auto-apply
+              </label>
+            )}
+            <button
+              type="button"
+              className="folder-contents-new-btn"
+              onClick={onRunPulse}
+              disabled={pulseRunning}
+              title="Scan the documentation for tags and connections"
+            >
+              {pulseRunning ? 'Scanning…' : 'Run Pulse'}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="folder-contents-new-btn"
+            onClick={onNewItem}
+            title="Create New Object"
+          >
+            New
+          </button>
+        )}
       </div>
 
       {/* 2. Search Input */}
@@ -263,7 +288,13 @@ export function FolderContentsColumn({
             <div className="folder-empty-icon">📂</div>
             <div className="folder-empty-title">No objects found</div>
             <div className="folder-empty-desc">
-              {searchQuery ? `No results for "${searchQuery}"` : 'This category contains no objects yet.'}
+              {activeSection === 'pulse'
+                ? searchQuery
+                  ? `No results for "${searchQuery}"`
+                  : 'Run a Pulse scan to find themes and connections across your documentation.'
+                : searchQuery
+                  ? `No results for "${searchQuery}"`
+                  : 'This category contains no objects yet.'}
             </div>
             <button
               type="button"

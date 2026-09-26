@@ -445,6 +445,82 @@ class InventoryDecideOut(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# AI Pulse
+# --------------------------------------------------------------------------
+class PulseConnection(BaseModel):
+    """A link between two documents, as proposed by the Pulse model.
+
+    ``path`` is the target document; ``relation`` is one of relates-to /
+    supports / contradicts / extends; ``why`` is the model's one-sentence
+    justification, so a human can check the claim instead of trusting it.
+    """
+
+    path: str
+    relation: str
+    why: str = ""
+
+
+class PulseItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    file_path: str
+    summary: str | None = None
+    tags: list = Field(default_factory=list)
+    connections: list = Field(default_factory=list)
+    confidence: float | None = None
+    decision: str  # pending | applied | skipped
+
+
+class PulseRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workspace_id: int
+    status: str
+    summary: str | None = None
+    mode: str  # suggest | apply
+    created_at: dt.datetime
+    items: list[PulseItemOut] = Field(default_factory=list)
+
+
+class PulseRunRequest(BaseModel):
+    """Trigger a Pulse scan. The mode is read from the workspace's Pulse
+    settings (suggest by default, apply when the user opted in), so a client
+    cannot pick apply-mode on its own."""
+
+    repository_id: int | None = None
+
+
+class PulseApplyRequest(BaseModel):
+    item_ids: list[int] = Field(default_factory=list)
+
+
+class PulseApplyOut(BaseModel):
+    run_id: int
+    applied: list[str] = Field(default_factory=list)
+    skipped: list[dict[str, str]] = Field(default_factory=list)
+    requires_manual_commit: bool = True
+
+
+class PulseDecideOut(BaseModel):
+    run_id: int
+    item: PulseItemOut
+    applied_path: str | None = None
+    requires_manual_commit: bool = True
+
+
+class PulseSettingsOut(BaseModel):
+    """The workspace's Pulse mode: suggestions to approve, or auto-apply."""
+
+    mode: str  # suggest | apply
+
+
+class PulseSettingsUpdate(BaseModel):
+    mode: str = Field(pattern="^(suggest|apply)$")
+
+
+# --------------------------------------------------------------------------
 # Questions & Decisions
 # --------------------------------------------------------------------------
 

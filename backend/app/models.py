@@ -153,6 +153,9 @@ class Workspace(TimestampMixin, Base):
     inventory_runs: Mapped[list[InventoryRun]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan"
     )
+    pulse_runs: Mapped[list[PulseRun]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
 
 
 class Repository(TimestampMixin, Base):
@@ -499,6 +502,101 @@ class InventoryItem(Base):
 
     run: Mapped[InventoryRun] = relationship(back_populates="items")
 
+
+
+#: Pulse modes: "suggest" proposes connections/tags for approval, "apply"
+#: writes them immediately. Stored per workspace so different projects can
+#: choose different levels of automation.
+PULSE_MODES = ("suggest", "apply")
+
+PULSE_RUN_STATUSES = ("pending", "completed", "failed")
+PULSE_ITEM_DECISIONS = ("pending", "applied", "skipped")
+
+
+class PulseRun(TimestampMixin, Base):
+    """One AI Pulse scan over the documentation repository.
+
+    A run walks documents that changed since the previous run (or all
+    documents on the first run), asks the background model for thematic
+    tags and for connections to other documents, and records the outcome
+    per document as items -- suggestions to approve, or already-applied
+    connections when the workspace is in "apply" mode.
+    """
+
+    __tablename__ = "pulse_runs"
+    __table_args__ = (
+        _check("status", PULSE_RUN_STATUSES, "ck_pulse_runs_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False
+    )
+    summary: Mapped[str | None] = mapped_column(Text)
+    # The commit/file state the run started from, so the next run can scan
+    # only what changed. Kept as JSON rather than joined to git metadata so
+    # the run remains meaningful for non-git folders.
+    scanned_state: Mapped[dict | None] = mapped_column(JSONType, default=dict)
+    # "suggest" or "apply" -- the mode at the time the run ran.
+    mode: Mapped[str] = mapped_column(
+        String(20), default="suggest", server_default="suggest", nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="pulse_runs")
+    items: Mapped[list[PulseItem]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="PulseItem.id"
+    )
+
+
+class PulseItem(Base):
+    """One document's outcome in a Pulse run: tags and connections found."""
+
+    __tablename__ = "pulse_items"
+    __table_args__ = (
+        _check("decision", PULSE_ITEM_DECISIONS, "ck_pulse_items_decision"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("pulse_runs.id", ondelete="CASCADE"), index=True
+    )
+    # Path relative to the documentation repository root, as the user sees it.
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Short description of what the document is about, per the model.
+    summary: Mapped[str | None] = mapped_column(Text)
+    # Thematic tags proposed for the document.
+    tags: Mapped[list | None] = mapped_column(JSONType, default=list)
+    # Connections to other documents in the same repository:
+    # [{"path": "...", "relation": "relates-to|supports|contradicts|extends",
+    #   "why": "..."}]
+    connections: Mapped[list | None] = mapped_column(JSONType, default=list)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    # pending | applied | skipped
+    decision: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False
+    )
+
+    run: Mapped[PulseRun] = relationship(back_populates="items")
+
+
+class WorkspacePulseSettings(TimestampMixin, Base):
+    """Per-workspace Pulse configuration: suggest or auto-apply."""
+
+    __tablename__ = "workspace_pulse_settings"
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    # "suggest" or "apply"
+    mode: Mapped[str] = mapped_column(
+        String(20), default="suggest", server_default="suggest", nullable=False
+    )
+    # Whether connections should also link *back* from the target document
+    # when applied. Simple and predictable for now: always true.
+    workspace: Mapped[Workspace] = relationship()
 
 
 class CodeChunk(TimestampMixin, Base):
