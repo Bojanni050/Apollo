@@ -18,7 +18,7 @@ from app.db import get_db
 from app.llm import available_providers, get_provider, is_configured
 from app.llm.base import LLMError, LLMNotConfigured
 from app.llm.context import ContextBudgetError
-from app.models import Conversation, Message, Repository
+from app.models import Conversation, Message, OpenQuestion, Repository
 from app.prompts import VALID_MODES
 from app.schemas import (
     ChatStatusOut,
@@ -96,6 +96,18 @@ def create_conversation(
 ) -> ConversationOut:
     workspace = get_workspace(db, workspace_id)
     _validate_mode(payload.mode)
+    if payload.question_id is not None:
+        q = db.scalar(
+            select(OpenQuestion).where(
+                OpenQuestion.id == payload.question_id,
+                OpenQuestion.workspace_id == workspace_id,
+            )
+        )
+        if q is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Question {payload.question_id} not found in workspace {workspace_id}.",
+            )
     conversation = Conversation(
         workspace_id=workspace.id,
         title=payload.title,

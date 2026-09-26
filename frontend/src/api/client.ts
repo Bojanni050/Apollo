@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Typed client for the Gaia Docs Architect API.
  *
  * The UI never constructs URLs inline; everything the backend exposes is
@@ -144,6 +144,59 @@ export interface Conversation {
 
 export interface ConversationDetail extends Conversation {
   messages: Message[]
+}
+
+export type QuestionStatus = 'open' | 'answered' | 'resolved'
+export type DecisionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded'
+
+export interface OpenQuestion {
+  id: number
+  workspace_id: number
+  uid: string
+  title: string
+  description: string
+  evidence: unknown[] | null
+  affected: string[] | null
+  status: QuestionStatus
+  source: string
+  conversation_id: number | null
+  resolution: string | null
+  resolved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Decision {
+  id: number
+  workspace_id: number
+  title: string
+  context: string
+  decision: string
+  rationale: string
+  consequences: string
+  status: DecisionStatus
+  decided_on: string | null
+  approved_at: string | null
+  markdown_path: string | null
+  related_documents: string[] | null
+  related_questions: (string | number)[] | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GitStatusEntry {
+  path: string
+  status: string
+}
+
+export interface DecisionApproveResult {
+  decision: Decision
+  approved: boolean
+  sync_status: 'created' | 'updated' | 'unchanged' | 'requires_review' | 'skipped'
+  markdown_path?: string | null
+  diff?: string | null
+  git_status: GitStatusEntry[]
+  message?: string | null
 }
 
 
@@ -329,6 +382,109 @@ export const api = {
   skipInventoryItem: (workspaceId: number, runId: number, itemId: number) =>
     request<{ item: InventoryItem }>(
       `/workspaces/${workspaceId}/inventory/runs/${runId}/items/${itemId}/skip`,
+      { method: 'POST' },
+    ),
+
+  // -- questions -----------------------------------------------------------
+  listQuestions: (workspaceId: number, status?: QuestionStatus, conversationId?: number) => {
+    const params = new URLSearchParams()
+    if (status) params.set('status', status)
+    if (conversationId) params.set('conversation_id', String(conversationId))
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    return request<OpenQuestion[]>(`/workspaces/${workspaceId}/questions${qs}`)
+  },
+  createQuestion: (
+    workspaceId: number,
+    payload: {
+      title: string
+      description?: string
+      status?: QuestionStatus
+      source?: string
+      conversation_id?: number | null
+      evidence?: unknown[]
+      affected?: unknown[]
+    },
+  ) =>
+    request<OpenQuestion>(`/workspaces/${workspaceId}/questions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getQuestion: (workspaceId: number, questionId: number) =>
+    request<OpenQuestion>(`/workspaces/${workspaceId}/questions/${questionId}`),
+  updateQuestion: (
+    workspaceId: number,
+    questionId: number,
+    payload: Partial<{
+      title: string
+      description: string
+      status: QuestionStatus
+      source: string
+      resolution: string | null
+      conversation_id: number | null
+      evidence: unknown[]
+      affected: unknown[]
+    }>,
+  ) =>
+    request<OpenQuestion>(`/workspaces/${workspaceId}/questions/${questionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteQuestion: (workspaceId: number, questionId: number) =>
+    request<void>(`/workspaces/${workspaceId}/questions/${questionId}`, {
+      method: 'DELETE',
+    }),
+
+  // -- decisions -----------------------------------------------------------
+  listDecisions: (workspaceId: number, status?: DecisionStatus) => {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<Decision[]>(`/workspaces/${workspaceId}/decisions${qs}`)
+  },
+  createDecision: (
+    workspaceId: number,
+    payload: {
+      title: string
+      context?: string
+      decision?: string
+      rationale?: string
+      consequences?: string
+      status?: DecisionStatus
+      related_documents?: string[]
+      related_questions?: (string | number)[]
+      markdown_path?: string | null
+    },
+  ) =>
+    request<Decision>(`/workspaces/${workspaceId}/decisions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getDecision: (workspaceId: number, decisionId: number) =>
+    request<Decision>(`/workspaces/${workspaceId}/decisions/${decisionId}`),
+  updateDecision: (
+    workspaceId: number,
+    decisionId: number,
+    payload: Partial<{
+      title: string
+      context: string
+      decision: string
+      rationale: string
+      consequences: string
+      status: DecisionStatus
+      markdown_path: string | null
+      related_documents: string[]
+      related_questions: (string | number)[]
+    }>,
+  ) =>
+    request<Decision>(`/workspaces/${workspaceId}/decisions/${decisionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteDecision: (workspaceId: number, decisionId: number) =>
+    request<void>(`/workspaces/${workspaceId}/decisions/${decisionId}`, {
+      method: 'DELETE',
+    }),
+  approveDecision: (workspaceId: number, decisionId: number) =>
+    request<DecisionApproveResult>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/approve`,
       { method: 'POST' },
     ),
 }

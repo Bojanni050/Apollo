@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Repository, Workspace
+from app.models import Decision, OpenQuestion, Repository, Workspace
 from app.services import git
 from app.services.paths import PathSecurityError, assert_authorized_root
 
@@ -74,3 +74,26 @@ def repository_status(repo: Repository) -> dict:
         "current_branch": git.current_branch(root),
         "head_revision": git.head_revision(root),
     }
+
+
+def get_question(db: Session, workspace_id: int, question_id: int) -> OpenQuestion:
+    question = db.scalar(
+        select(OpenQuestion).where(
+            OpenQuestion.id == question_id, OpenQuestion.workspace_id == workspace_id
+        )
+    )
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Question not found.")
+    return question
+
+
+def get_decision(db: Session, workspace_id: int, decision_id: int) -> Decision:
+    decision = db.scalar(
+        select(Decision).where(
+            Decision.id == decision_id, Decision.workspace_id == workspace_id
+        )
+    )
+    if decision is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found.")
+    return decision
+

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
+import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RepositoryCreate(BaseModel):
@@ -317,6 +319,143 @@ class InventoryDecideOut(BaseModel):
     item: InventoryItemOut
     applied_path: str | None = None
     requires_manual_commit: bool = True
+
+
+# --------------------------------------------------------------------------
+# Questions & Decisions
+# --------------------------------------------------------------------------
+
+
+class OpenQuestionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    description: str = ""
+    evidence: list[Any] | None = Field(default_factory=list)
+    affected: list[Any] | None = Field(default_factory=list)
+    status: str = Field(default="open", pattern="^(open|answered|resolved)$")
+    source: str = Field(default="manual", max_length=20)
+    conversation_id: int | None = None
+    uid: uuid.UUID | None = None
+    resolution: str | None = None
+    resolved_at: dt.datetime | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return v.strip()
+
+
+class OpenQuestionUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    description: str | None = None
+    evidence: list[Any] | None = None
+    affected: list[Any] | None = None
+    status: str | None = Field(default=None, pattern="^(open|answered|resolved)$")
+    source: str | None = Field(default=None, max_length=20)
+    conversation_id: int | None = None
+    resolution: str | None = None
+    resolved_at: dt.datetime | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return v.strip() if v is not None else None
+
+
+class OpenQuestionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workspace_id: int
+    uid: uuid.UUID
+    title: str
+    description: str
+    evidence: list[Any] | None = None
+    affected: list[Any] | None = None
+    status: str
+    source: str
+    conversation_id: int | None = None
+    resolution: str | None = None
+    resolved_at: dt.datetime | None = None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class DecisionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    context: str = ""
+    decision: str = ""
+    rationale: str = ""
+    consequences: str = ""
+    status: str = Field(default="proposed", pattern="^(proposed|approved|rejected|superseded)$")
+    decided_on: dt.datetime | None = None
+    approved_at: dt.datetime | None = None
+    markdown_path: str | None = Field(default=None, max_length=1000)
+    related_documents: list[Any] | None = Field(default_factory=list)
+    related_questions: list[Any] | None = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return v.strip()
+
+
+class DecisionUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    context: str | None = None
+    decision: str | None = None
+    rationale: str | None = None
+    consequences: str | None = None
+    status: str | None = Field(default=None, pattern="^(proposed|approved|rejected|superseded)$")
+    decided_on: dt.datetime | None = None
+    approved_at: dt.datetime | None = None
+    markdown_path: str | None = Field(default=None, max_length=1000)
+    related_documents: list[Any] | None = None
+    related_questions: list[Any] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("title cannot be empty or whitespace only")
+        return v.strip() if v is not None else None
+
+
+class DecisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workspace_id: int
+    title: str
+    context: str
+    decision: str
+    rationale: str
+    consequences: str
+    status: str
+    decided_on: dt.datetime | None = None
+    approved_at: dt.datetime | None = None
+    markdown_path: str | None = None
+    related_documents: list[Any] | None = None
+    related_questions: list[Any] | None = None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class DecisionApproveOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    decision: DecisionOut
+    approved: bool = True
+    sync_status: str
+    markdown_path: str | None = None
+    diff: str | None = None
+    git_status: list[GitStatusEntryOut] = Field(default_factory=list)
+    message: str | None = None
 
 
 DocumentNodeOut.model_rebuild()

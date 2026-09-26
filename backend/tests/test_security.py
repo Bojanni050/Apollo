@@ -138,6 +138,11 @@ def secured_client(client: TestClient, monkeypatch: pytest.MonkeyPatch):
         ("post", "/api/workspaces/1/conversations/1/messages"),
         ("get", "/api/workspaces/1/inventory/runs"),
         ("post", "/api/workspaces/1/inventory/runs/1/apply"),
+        ("get", "/api/workspaces/1/questions"),
+        ("post", "/api/workspaces/1/questions"),
+        ("get", "/api/workspaces/1/decisions"),
+        ("post", "/api/workspaces/1/decisions"),
+        ("post", "/api/workspaces/1/decisions/1/approve"),
     ],
 )
 def test_unauthenticated_request_is_rejected(secured_client: TestClient, method, path) -> None:

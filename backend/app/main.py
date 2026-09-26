@@ -32,9 +32,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import (
     routes_auth,
     routes_chat,
+    routes_decisions,
     routes_documents,
     routes_inventory,
     routes_proposals,
+    routes_questions,
     routes_workspaces,
 )
 from app.config import Settings, settings
@@ -156,6 +158,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_proposals.router, prefix="/api")
     application.include_router(routes_chat.router, prefix="/api")
     application.include_router(routes_inventory.router, prefix="/api")
+    application.include_router(routes_questions.router, prefix="/api")
+    application.include_router(routes_decisions.router, prefix="/api")
 
     return application
 

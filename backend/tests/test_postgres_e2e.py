@@ -801,6 +801,157 @@ def test_e2e_proposals_lifecycle(
         e2e_client.delete(f"/api/workspaces/{ws_id}")
 
 
+def test_e2e_open_questions_and_decisions_flow(
+    e2e_client: TestClient,
+    doc_repo: Path,
+    fresh_migrated_db: Engine,
+) -> None:
+    """Requirement 4 & 5: Verify OpenQuestions and Decisions REST APIs end-to-end against migrated PostgreSQL."""
+    ws = e2e_client.post(
+        "/api/workspaces", json={"name": "Questions & Decisions E2E Workspace"}
+    ).json()
+    ws_id = ws["id"]
+
+    try:
+        # Register doc repo
+        e2e_client.post(
+            f"/api/workspaces/{ws_id}/repositories",
+            json={
+                "name": "gaia-docs",
+                "local_path": str(doc_repo),
+                "kind": "documentation",
+                "writable": True,
+            },
+        )
+
+        # 1. Create an OpenQuestion via REST API
+        q_create_resp = e2e_client.post(
+            f"/api/workspaces/{ws_id}/questions",
+            json={
+                "title": "Which caching strategy to adopt for document trees?",
+                "description": "Evaluating Redis vs local in-process cache",
+                "status": "open",
+                "evidence": [{"source": "perf.md", "note": "tree fetch takes 40ms"}],
+                "affected": ["architecture/components/tree.md"],
+            },
+        )
+        assert q_create_resp.status_code == 201, q_create_resp.text
+        q_data = q_create_resp.json()
+        q_id = q_data["id"]
+        q_uid = q_data["uid"]
+        assert q_data["status"] == "open"
+        assert uuid.UUID(q_uid)
+
+        # Verify in PostgreSQL: uid is real UUID, evidence is JSONB
+        with fresh_migrated_db.connect() as conn:
+            row = conn.execute(
+                text("SELECT uid, evidence, affected, status FROM open_questions WHERE id = :id"),
+                {"id": q_id},
+            ).one()
+            assert str(row.uid) == q_uid
+            assert len(row.evidence) == 1
+            assert row.evidence[0]["note"] == "tree fetch takes 40ms"
+            assert row.affected == ["architecture/components/tree.md"]
+            assert row.status == "open"
+
+        # 2. Create conversation referencing this OpenQuestion
+        conv_resp = e2e_client.post(
+            f"/api/workspaces/{ws_id}/conversations",
+            json={"title": "Caching Debate", "question_id": q_id},
+        )
+        assert conv_resp.status_code == 201
+        conv_id = conv_resp.json()["id"]
+
+        # 3. Update OpenQuestion to resolved with resolution and link conversation
+        q_patch_resp = e2e_client.patch(
+            f"/api/workspaces/{ws_id}/questions/{q_id}",
+            json={
+                "status": "resolved",
+                "resolution": "Adopt in-process LRU cache with file watcher invalidation.",
+                "conversation_id": conv_id,
+            },
+        )
+        assert q_patch_resp.status_code == 200
+        q_updated = q_patch_resp.json()
+        assert q_updated["status"] == "resolved"
+        assert q_updated["resolved_at"] is not None
+        assert q_updated["conversation_id"] == conv_id
+
+        # 4. Create Decision referencing the OpenQuestion and valid document
+        d_create_resp = e2e_client.post(
+            f"/api/workspaces/{ws_id}/decisions",
+            json={
+                "title": "ADR 002: In-Process LRU Cache for Tree Index",
+                "context": "Document tree queries are frequent on sidebar refresh.",
+                "decision": "Use an in-process LRU cache keyed by head revision.",
+                "rationale": "Zero network latency, minimal memory overhead for typical workspaces.",
+                "consequences": "Multiple backend workers do not share cache entries.",
+                "status": "approved",
+                "related_documents": ["architecture/overview.md"],
+                "related_questions": [q_id, q_uid],
+            },
+        )
+        assert d_create_resp.status_code == 201, d_create_resp.text
+        d_data = d_create_resp.json()
+        d_id = d_data["id"]
+        assert d_data["status"] == "approved"
+        assert d_data["approved_at"] is not None
+        assert d_data["decided_on"] is not None
+        assert d_data["related_documents"] == ["architecture/overview.md"]
+        assert d_data["related_questions"] == [q_id, q_uid]
+
+        # Verify in PostgreSQL: JSONB arrays and timestamps
+        with fresh_migrated_db.connect() as conn:
+            d_row = conn.execute(
+                text(
+                    "SELECT title, status, approved_at, related_documents, related_questions "
+                    "FROM decisions WHERE id = :id"
+                ),
+                {"id": d_id},
+            ).one()
+            assert d_row.title == "ADR 002: In-Process LRU Cache for Tree Index"
+            assert d_row.status == "approved"
+            assert d_row.approved_at is not None
+            assert d_row.related_documents == ["architecture/overview.md"]
+            assert d_row.related_questions == [q_id, q_uid]
+
+        # 5. Explicitly approve the Decision and verify durable ADR generation
+        approve_resp = e2e_client.post(f"/api/workspaces/{ws_id}/decisions/{d_id}/approve")
+        assert approve_resp.status_code == 200
+        approve_data = approve_resp.json()
+        assert approve_data["approved"] is True
+        assert approve_data["sync_status"] == "created"
+        assert approve_data["markdown_path"] is not None
+        assert (doc_repo / approve_data["markdown_path"]).exists()
+
+        # 6. List and filter decisions
+        d_list_resp = e2e_client.get(f"/api/workspaces/{ws_id}/decisions?status=approved")
+        assert d_list_resp.status_code == 200
+        assert any(d["id"] == d_id for d in d_list_resp.json())
+
+        # 6. Retrieve single Decision
+        d_get_resp = e2e_client.get(f"/api/workspaces/{ws_id}/decisions/{d_id}")
+        assert d_get_resp.status_code == 200
+        assert d_get_resp.json()["id"] == d_id
+
+        # 7. Update Decision
+        d_patch_resp = e2e_client.patch(
+            f"/api/workspaces/{ws_id}/decisions/{d_id}",
+            json={"decision": "Use an in-process LRU cache with 1024 max entries."},
+        )
+        assert d_patch_resp.status_code == 200
+        assert d_patch_resp.json()["decision"] == "Use an in-process LRU cache with 1024 max entries."
+
+        # 8. Delete Decision and OpenQuestion
+        assert e2e_client.delete(f"/api/workspaces/{ws_id}/decisions/{d_id}").status_code == 204
+        assert e2e_client.get(f"/api/workspaces/{ws_id}/decisions/{d_id}").status_code == 404
+
+        assert e2e_client.delete(f"/api/workspaces/{ws_id}/questions/{q_id}").status_code == 204
+        assert e2e_client.get(f"/api/workspaces/{ws_id}/questions/{q_id}").status_code == 404
+    finally:
+        e2e_client.delete(f"/api/workspaces/{ws_id}")
+
+
 # ---------------------------------------------------------------------------
 # 4. Domain Models & PostgreSQL Specifics (Direct Session)
 # ---------------------------------------------------------------------------
