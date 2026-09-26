@@ -11,18 +11,27 @@ from sqlalchemy.orm import Session
 from app.api.deps import (
     get_decision,
     get_documentation_repository,
+    get_question,
     get_workspace,
     resolve_repo_root,
 )
+from app.config import settings
 from app.db import get_db
-from app.models import Decision, OpenQuestion, utcnow
+from app.llm import get_provider, is_configured
+from app.models import Decision, OpenQuestion, Repository, utcnow
 from app.schemas import (
+    ConsistencyCheckIn,
+    ConsistencyCheckOut,
     DecisionApproveOut,
     DecisionCreate,
     DecisionOut,
     DecisionUpdate,
     GitStatusEntryOut,
+    OpenQuestionOut,
 )
+from app.services.consistency import check_consistency
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.services.adr import (
     ADRConflictError,
     ADRError,
@@ -292,3 +301,128 @@ def approve_decision(
         git_status=[GitStatusEntryOut(path=e.path, status=e.status) for e in sync_result.git_status],
         message=sync_result.message,
     )
+
+
+@router.get("/decisions/{decision_id}/questions", response_model=list[OpenQuestionOut])
+def list_decision_questions(
+    workspace_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> list[OpenQuestionOut]:
+    """List open questions addressed by this decision."""
+    get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+    related = set(str(r) for r in (decision.related_questions or []))
+    questions = db.scalars(
+        select(OpenQuestion).where(OpenQuestion.workspace_id == workspace_id).order_by(OpenQuestion.id.asc())
+    ).all()
+    matching = [
+        q for q in questions
+        if str(q.id) in related or str(q.uid) in related
+    ]
+    for q in matching:
+        q.addressed_by = [decision.id]
+    return [OpenQuestionOut.model_validate(q) for q in matching]
+
+
+@router.post("/decisions/{decision_id}/questions/{question_id}", response_model=DecisionOut)
+def link_question_to_decision(
+    workspace_id: int,
+    decision_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Link an open question to a decision."""
+    get_workspace(db, workspace_id)
+    question = get_question(db, workspace_id, question_id)
+    decision = get_decision(db, workspace_id, decision_id)
+
+    related = list(decision.related_questions or [])
+    q_refs = {question.id, str(question.id), str(question.uid)}
+    if not any(ref in q_refs or str(ref) in q_refs for ref in related):
+        related.append(question.id)
+        decision.related_questions = related
+        flag_modified(decision, "related_questions")
+        db.commit()
+        db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
+
+@router.delete("/decisions/{decision_id}/questions/{question_id}", response_model=DecisionOut)
+def unlink_question_from_decision(
+    workspace_id: int,
+    decision_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Unlink an open question from a decision."""
+    get_workspace(db, workspace_id)
+    question = get_question(db, workspace_id, question_id)
+    decision = get_decision(db, workspace_id, decision_id)
+
+    q_refs = {question.id, str(question.id), str(question.uid)}
+    related = [
+        ref for ref in (decision.related_questions or [])
+        if ref not in q_refs and str(ref) not in q_refs
+    ]
+    decision.related_questions = related
+    flag_modified(decision, "related_questions")
+    db.commit()
+    db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
+
+@router.post("/decisions/consistency-check", response_model=ConsistencyCheckOut)
+def check_decision_proposal_consistency(
+    workspace_id: int,
+    payload: ConsistencyCheckIn,
+    db: Session = Depends(get_db),
+) -> ConsistencyCheckOut:
+    """Check a proposed architectural decision against existing approved decisions and ADRs."""
+    workspace = get_workspace(db, workspace_id)
+    repos = db.scalars(select(Repository).where(Repository.workspace_id == workspace_id)).all()
+
+    provider = get_provider() if is_configured() else None
+
+    result = check_consistency(
+        db=db,
+        workspace=workspace,
+        repositories=list(repos),
+        proposal=payload.model_dump(),
+        provider=provider,
+    )
+    return ConsistencyCheckOut.model_validate(result)
+
+
+@router.post("/decisions/{decision_id}/consistency-check", response_model=ConsistencyCheckOut)
+def check_existing_decision_consistency(
+    workspace_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> ConsistencyCheckOut:
+    """Check an existing proposed or draft decision against approved decisions in the workspace."""
+    workspace = get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+    repos = db.scalars(select(Repository).where(Repository.workspace_id == workspace_id)).all()
+
+    provider = get_provider() if is_configured() else None
+
+
+    proposal = {
+        "title": decision.title,
+        "context": decision.context or "",
+        "decision": decision.decision or "",
+        "rationale": decision.rationale or "",
+        "consequences": decision.consequences or "",
+        "decision_id": decision.id,
+    }
+
+    result = check_consistency(
+        db=db,
+        workspace=workspace,
+        repositories=list(repos),
+        proposal=proposal,
+        provider=provider,
+    )
+    return ConsistencyCheckOut.model_validate(result)
+

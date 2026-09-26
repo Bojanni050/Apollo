@@ -383,6 +383,7 @@ class OpenQuestionOut(BaseModel):
     conversation_id: int | None = None
     resolution: str | None = None
     resolved_at: dt.datetime | None = None
+    addressed_by: list[int] = Field(default_factory=list)
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -461,4 +462,32 @@ class DecisionApproveOut(BaseModel):
     message: str | None = None
 
 
+class ConsistencyCheckIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    decision: str = ""
+    context: str = ""
+    rationale: str = ""
+    consequences: str = ""
+    decision_id: int | None = None
+
+
+class ConsistencyFinding(BaseModel):
+    type: str  # conflict | overlap | compatible
+    decision_id: int
+    title: str
+    reason: str
+    proposed_claim: str = ""
+    existing_claim: str = ""
+    markdown_path: str | None = None
+
+
+class ConsistencyCheckOut(BaseModel):
+    status: str  # No apparent conflict | Potential conflict | Potential overlap | Insufficient evidence
+    summary: str
+    candidates_evaluated: list[dict[str, Any]] = Field(default_factory=list)
+    findings: list[ConsistencyFinding] = Field(default_factory=list)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+
 DocumentNodeOut.model_rebuild()
+

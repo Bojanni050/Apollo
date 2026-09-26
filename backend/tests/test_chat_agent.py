@@ -135,9 +135,16 @@ def test_tool_schemas_only_expose_read_tools() -> None:
         "read_code",
         "list_decisions",
         "structure",
+        "search_questions",
+        "search_decisions",
+        "get_question",
+        "get_decision",
+        "draft_question",
+        "draft_decision",
+        "check_architectural_consistency",
     }
     # No tool may be capable of writing. This is the structural guarantee that
-    # the AI cannot modify a file, whatever it is told.
+    # the AI cannot modify a file or database, whatever it is told.
     assert not any(
         verb in name
         for name in names

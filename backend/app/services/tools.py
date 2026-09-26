@@ -414,6 +414,91 @@ def tool_draft_decision(
     )
 
 
+def tool_check_architectural_consistency(
+    ctx: ToolContext,
+    title: str,
+    decision: str = "",
+    context: str = "",
+    rationale: str = "",
+    decision_id: int | None = None,
+) -> str:
+    """Check a proposed architectural decision against existing approved decisions and ADRs.
+
+    Identifies potential conflicts, overlapping decisions, or compatibility.
+    Does NOT approve, reject, modify, or commit anything.
+    """
+    if ctx.db is None:
+        return "Error: Database session is not available in tool context."
+
+    from app.services.consistency import check_consistency
+
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return "Error: Decision title cannot be empty."
+
+    proposal = {
+        "title": clean_title,
+        "decision": (decision or "").strip(),
+        "context": (context or "").strip(),
+        "rationale": (rationale or "").strip(),
+        "decision_id": decision_id,
+    }
+
+    result = check_consistency(
+        db=ctx.db,
+        workspace=ctx.workspace,
+        repositories=ctx.repositories,
+        proposal=proposal,
+    )
+
+    status_tag = result["status"]
+    summary = result["summary"]
+    findings = result["findings"]
+    evidence = result["evidence"]
+
+    # Record citations for each evidence decision
+    for ev in evidence:
+        ctx.citations.append(
+            Citation(
+                repository="",
+                path=ev.get("path") or "",
+                start_line=1,
+                end_line=1,
+                evidence_type="explicit_decision",
+                decision_id=ev.get("decision_id"),
+            )
+        )
+
+    lines = [
+        f"Architectural Consistency Check Result: [{status_tag}]",
+        f"Summary: {summary}",
+    ]
+
+    if findings:
+        lines.append("\nFindings:")
+        for f in findings:
+            f_type = f.get("type", "finding").upper()
+            d_id = f.get("decision_id")
+            f_title = f.get("title", "")
+            reason = f.get("reason", "")
+            lines.append(f"- [{f_type}] Decision #{d_id}: '{f_title}'")
+            lines.append(f"  Reason: {reason}")
+            if f.get("proposed_claim") and f.get("existing_claim"):
+                lines.append(f"  Proposed Claim: {f['proposed_claim']}")
+                lines.append(f"  Existing Claim: {f['existing_claim']}")
+            if f.get("markdown_path"):
+                lines.append(f"  ADR: {f['markdown_path']}")
+
+    if evidence:
+        lines.append("\nEvidence Decisions Evaluated:")
+        for ev in evidence:
+            lines.append(f"- Decision #{ev['decision_id']}: '{ev['title']}' (ADR: {ev.get('path') or 'none'})")
+
+    lines.append("\nNote: This check reports observations and evidence for operator review. It does NOT automatically approve, reject, or modify any decision.")
+    return "\n".join(lines)
+
+
+
 def _repo_property() -> dict[str, Any]:
     return {
         "type": "string",
@@ -638,6 +723,28 @@ def tool_schemas(repository_names: list[str]) -> list[dict[str, Any]]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_architectural_consistency",
+                "description": (
+                    "Check a proposed Decision or draft against existing approved architectural decisions and ADRs. "
+                    "Reports potential conflicts, contradictions, overlapping decisions, or compatibility. "
+                    "Does not approve, reject, or modify any decision."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Title of the proposed decision."},
+                        "decision": {"type": "string", "description": "The proposed architectural choice or policy."},
+                        "context": {"type": "string", "description": "Context or problem statement."},
+                        "rationale": {"type": "string", "description": "Rationale or justification."},
+                        "decision_id": {"type": "integer", "description": "Optional ID of an existing decision in the database to exclude from self-comparison."},
+                    },
+                    "required": ["title"],
+                },
+            },
+        },
     ]
 
 
@@ -683,4 +790,6 @@ TOOL_REGISTRY: dict[str, ToolFunction] = {
     "get_decision": tool_get_decision,
     "draft_question": tool_draft_question,
     "draft_decision": tool_draft_decision,
+    "check_architectural_consistency": tool_check_architectural_consistency,
 }
+

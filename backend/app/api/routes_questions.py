@@ -5,12 +5,29 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_question, get_workspace
+from app.api.deps import get_decision, get_question, get_workspace
 from app.db import get_db
-from app.models import Conversation, OpenQuestion, utcnow
-from app.schemas import OpenQuestionCreate, OpenQuestionOut, OpenQuestionUpdate
+from app.models import Conversation, Decision, OpenQuestion, utcnow
+from app.schemas import DecisionOut, OpenQuestionCreate, OpenQuestionOut, OpenQuestionUpdate
+from sqlalchemy.orm.attributes import flag_modified
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["questions"])
+
+
+def _populate_addressed_by(db: Session, workspace_id: int, questions: list[OpenQuestion]) -> None:
+    """Populate transient addressed_by attribute on questions from Decision.related_questions."""
+    if not questions:
+        return
+    decisions = db.scalars(
+        select(Decision).where(Decision.workspace_id == workspace_id)
+    ).all()
+    for q in questions:
+        q_refs = {q.id, str(q.id), str(q.uid)}
+        q.addressed_by = [
+            d.id
+            for d in decisions
+            if any(ref in q_refs or str(ref) in q_refs for ref in (d.related_questions or []))
+        ]
 
 
 @router.get("/questions", response_model=list[OpenQuestionOut])
@@ -28,7 +45,9 @@ def list_questions(
     if conversation_id is not None:
         query = query.where(OpenQuestion.conversation_id == conversation_id)
     questions = db.scalars(query.order_by(OpenQuestion.id.asc())).all()
+    _populate_addressed_by(db, workspace_id, questions)
     return [OpenQuestionOut.model_validate(q) for q in questions]
+
 
 
 @router.post(
@@ -81,6 +100,7 @@ def create_question(
     db.add(question)
     db.commit()
     db.refresh(question)
+    _populate_addressed_by(db, workspace_id, [question])
     return OpenQuestionOut.model_validate(question)
 
 
@@ -92,7 +112,9 @@ def read_question(
 ) -> OpenQuestionOut:
     """Retrieve an open question by ID."""
     get_workspace(db, workspace_id)
-    return OpenQuestionOut.model_validate(get_question(db, workspace_id, question_id))
+    question = get_question(db, workspace_id, question_id)
+    _populate_addressed_by(db, workspace_id, [question])
+    return OpenQuestionOut.model_validate(question)
 
 
 @router.patch("/questions/{question_id}", response_model=OpenQuestionOut)
@@ -145,6 +167,7 @@ def update_question(
 
     db.commit()
     db.refresh(question)
+    _populate_addressed_by(db, workspace_id, [question])
     return OpenQuestionOut.model_validate(question)
 
 
@@ -159,3 +182,71 @@ def delete_question(
     question = get_question(db, workspace_id, question_id)
     db.delete(question)
     db.commit()
+
+
+@router.get("/questions/{question_id}/decisions", response_model=list[DecisionOut])
+def list_question_decisions(
+    workspace_id: int,
+    question_id: int,
+    db: Session = Depends(get_db),
+) -> list[DecisionOut]:
+    """List decisions that address this open question."""
+    get_workspace(db, workspace_id)
+    question = get_question(db, workspace_id, question_id)
+    q_refs = {question.id, str(question.id), str(question.uid)}
+    decisions = db.scalars(
+        select(Decision).where(Decision.workspace_id == workspace_id).order_by(Decision.id.asc())
+    ).all()
+    matching = [
+        d for d in decisions
+        if any(ref in q_refs or str(ref) in q_refs for ref in (d.related_questions or []))
+    ]
+    return [DecisionOut.model_validate(d) for d in matching]
+
+
+@router.post("/questions/{question_id}/decisions/{decision_id}", response_model=DecisionOut)
+def link_decision_to_question(
+    workspace_id: int,
+    question_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Link a decision to an open question (indicates the decision addresses the question)."""
+    get_workspace(db, workspace_id)
+    question = get_question(db, workspace_id, question_id)
+    decision = get_decision(db, workspace_id, decision_id)
+
+    related = list(decision.related_questions or [])
+    q_refs = {question.id, str(question.id), str(question.uid)}
+    if not any(ref in q_refs or str(ref) in q_refs for ref in related):
+        related.append(question.id)
+        decision.related_questions = related
+        flag_modified(decision, "related_questions")
+        db.commit()
+        db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
+
+@router.delete("/questions/{question_id}/decisions/{decision_id}", response_model=DecisionOut)
+def unlink_decision_from_question(
+    workspace_id: int,
+    question_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Remove the association between a decision and an open question."""
+    get_workspace(db, workspace_id)
+    question = get_question(db, workspace_id, question_id)
+    decision = get_decision(db, workspace_id, decision_id)
+
+    q_refs = {question.id, str(question.id), str(question.uid)}
+    related = [
+        ref for ref in (decision.related_questions or [])
+        if ref not in q_refs and str(ref) not in q_refs
+    ]
+    decision.related_questions = related
+    flag_modified(decision, "related_questions")
+    db.commit()
+    db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
