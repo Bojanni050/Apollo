@@ -370,6 +370,38 @@ export interface NativePickResult {
   error?: string
 }
 
+export interface LlmSettings {
+  base_url: string | null
+  model: string | null
+  context_tokens: number
+  max_output_tokens: number
+  temperature: number
+  api_key_configured: boolean
+}
+
+export interface LlmSettingsUpdatePayload {
+  base_url?: string
+  model?: string
+  api_key?: string
+  context_tokens?: number
+  max_output_tokens?: number
+  temperature?: number
+}
+
+export interface LlmModelInfo {
+  id: string
+  context_window?: number | null
+  owned_by?: string | null
+  input_price_per_m?: number | null
+  output_price_per_m?: number | null
+  capabilities: string[]
+}
+
+export interface LlmModelsResult {
+  models: LlmModelInfo[]
+  error?: string | null
+}
+
 
 
 
@@ -741,6 +773,18 @@ export const api = {
   },
   pickNativeFolder: () =>
     request<NativePickResult>('/system/pick-native-folder', { method: 'POST' }),
+  getLlmSettings: () =>
+    request<LlmSettings>('/system/settings/llm'),
+  updateLlmSettings: (payload: LlmSettingsUpdatePayload) =>
+    request<LlmSettings>('/system/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  fetchLlmModels: (baseUrl?: string, apiKey?: string) =>
+    request<LlmModelsResult>('/system/settings/llm/models', {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl || undefined, api_key: apiKey || undefined }),
+    }),
 
   // -- repository sources (architecture evidence) ------------------------
   listSources: (workspaceId: number) =>

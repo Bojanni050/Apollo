@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from './api/client'
 import { AddRepoModal } from './components/AddRepoModal'
+import { SettingsModal } from './components/SettingsModal'
 import { ContextSidebar } from './components/ContextSidebar'
 import { FileContentColumn } from './components/FileContentColumn'
 import { FolderContentsColumn, type ItemCard } from './components/FolderContentsColumn'
@@ -65,6 +66,7 @@ export default function App() {
   const [contextOpen, setContextOpen] = useState(true)
   const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
   const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Async Status
   const [sending, setSending] = useState(false)
@@ -464,6 +466,7 @@ export default function App() {
           }}
           onSelectWorkspace={selectWorkspace}
           onAddRepository={() => setAddRepoModalOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         {/* Column 2: Folder Contents */}
@@ -547,6 +550,7 @@ export default function App() {
           }}
         />
       )}
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

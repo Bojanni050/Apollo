@@ -43,6 +43,50 @@ class OpenAICompatibleProvider:
     def chat_url(self) -> str:
         return f"{self.base_url}/chat/completions"
 
+    @property
+    def models_url(self) -> str:
+        return f"{self.base_url}/models"
+
+    def list_models(self) -> list[dict[str, Any]]:
+        """Fetch the model list from the endpoint's ``/models`` route.
+
+        Works without a configured model (unlike chat), so the settings screen
+        can offer a picker before anything else is set up. Local runtimes
+        (Ollama, vLLM, LM Studio) return their local models here; OpenAI and
+        OpenRouter return catalog entries. Anything the endpoint does not
+        provide (pricing, capabilities) is filled in by the caller.
+        """
+        request = urllib.request.Request(self.models_url, headers=self._headers(), method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise LLMError(f"LLM endpoint returned HTTP {exc.code} for /models: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise LLMError(f"Could not reach the LLM endpoint: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise LLMError("LLM endpoint returned a non-JSON response for /models.") from exc
+
+        models = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(models, list):
+            # Ollama's compatibility layer returns a bare list.
+            models = body if isinstance(body, list) else []
+        result: list[dict[str, Any]] = []
+        for entry in models:
+            if not isinstance(entry, dict):
+                continue
+            model_id = entry.get("id") or entry.get("name") or entry.get("model")
+            if model_id:
+                result.append(
+                    {
+                        "id": str(model_id),
+                        "context_window": entry.get("context_length") or entry.get("context_window"),
+                        "owned_by": entry.get("owned_by"),
+                    }
+                )
+        return result
+
     def chat(
         self,
         messages: list[dict[str, Any]],
