@@ -1539,18 +1539,18 @@ input:focus, textarea:focus, select:focus {
 .model-dropdown-filter { padding: 8px; border-bottom: 1px solid var(--border); }
 
 .model-dropdown-list {
-  max-height: 260px;
+  max-height: 340px;
   overflow-y: auto;
 }
 
 .model-dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 12px;
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: #FFFFFF;
   border: none;
   border-bottom: 1px solid var(--border-light);
@@ -1562,28 +1562,85 @@ input:focus, textarea:focus, select:focus {
 .model-dropdown-item:hover { background: #F4F4F5; }
 .model-dropdown-item.selected { background: #E4E4E7; font-weight: 600; }
 
+/* Narrow left column: In / Out price per 1M tokens */
+.model-item-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 68px;
+  padding-top: 1px;
+}
+
+.model-item-side-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.model-item-side-label {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.model-item-side-value {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Right column: title, capability chips, meta line */
+.model-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
 .model-item-id {
   font-family: var(--font-mono);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.model-item-meta {
+.model-item-caps {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.model-item-price {
+.model-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 500;
   color: var(--text-dim);
-  font-size: 11px;
+  background: #FFFFFF;
   white-space: nowrap;
 }
 
-.model-item-caps { display: flex; gap: 3px; }
-.model-cap { font-size: 12px; }
+.model-cap-icon { font-size: 10px; }
+
+.model-item-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .model-selected-info {
   margin-top: 6px;

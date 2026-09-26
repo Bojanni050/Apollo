@@ -327,18 +327,33 @@ function LlmSectionFields({
                       setDropdownOpen(false)
                     }}
                   >
-                    <span className="model-item-id">{m.id}</span>
-                    <span className="model-item-meta">
-                      <span className="model-item-price" title="USD per 1M tokens, input / output">
-                        {priceLabel(m.input_price_per_m)} / {priceLabel(m.output_price_per_m)}
+                    <span className="model-item-side">
+                      <span className="model-item-side-row">
+                        <span className="model-item-side-label">In:</span>
+                        <span className="model-item-side-value">{priceLabel(m.input_price_per_m)}</span>
+                      </span>
+                      <span className="model-item-side-row">
+                        <span className="model-item-side-label">Out:</span>
+                        <span className="model-item-side-value">{priceLabel(m.output_price_per_m)}</span>
+                      </span>
+                    </span>
+                    <span className="model-item-main">
+                      <span className="model-item-head">
+                        <span className="model-item-id">{m.id}</span>
                       </span>
                       <span className="model-item-caps">
                         {m.capabilities.map((c) => (
                           <span key={c} className="model-cap" title={CAPABILITY_ICONS[c]?.label || c}>
-                            {CAPABILITY_ICONS[c]?.icon || '•'}
+                            <span className="model-cap-icon">{CAPABILITY_ICONS[c]?.icon || '•'}</span>
+                            {CAPABILITY_ICONS[c]?.label || c}
                           </span>
                         ))}
                       </span>
+                      {m.context_window ? (
+                        <span className="model-item-note">
+                          {m.context_window.toLocaleString()} token context window
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 ))}
