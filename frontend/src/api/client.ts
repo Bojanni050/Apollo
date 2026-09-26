@@ -191,6 +191,8 @@ export interface Decision {
   markdown_path: string | null
   related_documents: string[] | null
   related_questions: (string | number)[] | null
+  superseded_by_id?: number | null
+  supersedes_ids?: number[]
   created_at: string
   updated_at: string
 }
@@ -203,6 +205,16 @@ export interface GitStatusEntry {
 export interface DecisionApproveResult {
   decision: Decision
   approved: boolean
+  sync_status: 'created' | 'updated' | 'unchanged' | 'requires_review' | 'skipped'
+  markdown_path?: string | null
+  diff?: string | null
+  git_status: GitStatusEntry[]
+  message?: string | null
+}
+
+export interface DecisionSupersedeResult {
+  decision: Decision
+  superseded_by: Decision
   sync_status: 'created' | 'updated' | 'unchanged' | 'requires_review' | 'skipped'
   markdown_path?: string | null
   diff?: string | null
@@ -226,6 +238,31 @@ export interface ConsistencyCheckResult {
   candidates_evaluated: Array<{ id: number; title: string; status?: string; markdown_path?: string | null }>
   findings: ConsistencyFinding[]
   evidence: Array<{ decision_id: number; title: string; path?: string | null }>
+}
+
+export interface FolderItem {
+  name: string
+  path: string
+  is_dir: boolean
+}
+
+export interface QuickAccessItem {
+  name: string
+  path: string
+}
+
+export interface FolderBrowseResult {
+  current_path: string
+  parent_path: string | null
+  folders: FolderItem[]
+  drives: string[]
+  quick_access: QuickAccessItem[]
+}
+
+export interface NativePickResult {
+  path?: string
+  cancelled?: boolean
+  error?: string
 }
 
 
@@ -319,13 +356,28 @@ export const api = {
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
   listWorkspaces: () => request<Workspace[]>('/workspaces'),
-  createWorkspace: (name: string) =>
-    request<Workspace>('/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
+  // The backend takes a description as well as a name (WorkspaceCreate); it is
+  // optional and stored verbatim, so an empty string is sent as null.
+  createWorkspace: (name: string, description?: string | null) =>
+    request<Workspace>('/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: description ?? null }),
+    }),
   getWorkspace: (id: number) => request<Workspace>(`/workspaces/${id}`),
 
+  // `writable` only has an effect for kind='documentation': the backend forces
+  // source repositories to read-only, and rejects a second documentation
+  // repository with 409. Those rules stay on the server.
   addRepository: (
     workspaceId: number,
-    payload: { name: string; local_path: string; branch?: string; kind: RepoKind },
+    payload: {
+      name: string
+      local_path: string
+      branch?: string
+      kind: RepoKind
+      writable?: boolean
+      description?: string | null
+    },
   ) =>
     request<Repository>(`/workspaces/${workspaceId}/repositories`, {
       method: 'POST',
@@ -555,6 +607,35 @@ export const api = {
         body: JSON.stringify(payload),
       },
     ),
+  supersedeDecision: (workspaceId: number, decisionId: number, supersededById: number) =>
+    request<DecisionSupersedeResult>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/supersede`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ superseded_by_id: supersededById }),
+      },
+    ),
+  cancelDecisionSupersession: (workspaceId: number, decisionId: number) =>
+    request<Decision>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/supersede`,
+      {
+        method: 'DELETE',
+      },
+    ),
+  getDecisionSupersededBy: (workspaceId: number, decisionId: number) =>
+    request<Decision>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/superseded-by`,
+    ),
+  getDecisionSupersedes: (workspaceId: number, decisionId: number) =>
+    request<Decision[]>(
+      `/workspaces/${workspaceId}/decisions/${decisionId}/supersedes`,
+    ),
+  browseFolders: (path?: string) => {
+    const q = path ? `?path=${encodeURIComponent(path)}` : ''
+    return request<FolderBrowseResult>(`/system/folders${q}`)
+  },
+  pickNativeFolder: () =>
+    request<NativePickResult>('/system/pick-native-folder', { method: 'POST' }),
 }
 
 

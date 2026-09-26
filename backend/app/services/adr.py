@@ -396,3 +396,200 @@ def sync_decision_adr(repo_root: str | Path, decision: Decision) -> ADRSyncResul
         git_status=entries,
         message=message,
     )
+
+
+def apply_superseded_notice_to_content(
+    content: str,
+    superseding_decision: Decision,
+) -> str:
+    """Insert or update supersession notice near the top of ADR and update status."""
+    num = (
+        _extract_number_from_title(superseding_decision.title)
+        or (_extract_number_from_title(superseding_decision.markdown_path) if superseding_decision.markdown_path else None)
+    )
+    if num is not None:
+        ref_str = f"ADR-{num:03d}"
+    else:
+        ref_str = f"Decision #{superseding_decision.id} ({superseding_decision.title.strip()})"
+
+    notice_line = f"> Superseded by {ref_str}."
+
+    lines = content.splitlines(keepends=True)
+
+    h1_index = -1
+    notice_index = -1
+
+    for i, line in enumerate(lines):
+        if h1_index == -1 and line.startswith("# "):
+            h1_index = i
+        if re.match(r"^>\s*Superseded by\b", line.strip(), re.IGNORECASE):
+            notice_index = i
+
+    if notice_index != -1:
+        lines[notice_index] = notice_line + "\n"
+    elif h1_index != -1:
+        # Insert notice directly following H1
+        lines.insert(h1_index + 1, f"\n{notice_line}\n")
+    else:
+        lines.insert(0, f"{notice_line}\n\n")
+
+    new_content = "".join(lines)
+
+    # Update or add - Status: superseded
+    if re.search(r"^[-*]\s*Status\s*:\s*.+$", new_content, re.MULTILINE | re.IGNORECASE):
+        new_content = re.sub(
+            r"^([-*]\s*Status\s*:\s*).+$",
+            r"\g<1>superseded",
+            new_content,
+            count=1,
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+    else:
+        new_content = new_content.replace(notice_line, f"{notice_line}\n\n- Status: superseded", 1)
+
+    return new_content
+
+
+def remove_superseded_notice_from_content(content: str) -> str:
+    """Remove supersession notice and reset status to approved."""
+    lines = content.splitlines(keepends=True)
+    filtered = [l for l in lines if not re.match(r"^>\s*Superseded by\b", l.strip(), re.IGNORECASE)]
+    new_content = "".join(filtered)
+    new_content = re.sub(r"\n{3,}", "\n\n", new_content)
+
+    if re.search(r"^[-*]\s*Status\s*:\s*.+$", new_content, re.MULTILINE | re.IGNORECASE):
+        new_content = re.sub(
+            r"^([-*]\s*Status\s*:\s*).+$",
+            r"\g<1>approved",
+            new_content,
+            count=1,
+            flags=re.MULTILINE | re.IGNORECASE,
+        )
+    return new_content
+
+
+def mark_adr_superseded(
+    repo_root: str | Path,
+    superseded_decision: Decision,
+    superseding_decision: Decision,
+) -> ADRSyncResult:
+    """Mark an existing historical ADR as superseded by a newer decision.
+
+    Guarantees:
+    - Original decision content, rationale, context, and references are preserved.
+    - Historical ADR is modified in-place; not deleted or regenerated.
+    - Idempotent: repeated marking with the same target causes no redundant diffs.
+    - Missing or conflicting ADRs are safely reported without data loss.
+    - Changes remain uncommitted in working tree for operator inspection.
+    """
+    root_path = Path(repo_root)
+
+    if superseded_decision.markdown_path:
+        dest_path = safe_path(root_path, superseded_decision.markdown_path)
+    else:
+        try:
+            dest_path = resolve_adr_path(root_path, superseded_decision)
+        except Exception:
+            dest_path = None
+
+    if dest_path is None or not dest_path.exists():
+        rel = superseded_decision.markdown_path or (to_rel_path(root_path, dest_path) if dest_path else "unknown")
+        entries = git.status(root_path) if git.is_repo(root_path) else []
+        return ADRSyncResult(
+            decision=superseded_decision,
+            sync_status="skipped",
+            markdown_path=rel,
+            diff=None,
+            git_status=entries,
+            message=f"Historical ADR document not found at '{rel}'. Database record marked as superseded.",
+        )
+
+    rel_path = to_rel_path(root_path, dest_path)
+    existing_content = read_document(root_path, rel_path)
+    verify_file_corresponds_to_decision(existing_content, superseded_decision, rel_path)
+
+    new_content = apply_superseded_notice_to_content(existing_content, superseding_decision)
+
+    if existing_content.strip() == new_content.strip():
+        entries = git.status(root_path) if git.is_repo(root_path) else []
+        return ADRSyncResult(
+            decision=superseded_decision,
+            sync_status="unchanged",
+            markdown_path=rel_path,
+            diff=None,
+            git_status=entries,
+            message=f"ADR at '{rel_path}' is already marked as superseded by '{superseding_decision.title}'.",
+        )
+
+    diff_str = _render_unified_diff(rel_path, existing_content, new_content)
+    _atomic_write(dest_path, new_content)
+    superseded_decision.markdown_path = rel_path
+    entries = git.status(root_path) if git.is_repo(root_path) else []
+
+    return ADRSyncResult(
+        decision=superseded_decision,
+        sync_status="updated",
+        markdown_path=rel_path,
+        diff=diff_str,
+        git_status=entries,
+        message=f"ADR at '{rel_path}' updated with supersession notice.",
+    )
+
+
+def unmark_adr_superseded(
+    repo_root: str | Path,
+    superseded_decision: Decision,
+) -> ADRSyncResult:
+    """Revert an ADR supersession notice back to approved."""
+    root_path = Path(repo_root)
+    if not superseded_decision.markdown_path:
+        entries = git.status(root_path) if git.is_repo(root_path) else []
+        return ADRSyncResult(
+            decision=superseded_decision,
+            sync_status="skipped",
+            markdown_path="",
+            diff=None,
+            git_status=entries,
+            message="No markdown_path recorded for decision.",
+        )
+
+    dest_path = safe_path(root_path, superseded_decision.markdown_path)
+    if not dest_path.exists():
+        entries = git.status(root_path) if git.is_repo(root_path) else []
+        return ADRSyncResult(
+            decision=superseded_decision,
+            sync_status="skipped",
+            markdown_path=superseded_decision.markdown_path,
+            diff=None,
+            git_status=entries,
+            message="ADR file not found on disk.",
+        )
+
+    rel_path = to_rel_path(root_path, dest_path)
+    existing_content = read_document(root_path, rel_path)
+    verify_file_corresponds_to_decision(existing_content, superseded_decision, rel_path)
+
+    new_content = remove_superseded_notice_from_content(existing_content)
+    if existing_content.strip() == new_content.strip():
+        entries = git.status(root_path) if git.is_repo(root_path) else []
+        return ADRSyncResult(
+            decision=superseded_decision,
+            sync_status="unchanged",
+            markdown_path=rel_path,
+            diff=None,
+            git_status=entries,
+            message=f"ADR at '{rel_path}' does not have a supersession notice.",
+        )
+
+    diff_str = _render_unified_diff(rel_path, existing_content, new_content)
+    _atomic_write(dest_path, new_content)
+    entries = git.status(root_path) if git.is_repo(root_path) else []
+
+    return ADRSyncResult(
+        decision=superseded_decision,
+        sync_status="updated",
+        markdown_path=rel_path,
+        diff=diff_str,
+        git_status=entries,
+        message=f"ADR at '{rel_path}' supersession notice removed.",
+    )

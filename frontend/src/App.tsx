@@ -19,6 +19,7 @@ import { ContextPanel } from './components/ContextPanel'
 import { DecisionsPanel } from './components/DecisionsPanel'
 import { LoginForm } from './components/LoginForm'
 import { QuestionsPanel } from './components/QuestionsPanel'
+import { SetupWizard } from './components/SetupWizard'
 import { WorkspacePanel } from './components/WorkspacePanel'
 
 export default function App() {
@@ -191,6 +192,27 @@ export default function App() {
     setDocumentMarkdown(null)
   }, [])
 
+  // Called by the setup wizard once a workspace exists. Selecting it here means
+  // the app is usable immediately, and re-running it after a repository is
+  // registered reloads the workspace so the new document tree appears.
+  //
+  // This must be declared before ANY early return below. Hooks called after a
+  // conditional return are only registered on the renders that reach them, and
+  // React then fails with "Rendered more hooks than during the previous render"
+  // the moment the condition flips -- which is exactly what happens on the
+  // first workspace creation.
+  const onWorkspaceCreated = useCallback(
+    async (created: Workspace) => {
+      const fresh = await api.getWorkspace(created.id)
+      setWorkspaces((prev) => {
+        const others = prev.filter((w) => w.id !== fresh.id)
+        return [...others, fresh].sort((a, b) => a.name.localeCompare(b.name))
+      })
+      await selectWorkspace(fresh)
+    },
+    [selectWorkspace],
+  )
+
 
 
   // -- actions -----------------------------------------------------------
@@ -346,14 +368,8 @@ export default function App() {
         <div className="titlebar">
           <h1>Gaia Docs Architect</h1>
         </div>
-        <div className="empty" style={{ paddingTop: 80 }}>
-          <p>No workspace yet.</p>
-          <p className="faint">Create one from the API, then reload this page:</p>
-          <pre className="code" style={{ maxWidth: 460, margin: '12px auto' }}>
-            {`curl -X POST localhost:8000/api/workspaces \\
-  -H "content-type: application/json" \\
-  -d '{"name":"Gaia"}'`}
-          </pre>
+        <div className="empty" style={{ paddingTop: 60 }}>
+          <SetupWizard onWorkspaceCreated={onWorkspaceCreated} />
         </div>
       </div>
     )
@@ -444,6 +460,10 @@ export default function App() {
                 onSelectView={setView}
                 openQuestionsCount={questions.filter((q) => q.status === 'open').length}
                 decisionsCount={decisions.length}
+                onRepositoryAdded={async () => {
+                  const updated = await api.getWorkspace(workspace.id)
+                  await selectWorkspace(updated)
+                }}
               />
             ) : null}
           </div>

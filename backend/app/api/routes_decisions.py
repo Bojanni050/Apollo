@@ -25,6 +25,8 @@ from app.schemas import (
     DecisionApproveOut,
     DecisionCreate,
     DecisionOut,
+    DecisionSupersedeIn,
+    DecisionSupersedeOut,
     DecisionUpdate,
     GitStatusEntryOut,
     OpenQuestionOut,
@@ -36,7 +38,9 @@ from app.services.adr import (
     ADRConflictError,
     ADRError,
     AmbiguousADRLocationError,
+    mark_adr_superseded,
     sync_decision_adr,
+    unmark_adr_superseded,
 )
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["decisions"])
@@ -301,6 +305,198 @@ def approve_decision(
         git_status=[GitStatusEntryOut(path=e.path, status=e.status) for e in sync_result.git_status],
         message=sync_result.message,
     )
+
+
+@router.post(
+    "/decisions/{decision_id}/supersede",
+    response_model=DecisionSupersedeOut,
+    status_code=status.HTTP_200_OK,
+)
+def supersede_decision(
+    workspace_id: int,
+    decision_id: int,
+    payload: DecisionSupersedeIn,
+    db: Session = Depends(get_db),
+) -> DecisionSupersedeOut:
+    """Explicitly mark an older architectural decision as superseded by a newer approved decision."""
+    get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+    superseding = get_decision(db, workspace_id, payload.superseded_by_id)
+
+    # Validation constraints
+    if decision.id == superseding.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "A decision cannot supersede itself.",
+        )
+
+    if superseding.status == "superseded" or superseding.superseded_by_id is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot supersede with Decision #{superseding.id} because it is already superseded.",
+        )
+
+    if superseding.status != "approved":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Target Decision #{superseding.id} ('{superseding.title}') must be 'approved' to supersede an earlier decision.",
+        )
+
+    if decision.superseded_by_id == superseding.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Decision #{decision.id} is already superseded by Decision #{superseding.id}.",
+        )
+
+    if decision.superseded_by_id is not None and decision.superseded_by_id != superseding.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Decision #{decision.id} is already superseded by Decision #{decision.superseded_by_id}. "
+            "Remove the existing supersession before establishing a new one.",
+        )
+
+    # Cycle detection: walk chain from superseding to ensure decision is not reached
+    curr = superseding
+    visited_ids = {superseding.id}
+    while curr.superseded_by_id is not None:
+        if curr.superseded_by_id == decision.id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Cannot supersede: introducing this relationship would create an invalid cycle involving Decision #{decision.id} and #{superseding.id}.",
+            )
+        if curr.superseded_by_id in visited_ids:
+            break
+        visited_ids.add(curr.superseded_by_id)
+        curr = db.get(Decision, curr.superseded_by_id)
+        if not curr:
+            break
+
+    # Also verify superseding is not in decision's supersedes tree
+    to_visit = list(decision.supersedes)
+    tree_visited = set()
+    while to_visit:
+        desc = to_visit.pop()
+        if desc.id == superseding.id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Cannot supersede: Decision #{superseding.id} is already superseded by Decision #{decision.id}.",
+            )
+        if desc.id not in tree_visited:
+            tree_visited.add(desc.id)
+            to_visit.extend(desc.supersedes)
+
+    # 1. Update Decision status to superseded
+    decision.status = "superseded"
+    decision.superseded_by_id = superseding.id
+
+    # 2. Update ADR if documentation repository is configured and writable
+    sync_status = "skipped"
+    markdown_path = decision.markdown_path
+    diff_str = None
+    git_entries = []
+    message = "Database record marked as superseded."
+
+    try:
+        repo = get_documentation_repository(db, workspace_id)
+        if repo and repo.writable:
+            root = resolve_repo_root(repo)
+            sync_result = mark_adr_superseded(root, decision, superseding)
+            sync_status = sync_result.sync_status
+            markdown_path = sync_result.markdown_path
+            diff_str = sync_result.diff
+            git_entries = [GitStatusEntryOut(path=e.path, status=e.status) for e in sync_result.git_status]
+            message = sync_result.message
+            decision.markdown_path = sync_result.markdown_path
+    except HTTPException:
+        pass
+    except (ADRConflictError, AmbiguousADRLocationError, ADRError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    db.commit()
+    db.refresh(decision)
+    db.refresh(superseding)
+
+    return DecisionSupersedeOut(
+        decision=DecisionOut.model_validate(decision),
+        superseded_by=DecisionOut.model_validate(superseding),
+        sync_status=sync_status,
+        markdown_path=markdown_path,
+        diff=diff_str,
+        git_status=git_entries,
+        message=message,
+    )
+
+
+@router.delete(
+    "/decisions/{decision_id}/supersede",
+    response_model=DecisionOut,
+    status_code=status.HTTP_200_OK,
+)
+def cancel_decision_supersession(
+    workspace_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Remove a supersession relationship from a decision and restore its approved status."""
+    get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+
+    if decision.superseded_by_id is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Decision #{decision.id} is not superseded.",
+        )
+
+    decision.superseded_by_id = None
+    decision.status = "approved"
+
+    try:
+        repo = get_documentation_repository(db, workspace_id)
+        if repo and repo.writable:
+            root = resolve_repo_root(repo)
+            unmark_adr_superseded(root, decision)
+    except Exception:
+        pass
+
+    db.commit()
+    db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
+
+@router.get(
+    "/decisions/{decision_id}/superseded-by",
+    response_model=DecisionOut,
+)
+def get_decision_superseded_by(
+    workspace_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> DecisionOut:
+    """Retrieve the decision that supersedes this decision."""
+    get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+    if decision.superseded_by_id is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Decision #{decision.id} is not superseded.",
+        )
+    superseding = get_decision(db, workspace_id, decision.superseded_by_id)
+    return DecisionOut.model_validate(superseding)
+
+
+@router.get(
+    "/decisions/{decision_id}/supersedes",
+    response_model=list[DecisionOut],
+)
+def get_decision_supersedes(
+    workspace_id: int,
+    decision_id: int,
+    db: Session = Depends(get_db),
+) -> list[DecisionOut]:
+    """Retrieve decisions that are superseded by this decision."""
+    get_workspace(db, workspace_id)
+    decision = get_decision(db, workspace_id, decision_id)
+    return [DecisionOut.model_validate(d) for d in decision.supersedes]
 
 
 @router.get("/decisions/{decision_id}/questions", response_model=list[OpenQuestionOut])

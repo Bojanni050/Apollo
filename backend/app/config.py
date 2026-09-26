@@ -30,7 +30,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 #: Origins the Vite dev server serves from. Used as the CORS default *only*
 #: when ``APP_ENV=development``; production must configure its own origins.
-DEV_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+#:
+#: 5273 is the dev server's port (see frontend/vite.config.ts and
+#: scripts/dev.ps1). It deliberately is not Vite's default of 5173, which is
+#: often already taken by another project on the machine. Because the Vite
+#: proxy keeps the browser same-origin, this list is a fallback rather than the
+#: normal path.
+DEV_CORS_ORIGINS = ["http://localhost:5273", "http://127.0.0.1:5273"]
 
 #: Shortest session secret accepted in production. Long enough that an
 #: offline brute force of the HMAC key is not realistic.

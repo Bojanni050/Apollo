@@ -96,7 +96,7 @@ def tool_list_documents(ctx: ToolContext, repository: str, path: str = ".") -> s
     except (DocumentError, PathSecurityError) as exc:
         return f"Error: {exc}"
     if not documents:
-        return "No Markdown documents found."
+        return "No documents found."
     return "\n".join(documents)
 
 
@@ -268,13 +268,21 @@ def tool_search_decisions(
     for d in decisions:
         adr = f" (ADR: {d.markdown_path})" if d.markdown_path else ""
         snippet = (d.decision[:100] + "...") if len(d.decision) > 100 else d.decision
-        lines.append(f"#{d.id} [{d.status}] {d.title}{adr} - {snippet}")
+        status_label = d.status
+        if d.superseded_by_id:
+            status_label = f"superseded by #{d.superseded_by_id}"
+        elif d.supersedes:
+            status_label = f"{d.status} (supersedes #{', #'.join(str(s.id) for s in d.supersedes)})"
+        lines.append(f"#{d.id} [{status_label}] {d.title}{adr} - {snippet}")
+        citation_note = d.title
+        if d.superseded_by_id:
+            citation_note = f"[Superseded by #{d.superseded_by_id}] {d.title}"
         ctx.citations.append(
             Citation(
                 repository=repo_name if d.markdown_path else "workspace",
                 path=d.markdown_path or f"decisions/{d.id}",
                 evidence_type="explicit_decision",
-                note=d.title,
+                note=citation_note,
                 decision_id=d.id,
             )
         )
@@ -333,12 +341,16 @@ def tool_get_decision(ctx: ToolContext, decision_id: int) -> str:
         return f"Error: Decision #{decision_id} not found in workspace {ctx.workspace.id}."
 
     repo_name = ctx.repositories[0].name if ctx.repositories else "workspace"
+    primary_note = d.title
+    if d.superseded_by_id:
+        primary_note = f"[Superseded by #{d.superseded_by_id}] {d.title}"
+
     ctx.citations.append(
         Citation(
             repository=repo_name if d.markdown_path else "workspace",
             path=d.markdown_path or f"decisions/{d.id}",
             evidence_type="explicit_decision",
-            note=d.title,
+            note=primary_note,
             decision_id=d.id,
         )
     )
@@ -347,6 +359,33 @@ def tool_get_decision(ctx: ToolContext, decision_id: int) -> str:
         f"Decision #{d.id}",
         f"Title: {d.title}",
         f"Status: {d.status}",
+    ]
+    if d.superseded_by_id:
+        lines.append(f"Superseded By: Decision #{d.superseded_by_id}" + (f" ({d.superseded_by.title})" if d.superseded_by else ""))
+        if d.superseded_by:
+            ctx.citations.append(
+                Citation(
+                    repository=repo_name if d.superseded_by.markdown_path else "workspace",
+                    path=d.superseded_by.markdown_path or f"decisions/{d.superseded_by.id}",
+                    evidence_type="explicit_decision",
+                    note=f"[Superseding Decision] {d.superseded_by.title}",
+                    decision_id=d.superseded_by.id,
+                )
+            )
+    if d.supersedes:
+        lines.append(f"Supersedes: {', '.join(f'Decision #{s.id} ({s.title})' for s in d.supersedes)}")
+        for s in d.supersedes:
+            ctx.citations.append(
+                Citation(
+                    repository=repo_name if s.markdown_path else "workspace",
+                    path=s.markdown_path or f"decisions/{s.id}",
+                    evidence_type="explicit_decision",
+                    note=f"[Superseded Decision] {s.title}",
+                    decision_id=s.id,
+                )
+            )
+
+    lines.extend([
         f"ADR Path: {d.markdown_path or '(no ADR generated yet)'}",
         f"Decided On: {d.decided_on.isoformat() if d.decided_on else 'none'}",
         f"Approved At: {d.approved_at.isoformat() if d.approved_at else 'none'}",
@@ -354,7 +393,7 @@ def tool_get_decision(ctx: ToolContext, decision_id: int) -> str:
         f"Decision:\n{d.decision or '(none)'}",
         f"Rationale:\n{d.rationale or '(none)'}",
         f"Consequences:\n{d.consequences or '(none)'}",
-    ]
+    ])
     if d.related_questions:
         lines.append(f"Related Questions: {', '.join(str(q) for q in d.related_questions)}")
     if d.related_documents:

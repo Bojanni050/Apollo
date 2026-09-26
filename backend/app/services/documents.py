@@ -13,8 +13,9 @@ from pathlib import Path
 from app.services.paths import PathSecurityError, safe_path, to_rel_path
 
 IGNORED_DIRS = {".git", "node_modules", ".venv", "__pycache__", ".idea", ".vscode"}
-DOC_SUFFIXES = {".md", ".markdown", ".mdx"}
-MAX_READ_BYTES = 512 * 1024
+DOC_SUFFIXES = {".md", ".markdown", ".mdx", ".txt", ".pdf", ".docx"}
+TEXT_DOC_SUFFIXES = {".md", ".markdown", ".mdx", ".txt"}
+MAX_READ_BYTES = 25 * 1024 * 1024  # 25 MB
 
 
 class DocumentError(Exception):
@@ -81,7 +82,7 @@ def build_tree(root: str | Path, subdir: str = ".") -> DocNode:
 
 
 def list_documents(root: str | Path, subdir: str = ".") -> list[str]:
-    """Flat list of repo-relative Markdown paths, for retrieval and search."""
+    """Flat list of repo-relative document paths, for retrieval and search."""
     root_path = Path(root)
     base = safe_path(root_path, subdir)
     if not base.is_dir():
@@ -101,28 +102,126 @@ def _walk(base: Path):
         yield dirpath, dirnames, filenames
 
 
-def read_document(root: str | Path, rel: str) -> str:
-    """Read a Markdown document as raw text."""
-    target = safe_path(root, rel)
-    if not target.exists():
-        raise DocumentError(f"Document not found: {rel}")
-    if target.is_dir():
-        raise DocumentError(f"{rel} is a directory, not a document.")
-    if target.suffix.lower() not in DOC_SUFFIXES:
-        raise DocumentError(f"Not a document file: {rel}")
-    if target.stat().st_size > MAX_READ_BYTES:
-        raise DocumentError(f"Document is too large to read: {rel}")
+def _read_txt(target: Path) -> str:
+    """Read a plain text or Markdown file as raw text."""
     try:
         # utf-8-sig transparently strips a leading byte-order mark, which some
         # editors add and which would otherwise break heading detection.
         return target.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
-        raise DocumentError(f"Could not read document: {rel}") from exc
+        raise DocumentError(f"Could not read text document: {target.name}") from exc
+
+
+def _read_docx(target: Path) -> str:
+    """Extract structured Markdown text from a .docx Word document."""
+    try:
+        import docx
+    except ImportError as exc:
+        raise DocumentError(
+            "python-docx is not installed. Install python-docx to read .docx files."
+        ) from exc
+
+    try:
+        doc = docx.Document(str(target))
+        parts: list[str] = []
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            style_name = (p.style.name if p.style and p.style.name else "").lower()
+            if "heading 1" in style_name:
+                parts.append(f"# {text}")
+            elif "heading 2" in style_name:
+                parts.append(f"## {text}")
+            elif "heading 3" in style_name:
+                parts.append(f"### {text}")
+            elif "heading 4" in style_name:
+                parts.append(f"#### {text}")
+            elif "title" in style_name:
+                parts.append(f"# {text}")
+            elif "subtitle" in style_name:
+                parts.append(f"*{text}*")
+            elif "list" in style_name:
+                parts.append(f"- {text}")
+            else:
+                parts.append(text)
+
+        for table in doc.tables:
+            table_rows: list[list[str]] = []
+            for row in table.rows:
+                row_cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                table_rows.append(row_cells)
+            if table_rows:
+                header = table_rows[0]
+                parts.append("\n| " + " | ".join(header) + " |")
+                parts.append("| " + " | ".join(["---"] * len(header)) + " |")
+                for r in table_rows[1:]:
+                    parts.append("| " + " | ".join(r) + " |")
+                parts.append("")
+
+        if not parts:
+            return "*(Empty Word document)*"
+        return "\n\n".join(parts)
+    except Exception as exc:
+        raise DocumentError(f"Could not read Word document {target.name}: {exc}") from exc
+
+
+def _read_pdf(target: Path) -> str:
+    """Extract text from a PDF document with page boundaries."""
+    try:
+        import pypdf
+    except ImportError as exc:
+        raise DocumentError(
+            "pypdf is not installed. Install pypdf to read PDF files."
+        ) from exc
+
+    try:
+        reader = pypdf.PdfReader(str(target))
+        parts: list[str] = []
+        if reader.metadata and reader.metadata.title:
+            parts.append(f"# {reader.metadata.title}")
+
+        for idx, page in enumerate(reader.pages, start=1):
+            text = (page.extract_text() or "").strip()
+            if text:
+                parts.append(f"## Page {idx}\n\n{text}")
+
+        if not parts:
+            page_count = len(reader.pages)
+            return f"*(PDF file with {page_count} page{'s' if page_count != 1 else ''} - no extractable text found)*"
+        return "\n\n".join(parts)
+    except Exception as exc:
+        raise DocumentError(f"Could not read PDF document {target.name}: {exc}") from exc
+
+
+def read_document(root: str | Path, rel: str) -> str:
+    """Read a document (Markdown, plain text, PDF, or DOCX) as text/markdown."""
+    target = safe_path(root, rel)
+    if not target.exists():
+        raise DocumentError(f"Document not found: {rel}")
+    if target.is_dir():
+        raise DocumentError(f"{rel} is a directory, not a document.")
+    suffix = target.suffix.lower()
+    if suffix not in DOC_SUFFIXES:
+        raise DocumentError(f"Not a document file: {rel}")
+    if target.stat().st_size > MAX_READ_BYTES:
+        raise DocumentError(f"Document is too large to read: {rel}")
+
+    if suffix in TEXT_DOC_SUFFIXES:
+        return _read_txt(target)
+    if suffix == ".docx":
+        return _read_docx(target)
+    if suffix == ".pdf":
+        return _read_pdf(target)
+
+    raise DocumentError(f"Unsupported document format: {suffix}")
 
 
 __all__ = [
     "DocNode",
     "DocumentError",
+    "DOC_SUFFIXES",
+    "TEXT_DOC_SUFFIXES",
     "PathSecurityError",
     "build_tree",
     "list_documents",

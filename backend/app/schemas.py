@@ -446,6 +446,8 @@ class DecisionOut(BaseModel):
     markdown_path: str | None = None
     related_documents: list[Any] | None = None
     related_questions: list[Any] | None = None
+    superseded_by_id: int | None = None
+    supersedes_ids: list[int] = Field(default_factory=list)
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -455,6 +457,22 @@ class DecisionApproveOut(BaseModel):
 
     decision: DecisionOut
     approved: bool = True
+    sync_status: str
+    markdown_path: str | None = None
+    diff: str | None = None
+    git_status: list[GitStatusEntryOut] = Field(default_factory=list)
+    message: str | None = None
+
+
+class DecisionSupersedeIn(BaseModel):
+    superseded_by_id: int = Field(gt=0, description="ID of the newer decision that supersedes this one")
+
+
+class DecisionSupersedeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    decision: DecisionOut
+    superseded_by: DecisionOut
     sync_status: str
     markdown_path: str | None = None
     diff: str | None = None

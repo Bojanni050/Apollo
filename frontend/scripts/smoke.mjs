@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Manual UI smoke check. Drives the real app in a browser to confirm the
  * three panels render, documents open, and conversation works end to end.
  *
@@ -8,7 +8,7 @@
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'
 
-const URL = process.env.SMOKE_URL || 'http://localhost:5173'
+const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 const OUT = 'screenshots'
 mkdirSync(OUT, { recursive: true })
 

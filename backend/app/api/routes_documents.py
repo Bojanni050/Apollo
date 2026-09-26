@@ -33,6 +33,8 @@ def _title_of(content: str, fallback: str) -> str:
         if stripped.startswith("#"):
             return stripped.lstrip("#").strip() or fallback
         if stripped:
+            if len(stripped) <= 80:
+                return stripped
             break
     return fallback
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Smoke test for Open Questions & Decisions UI integration.
  * Tests:
  * 1. Viewing, creating, and updating open questions
@@ -11,8 +11,8 @@
  */
 import { chromium } from 'playwright'
 
-const API = process.env.SMOKE_API || 'http://localhost:5173/api'
-const URL = process.env.SMOKE_URL || 'http://localhost:5173'
+const API = process.env.SMOKE_API || 'http://localhost:5273/api'
+const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 
 console.log(`Connecting to ${URL}...`)
 const browser = await chromium.launch()
@@ -27,18 +27,18 @@ page.on('console', (m) => {
 try {
   await page.goto(URL, { waitUntil: 'networkidle' })
   await page.waitForSelector('.titlebar h1', { timeout: 10000 })
-  console.log('✓ App loaded successfully')
+  console.log('âœ“ App loaded successfully')
 
   // Wait for workspace to load
   await page.waitForSelector('.tree-row', { timeout: 10000 })
-  console.log('✓ Workspace tree loaded')
+  console.log('âœ“ Workspace tree loaded')
 
   // --- 1. Open Questions Workflow ---
   console.log('\nTesting Open Questions Workflow...')
   const questionsBtn = page.locator('.titlebar .modes button', { hasText: 'Questions' })
   await questionsBtn.click()
   await page.waitForSelector('.split-layout', { timeout: 5000 })
-  console.log('✓ Questions panel rendered')
+  console.log('âœ“ Questions panel rendered')
 
   // Create question
   await page.locator('.split-sidebar .btn.primary', { hasText: '+ New' }).click()
@@ -48,7 +48,7 @@ try {
   await page.locator('form .btn.primary', { hasText: 'Create Question' }).click()
 
   await page.waitForSelector('.list-item', { hasText: 'Smoke Test Question: Cache Layer' })
-  console.log('✓ Created open question verified in list')
+  console.log('âœ“ Created open question verified in list')
 
   // Edit question
   await page.locator('.split-content .btn', { hasText: 'Edit' }).click()
@@ -59,14 +59,14 @@ try {
 
   await page.waitForSelector('.badge-distinction', { timeout: 5000 })
   const updatedStatus = await page.locator('.tag.ok', { hasText: 'answered' }).first().textContent()
-  console.log(`✓ Updated question status: ${updatedStatus}`)
+  console.log(`âœ“ Updated question status: ${updatedStatus}`)
 
   // --- 2. Decisions & ADR Approval Workflow ---
   console.log('\nTesting Decisions & ADR Sync Workflow...')
   const decisionsBtn = page.locator('.titlebar .modes button', { hasText: 'Decisions' })
   await decisionsBtn.click()
   await page.waitForSelector('.split-layout', { timeout: 5000 })
-  console.log('✓ Decisions panel rendered')
+  console.log('âœ“ Decisions panel rendered')
 
   // Create decision
   await page.locator('.split-sidebar .btn.primary', { hasText: '+ New' }).click()
@@ -79,11 +79,11 @@ try {
   await page.locator('form .btn.primary', { hasText: 'Create Decision' }).click()
 
   await page.waitForSelector('.list-item', { hasText: 'Smoke Test Decision: Adopt Redis' })
-  console.log('✓ Created proposed decision verified in list')
+  console.log('âœ“ Created proposed decision verified in list')
 
   // Check initial status is proposed
   const proposedTag = await page.locator('.split-content .tag.warn', { hasText: 'proposed' }).textContent()
-  console.log(`✓ Decision status is initially: ${proposedTag}`)
+  console.log(`âœ“ Decision status is initially: ${proposedTag}`)
 
   // Trigger explicit approval
   const approveBtn = page.locator('.split-content .btn', { hasText: 'Approve Decision' })
@@ -91,29 +91,29 @@ try {
 
   // Verify confirmation modal
   await page.waitForSelector('.modal-overlay', { timeout: 5000 })
-  console.log('✓ Approval confirmation modal displayed')
+  console.log('âœ“ Approval confirmation modal displayed')
   const modalText = await page.locator('.modal-dialog').textContent()
   if (!modalText.includes('No automatic Git commit or push will occur')) {
     throw new Error('Confirmation modal missing safety reminder regarding no automatic commit!')
   }
-  console.log('✓ Safety guarantees verified in confirmation modal')
+  console.log('âœ“ Safety guarantees verified in confirmation modal')
 
   // Confirm approval
   await page.locator('.modal-dialog .btn.primary', { hasText: 'Confirm Approval & Generate ADR' }).click()
   await page.waitForSelector('.tag.ok', { hasText: 'approved', timeout: 10000 })
-  console.log('✓ Decision explicitly approved, status changed to approved')
+  console.log('âœ“ Decision explicitly approved, status changed to approved')
 
   // Inspect ADR preview
   await page.locator('.subtab-btn', { hasText: 'ADR Preview' }).click()
   await page.waitForSelector('.doc-viewer', { timeout: 10000 })
   const adrTitle = await page.locator('.doc-viewer h1').textContent()
-  console.log(`✓ Rendered ADR Document heading: ${adrTitle}`)
+  console.log(`âœ“ Rendered ADR Document heading: ${adrTitle}`)
 
   // Inspect Git diff
   await page.locator('.subtab-btn', { hasText: 'Git Diff' }).click()
   await page.waitForSelector('.diff', { timeout: 10000 })
   const diffContent = await page.locator('.diff').textContent()
-  console.log(`✓ Proposed unified Git diff verified (length: ${diffContent.length} chars)`)
+  console.log(`âœ“ Proposed unified Git diff verified (length: ${diffContent.length} chars)`)
 
   // Verify no page errors occurred
   if (errors.length > 0) {

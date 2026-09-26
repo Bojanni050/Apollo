@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Approval smoke check: click Apply in the UI and verify the file really
  * moves on disk, that the tree refreshes, and that ambiguous items are not
  * applied. Run the backend + vite first, then:
@@ -6,8 +6,8 @@
  */
 import { chromium } from 'playwright'
 
-const API = process.env.SMOKE_API || 'http://localhost:5173/api'
-const URL = process.env.SMOKE_URL || 'http://localhost:5173'
+const API = process.env.SMOKE_API || 'http://localhost:5273/api'
+const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })

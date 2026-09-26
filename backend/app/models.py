@@ -316,8 +316,26 @@ class Decision(TimestampMixin, Base):
     markdown_path: Mapped[str | None] = mapped_column(String(1000))
     related_documents: Mapped[list | None] = mapped_column(JSONType, default=list)
     related_questions: Mapped[list | None] = mapped_column(JSONType, default=list)
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("decisions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="decisions")
+    superseded_by: Mapped[Decision | None] = relationship(
+        "Decision",
+        remote_side="Decision.id",
+        foreign_keys=[superseded_by_id],
+        back_populates="supersedes",
+    )
+    supersedes: Mapped[list[Decision]] = relationship(
+        "Decision",
+        foreign_keys=[superseded_by_id],
+        back_populates="superseded_by",
+    )
+
+    @property
+    def supersedes_ids(self) -> list[int]:
+        return [d.id for d in self.supersedes] if self.supersedes else []
 
 
 

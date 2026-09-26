@@ -6,6 +6,7 @@ import {
   type Decision,
   type DecisionApproveResult,
   type DecisionStatus,
+  type DecisionSupersedeResult,
   type OpenQuestion,
   type Repository,
   type Workspace,
@@ -52,6 +53,11 @@ export function DecisionsPanel({
   // Approval result
   const [approvalResult, setApprovalResult] = useState<DecisionApproveResult | null>(null)
 
+  // Supersede modal states
+  const [showSupersedeModal, setShowSupersedeModal] = useState(false)
+  const [supersedeTargetId, setSupersedeTargetId] = useState<number | null>(null)
+  const [supersedeResult, setSupersedeResult] = useState<DecisionSupersedeResult | null>(null)
+
   // Loaded ADR markdown for inspection
   const [adrMarkdown, setAdrMarkdown] = useState<string | null>(null)
   const [loadingAdr, setLoadingAdr] = useState(false)
@@ -78,6 +84,10 @@ export function DecisionsPanel({
   const [linkQuestionId, setLinkQuestionId] = useState<string>('')
 
   const selectedDecision = decisions.find((d) => d.id === selectedId) ?? null
+
+  const eligibleSupersedingDecisions = decisions.filter(
+    (d) => d.id !== selectedDecision?.id && d.status === 'approved' && !d.superseded_by_id,
+  )
 
   const linkedQuestionIds = new Set(
     (selectedDecision?.related_questions || []).map((r) => String(r)),
@@ -345,6 +355,42 @@ export function DecisionsPanel({
     }
   }
 
+  const handleSupersede = async () => {
+    if (!selectedDecision || !supersedeTargetId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.supersedeDecision(workspace.id, selectedDecision.id, supersedeTargetId)
+      setSupersedeResult(res)
+      setShowSupersedeModal(false)
+      await onRefreshDecisions()
+      await onRefreshTree()
+      if (res.diff) {
+        setSubTab('diff')
+      }
+    } catch (err) {
+      setShowSupersedeModal(false)
+      setError(err instanceof ApiError ? err.detail : 'Failed to supersede decision.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCancelSupersede = async (decisionId: number) => {
+    if (!window.confirm('Restore this decision back to approved status and remove the supersession notice?')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.cancelDecisionSupersession(workspace.id, decisionId)
+      await onRefreshDecisions()
+      await onRefreshTree()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : 'Failed to cancel supersession.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="split-layout">
       {/* Sidebar: list of decisions */}
@@ -417,6 +463,11 @@ export function DecisionsPanel({
                     <span className="mono faint" style={{ fontSize: 10 }}>
                       #{d.id}
                     </span>
+                    {d.superseded_by_id ? (
+                      <span className="tag dim mono" style={{ fontSize: 9 }} title={`Superseded by #${d.superseded_by_id}`}>
+                        ↳ #{d.superseded_by_id}
+                      </span>
+                    ) : null}
                     <span className="spacer" style={{ flex: 1 }} />
                     {d.markdown_path ? (
                       <span className="tag accent" style={{ fontSize: 9 }}>
@@ -779,6 +830,26 @@ export function DecisionsPanel({
                   {selectedDecision.status === 'approved' ? '✓ Re-sync ADR Documentation' : '✓ Approve Decision'}
                 </button>
 
+                {/* Explicit Supersede Button (available for approved decisions that are not yet superseded) */}
+                {selectedDecision.status === 'approved' && !selectedDecision.superseded_by_id && (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setSupersedeTargetId(eligibleSupersedingDecisions[0]?.id ?? null)
+                      setShowSupersedeModal(true)
+                    }}
+                    disabled={busy || eligibleSupersedingDecisions.length === 0}
+                    title={
+                      eligibleSupersedingDecisions.length === 0
+                        ? 'No other approved decisions available to supersede this one'
+                        : 'Mark this decision as superseded by a newer approved decision'
+                    }
+                    style={{ fontWeight: 600, color: 'var(--accent)' }}
+                  >
+                    ⚡ Supersede Decision
+                  </button>
+                )}
+
                 <button className="btn" onClick={() => startEdit(selectedDecision)} disabled={busy}>
                   Edit
                 </button>
@@ -831,6 +902,97 @@ export function DecisionsPanel({
                 ) : null}
               </div>
             </div>
+
+            {/* Navigable Lineage Banner: If this decision was superseded */}
+            {selectedDecision.superseded_by_id && (
+              <div
+                className="section"
+                style={{
+                  background: 'rgba(235, 87, 87, 0.08)',
+                  border: '1px solid var(--danger, #eb5757)',
+                  borderRadius: 'var(--radius)',
+                  padding: '12px 16px',
+                  margin: '12px 0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>⚠️</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--danger, #eb5757)' }}>
+                      Decision #{selectedDecision.id} is historically Superseded
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 3 }}>
+                      Superseded by:{' '}
+                      <button
+                        type="button"
+                        style={{
+                          cursor: 'pointer',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent)',
+                          fontWeight: 600,
+                          textDecoration: 'underline',
+                          fontSize: 12,
+                          padding: 0,
+                        }}
+                        onClick={() => setSelectedId(selectedDecision.superseded_by_id!)}
+                      >
+                        Decision #{selectedDecision.superseded_by_id} — {decisions.find(d => d.id === selectedDecision.superseded_by_id)?.title || 'Newer Decision'}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    className="btn small"
+                    onClick={() => handleCancelSupersede(selectedDecision.id)}
+                    disabled={busy}
+                    title="Revert supersession back to approved status"
+                  >
+                    Cancel Supersession
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Navigable Lineage Banner: If this decision supersedes older decisions */}
+            {decisions.some(d => d.superseded_by_id === selectedDecision.id) && (
+              <div
+                className="section"
+                style={{
+                  background: 'rgba(152, 195, 121, 0.08)',
+                  border: '1px solid var(--ok, #98c379)',
+                  borderRadius: 'var(--radius)',
+                  padding: '10px 14px',
+                  margin: '12px 0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14 }}>🔄</span>
+                  <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--ok, #98c379)' }}>
+                    Supersedes Historical Decision(s):
+                  </span>
+                  {decisions
+                    .filter(d => d.superseded_by_id === selectedDecision.id)
+                    .map(old => (
+                      <button
+                        key={old.id}
+                        type="button"
+                        className="tag"
+                        style={{
+                          cursor: 'pointer',
+                          background: 'var(--bg)',
+                          border: '1px solid var(--border)',
+                          fontSize: 11,
+                          padding: '2px 8px',
+                        }}
+                        onClick={() => setSelectedId(old.id)}
+                        title="Inspect historical superseded decision"
+                      >
+                        #{old.id} {old.title}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
 
             {/* Consistency Check Result Card */}
             {checkingConsistency && (
@@ -1243,12 +1405,12 @@ export function DecisionsPanel({
                   </span>
                 </div>
 
-                {approvalResult?.diff ? (
+                {approvalResult?.diff || supersedeResult?.diff ? (
                   <div>
                     <div className="faint" style={{ fontSize: 11, marginBottom: 4 }}>
-                      Unified diff generated by recent approval:
+                      Unified diff generated by recent {supersedeResult?.diff ? 'supersession' : 'approval'}:
                     </div>
-                    {renderDiff(approvalResult.diff)}
+                    {renderDiff((supersedeResult?.diff || approvalResult?.diff)!)}
                   </div>
                 ) : loadingDiff ? (
                   <div className="empty">Loading repository working tree diff...</div>
@@ -1276,12 +1438,12 @@ export function DecisionsPanel({
                   <span className="faint">· Working Tree</span>
                 </div>
 
-                {approvalResult?.git_status && approvalResult.git_status.length > 0 ? (
+                {(supersedeResult?.git_status || approvalResult?.git_status)?.length ? (
                   <div style={{ marginBottom: 16 }}>
                     <div className="faint" style={{ fontSize: 11, marginBottom: 6 }}>
-                      Entries changed by decision approval:
+                      Entries changed by decision {supersedeResult?.git_status ? 'supersession' : 'approval'}:
                     </div>
-                    {approvalResult.git_status.map((entry, idx) => (
+                    {(supersedeResult?.git_status || approvalResult?.git_status)!.map((entry, idx) => (
                       <div
                         key={idx}
                         className="inventory-item"
@@ -1376,6 +1538,102 @@ export function DecisionsPanel({
                 style={{ fontWeight: 600 }}
               >
                 {busy ? 'Approving & Synchronizing...' : 'Confirm Approval & Generate ADR'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Confirmation Modal for Superseding */}
+      {showSupersedeModal && selectedDecision && (
+        <div className="modal-overlay" onClick={() => !busy && setShowSupersedeModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span className="badge-distinction">
+                <span>⚡ Supersede Architectural Decision</span>
+              </span>
+            </div>
+
+            <h3 style={{ fontSize: 16, margin: '0 0 8px' }}>
+              Mark Decision #{selectedDecision.id} as Superseded
+            </h3>
+
+            <div
+              style={{
+                background: 'var(--panel-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                padding: '12px 14px',
+                marginBottom: 16,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ marginBottom: 10 }}>
+                <span className="faint" style={{ display: 'block', fontSize: 11, fontWeight: 600 }}>Old Decision:</span>
+                <strong>#{selectedDecision.id} — {selectedDecision.title}</strong>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                  Superseded by (newer approved decision):
+                </label>
+                <select
+                  value={supersedeTargetId ?? ''}
+                  onChange={(e) => setSupersedeTargetId(Number(e.target.value))}
+                  disabled={busy}
+                  style={{ width: '100%', padding: '6px 8px' }}
+                >
+                  {eligibleSupersedingDecisions.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      #{d.id} — {d.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: 'var(--panel-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                padding: '10px 12px',
+                fontSize: 12,
+                color: 'var(--text-dim)',
+                marginBottom: 16,
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+                Lifecycle changes:
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                <li>Old Decision #{selectedDecision.id} status becomes <span className="tag dim">superseded</span>.</li>
+                <li>Historical content, rationale, and references remain permanently preserved.</li>
+                <li>Old ADR receives a supersession notice near the beginning: <span className="mono">&gt; Superseded by ADR-XXX.</span></li>
+                <li>Changes to the ADR remain <strong>uncommitted in the Git working tree</strong> for your review.</li>
+                <li><strong>No automatic commit or push will occur.</strong></li>
+              </ul>
+            </div>
+
+            {error && <div className="banner" style={{ marginBottom: 12 }}>{error}</div>}
+
+            <div className="btn-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowSupersedeModal(false)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={handleSupersede}
+                disabled={busy || !supersedeTargetId}
+                style={{ fontWeight: 600 }}
+              >
+                {busy ? 'Superseding...' : 'Confirm Supersession'}
               </button>
             </div>
           </div>

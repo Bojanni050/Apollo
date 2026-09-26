@@ -99,16 +99,16 @@ def check_consistency(
     combined_proposal_text = f"{title} {decision_text} {context_text} {rationale_text} {consequences_text}".strip()
     proposal_keywords = extract_keywords(combined_proposal_text)
 
-    # 1. Retrieve approved decisions in the workspace
+    # 1. Retrieve approved and superseded decisions in the workspace
     query = select(Decision).where(
         Decision.workspace_id == workspace.id,
-        Decision.status == "approved",
+        Decision.status.in_(["approved", "superseded"]),
     )
     if exclude_id is not None:
         query = query.where(Decision.id != exclude_id)
-    approved_decisions = db.scalars(query.order_by(Decision.id.asc())).all()
+    candidate_decisions = db.scalars(query.order_by(Decision.id.asc())).all()
 
-    if not approved_decisions or not proposal_keywords:
+    if not candidate_decisions or not proposal_keywords:
         return {
             "status": "Insufficient evidence",
             "summary": "No approved architectural decisions exist in this workspace to evaluate against.",
@@ -117,24 +117,26 @@ def check_consistency(
             "evidence": [],
         }
 
-    # 2. Score candidate decisions based on keyword overlap
-    scored_candidates: list[tuple[int, Decision, set[str]]] = []
-    for d in approved_decisions:
+    # 2. Score candidate decisions based on keyword overlap and active status
+    scored_candidates: list[tuple[int, bool, Decision, set[str]]] = []
+    for d in candidate_decisions:
         cand_text = f"{d.title} {d.decision} {d.context} {d.rationale}".strip()
         cand_keywords = extract_keywords(cand_text)
         overlap = proposal_keywords & cand_keywords
         if overlap:
-            scored_candidates.append((len(overlap), d, overlap))
+            is_superseded = (d.status == "superseded" or d.superseded_by_id is not None)
+            # Prioritize active approved decisions over historical superseded decisions
+            scored_candidates.append((len(overlap), not is_superseded, d, overlap))
 
-    # Sort descending by overlap score
-    scored_candidates.sort(key=lambda x: x[0], reverse=True)
-    top_candidates = scored_candidates[:5]
+    # Sort descending by (is_active, overlap score)
+    scored_candidates.sort(key=lambda x: (x[1], x[0]), reverse=True)
+    top_candidates = [(score, d, overlap) for score, is_active, d, overlap in scored_candidates[:5]]
 
     if not top_candidates:
         return {
             "status": "Insufficient evidence",
             "summary": (
-                "No approved decisions in this workspace share relevant architectural terms "
+                "No architectural decisions in this workspace share relevant architectural terms "
                 f"({', '.join(sorted(list(proposal_keywords)[:6]))}). Insufficient evidence to establish consistency or conflict."
             ),
             "candidates_evaluated": [],
@@ -146,12 +148,16 @@ def check_consistency(
     evidence_list: list[dict[str, Any]] = []
     for score, d, overlap in top_candidates:
         adr_excerpt = _read_adr_excerpt(repositories, d.markdown_path)
+        is_sup = (d.status == "superseded" or d.superseded_by_id is not None)
         candidates_info.append({
             "id": d.id,
             "title": d.title,
             "decision": d.decision,
             "context": d.context,
             "rationale": d.rationale,
+            "status": d.status,
+            "is_superseded": is_sup,
+            "superseded_by_id": d.superseded_by_id,
             "markdown_path": d.markdown_path,
             "adr_excerpt": adr_excerpt,
             "matching_terms": sorted(list(overlap)),
@@ -161,6 +167,8 @@ def check_consistency(
             "title": d.title,
             "path": d.markdown_path,
             "matching_terms": sorted(list(overlap)),
+            "status": d.status,
+            "is_superseded": is_sup,
         })
 
     # 3. Perform comparison via LLM if available, otherwise heuristic analysis
@@ -231,6 +239,23 @@ def _compare_heuristically(
     for cand in candidates:
         cand_full = f"{cand['title']} {cand['decision']} {cand['context']} {cand['rationale']}".lower()
         matching_terms = set(cand["matching_terms"])
+
+        # Check if this candidate is historical (superseded)
+        if cand.get("is_superseded"):
+            findings.append({
+                "type": "historical_lineage",
+                "decision_id": cand["id"],
+                "title": cand["title"],
+                "reason": (
+                    f"Historical context: Decision #{cand['id']} ('{cand['title']}') was superseded"
+                    + (f" by Decision #{cand.get('superseded_by_id')}" if cand.get("superseded_by_id") else "")
+                    + ". This historical decision is preserved for lineage context and does not act as an active architectural constraint."
+                ),
+                "proposed_claim": proposal_title,
+                "existing_claim": cand["title"],
+                "markdown_path": cand["markdown_path"],
+            })
+            continue
 
         # Check for direct overlap / duplication
         # If title similarity or decision text similarity is very high
@@ -373,17 +398,31 @@ Rationale: {proposal.get('rationale', '')}
 Consequences: {proposal.get('consequences', '')}
 
 ---
-EXISTING APPROVED DECISIONS:
+EXISTING ARCHITECTURAL DECISIONS:
 """
-    for c in candidates:
-        prompt += f"""
-Decision #{c['id']}: {c['title']}
+    active_cands = [c for c in candidates if not c.get("is_superseded")]
+    hist_cands = [c for c in candidates if c.get("is_superseded")]
+
+    if active_cands:
+        prompt += "\nCURRENT ACTIVE DECISIONS (authoritative architectural constraints):\n"
+        for c in active_cands:
+            prompt += f"""Decision #{c['id']}: {c['title']}
 Context: {c.get('context', '')}
 Decision: {c.get('decision', '')}
 Rationale: {c.get('rationale', '')}
 ADR Path: {c.get('markdown_path', 'None')}
 ADR Content: {c.get('adr_excerpt', '')[:500]}
 """
+
+    if hist_cands:
+        prompt += "\nHISTORICAL (SUPERSEDED) DECISIONS (for historical context only, NOT active constraints):\n"
+        for c in hist_cands:
+            prompt += f"""Decision #{c['id']} [SUPERSEDED by #{c.get('superseded_by_id')}]: {c['title']}
+Context: {c.get('context', '')}
+Decision: {c.get('decision', '')}
+Rationale: {c.get('rationale', '')}
+"""
+        prompt += "\nNOTE: Differences from historical/superseded decisions must NOT be reported as conflicts.\n"
 
     prompt += """
 ---
@@ -393,10 +432,10 @@ Respond in this JSON format:
   "summary": "Short 1-2 sentence overview of findings",
   "findings": [
     {
-      "type": "conflict" | "overlap" | "compatible",
+      "type": "conflict" | "overlap" | "compatible" | "historical_lineage",
       "decision_id": 123,
       "title": "Title of existing decision",
-      "reason": "Clear explanation of contradiction or overlap",
+      "reason": "Clear explanation of contradiction, overlap, or historical lineage",
       "proposed_claim": "Claim in proposed decision",
       "existing_claim": "Claim in existing approved decision",
       "markdown_path": "path or null"
@@ -421,6 +460,24 @@ Respond in this JSON format:
     try:
         data = json.loads(text)
         if isinstance(data, dict) and "status" in data:
+            superseded_ids = {c["id"] for c in candidates if c.get("is_superseded")}
+            sanitized_findings = []
+            has_active_conflict = False
+            has_active_overlap = False
+            for f in data.get("findings", []):
+                dec_id = f.get("decision_id")
+                if dec_id in superseded_ids:
+                    f["type"] = "historical_lineage"
+                    f["reason"] = f"[Historical Lineage] {f.get('reason', '')}"
+                else:
+                    if f.get("type") == "conflict":
+                        has_active_conflict = True
+                    elif f.get("type") == "overlap":
+                        has_active_overlap = True
+                sanitized_findings.append(f)
+            data["findings"] = sanitized_findings
+            if not has_active_conflict and data.get("status") == "Potential conflict":
+                data["status"] = "Potential overlap" if has_active_overlap else "No apparent conflict"
             return data
     except Exception:
         pass

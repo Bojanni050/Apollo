@@ -16,7 +16,7 @@ STOPWORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "is", "are", "for",
     "on", "with", "as", "by", "at", "from", "that", "this", "it", "be",
 }
-MAX_FILE_BYTES = 256 * 1024
+MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
 
 
 @dataclass
@@ -42,6 +42,8 @@ def _title_of(content: str, fallback: str) -> str:
         if stripped.startswith("#"):
             return stripped.lstrip("#").strip() or fallback
         if stripped:
+            if len(stripped) <= 80:
+                return stripped
             break
     return fallback
 

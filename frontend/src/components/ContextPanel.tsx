@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import type { InventoryRun, Proposal, Repository } from '../api/client'
 import { renderDiff, renderMarkdown } from '../markdown'
 import { EVIDENCE_LABELS } from './WorkspacePanel'
@@ -20,9 +20,15 @@ function DocumentView({
 }) {
   if (!path) return <div className="empty">Select a document to read it here.</div>
   if (markdown === null) return <div className="empty">Loading&hellip;</div>
+
+  const ext = path.split('.').pop()?.toLowerCase() || 'md'
+  const badgeClass = ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'txt' ? 'txt' : 'md'
+  const badgeLabel = ext === 'pdf' ? 'PDF' : ext === 'docx' ? 'DOCX' : ext === 'txt' ? 'TXT' : 'MD'
+
   return (
     <div className="section">
       <div className="btn-row" style={{ marginBottom: 8 }}>
+        <span className={`doc-type-badge ${badgeClass}`}>{badgeLabel}</span>
         <span className="mono faint" style={{ flex: 1, wordBreak: 'break-all' }}>
           {repository?.name}/{path}
         </span>
@@ -30,6 +36,11 @@ function DocumentView({
           {showRaw ? 'Rendered' : 'Raw'}
         </button>
       </div>
+      {(ext === 'pdf' || ext === 'docx') && (
+        <div className="faint" style={{ marginBottom: 8, fontSize: 11, fontStyle: 'italic' }}>
+          Extracted text &amp; structure from {ext.toUpperCase()} document.
+        </div>
+      )}
       {showRaw ? <pre className="code">{markdown}</pre> : renderMarkdown(markdown)}
     </div>
   )

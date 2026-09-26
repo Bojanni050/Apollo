@@ -37,7 +37,7 @@ class PlannedChange:
 
 def _assert_markdown(path: str, label: str) -> None:
     if Path(path).suffix.lower() not in DOC_SUFFIXES:
-        raise ProposalError(f"{label} must be a Markdown file: {path!r}")
+        raise ProposalError(f"{label} must be a supported document file (.md, .txt, .pdf, .docx): {path!r}")
 
 
 def plan_move(
@@ -110,6 +110,13 @@ def plan_move(
 
 def plan_edit(root: str | Path, source: str, new_content: str) -> PlannedChange:
     """Plan replacing a document's contents, keeping the original via Git."""
+    suffix = Path(source).suffix.lower()
+    if suffix in {".pdf", ".docx"}:
+        raise ProposalError(
+            f"Direct text editing of binary documents ({suffix.upper()}) is not supported. "
+            "Use move, rename, or edit the source file directly."
+        )
+
     try:
         original = read_document(root, source)
     except (DocumentError, PathSecurityError) as exc:
@@ -128,6 +135,12 @@ def plan_edit(root: str | Path, source: str, new_content: str) -> PlannedChange:
 
 
 def plan_create(root: str | Path, target: str, content: str) -> PlannedChange:
+    suffix = Path(target).suffix.lower()
+    if suffix in {".pdf", ".docx"}:
+        raise ProposalError(
+            f"Direct creation of binary documents ({suffix.upper()}) is not supported. "
+            "Use Markdown (.md) or plain text (.txt)."
+        )
     _assert_markdown(target, "New document")
     try:
         dest = safe_path(root, target)

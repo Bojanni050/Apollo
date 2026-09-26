@@ -13,7 +13,13 @@ vite.log
 vite.err
 .DS_Store
 
-# Alembic / database test artefacts.
+# Editable-install metadata, created by `pip install -e .\backend[dev]`.
+*.egg-info/
+
+# Local dev runtime state written by scripts\dev.ps1: logs and pid files.
+.dev/
+
+# Backend / Alembic / database test artefacts.
 # .pgtest is a throwaway local PostgreSQL cluster used when Docker is
 # unavailable; its data directory must never be committed.
 .pgtest/

@@ -37,6 +37,7 @@ from app.api import (
     routes_inventory,
     routes_proposals,
     routes_questions,
+    routes_system,
     routes_workspaces,
 )
 from app.config import Settings, settings
@@ -160,6 +161,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_inventory.router, prefix="/api")
     application.include_router(routes_questions.router, prefix="/api")
     application.include_router(routes_decisions.router, prefix="/api")
+    application.include_router(routes_system.router, prefix="/api")
 
     return application
 

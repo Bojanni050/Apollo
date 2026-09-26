@@ -1,4 +1,4 @@
-# Gaia Docs Architect
+﻿# Gaia Docs Architect
 
 An AI-powered documentation and architecture workspace for the Gaia ecosystem.
 
@@ -7,16 +7,84 @@ architecture before anything is changed**. Markdown files in your documentation
 repository are the source of truth; the database holds only workspaces,
 conversations, questions, decisions and analysis results.
 
-> Milestones 1–5 complete, plus a security hardening pass. Backend (188 tests)
+> Milestones 1â€“5 complete, plus a security hardening pass. Backend (188 tests)
 > and frontend (TypeScript-clean, browser-verified) are both working together.
 
 ## Running the whole thing
+
+### The short version
+
+Double-click **`start.cmd`** (or `start.bat` â€” they are the same thing), or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+```
+
+One file starts **both** halves: it installs what is missing
+(Python virtualenv, backend packages, frontend packages), writes a development
+`backend/.env` if there isn't one, starts the backend, waits until
+`/api/health` actually answers, starts the Vite dev server, and opens
+http://127.0.0.1:5273. When it prints **The app is running**, the page works.
+
+Shut down with **`stop.cmd`** (or `stop.bat`) / `scripts\stop.ps1`. Both servers
+run in the background with their output in `.dev\`, so the script returns as
+soon as the app is up rather than holding the terminal.
+
+| | Port | Address |
+| --- | --- | --- |
+| App (Vite dev server) | **5273** | http://127.0.0.1:5273 |
+| API (FastAPI/uvicorn) | **5274** | http://127.0.0.1:5274 |
+| Interactive API docs | 5274 | http://127.0.0.1:5274/docs |
+
+These are deliberately not the tools' defaults (Vite 5173, uvicorn 8000), which
+are frequently taken by other projects on the same machine. Override them with
+`-BackendPort` / `-FrontendPort`.
+
+| Script | What it does |
+| --- | --- |
+| `start.cmd` / `start.bat` | **Start everything** (backend + frontend), then open the browser |
+| `stop.cmd` / `stop.bat` | Stop both servers (`-Clean` also deletes `.dev\`) |
+| `scripts\dev.ps1` | The same thing, if you prefer to run it from a terminal |
+| `scripts\setup.ps1` | Install dependencies and create `backend\.env` |
+| `scripts\start-backend.ps1` | Start only the API |
+| `scripts\start-frontend.ps1` | Start only the dev server |
+| `scripts\test.ps1` | Run the backend tests and the frontend build |
+
+Useful options: `-NoBrowser` (don't open a browser), `-Port`/`-FrontendPort` to
+move off a busy port, and `-Force` to restart over a previous run. All scripts
+take `-Verbose` in the usual PowerShell way.
+
+> The scripts only ever stop processes they started themselves, identified by
+> the pid files in `.dev\`. If something *else* is already listening on 5274 or
+> 5273, they report the pid and tell you what to do rather than killing it.
+
+### First run: setting up a workspace
+
+With an empty database the app opens a two-step setup wizard instead of the
+three-panel view:
+
+1. **Name the workspace** (description optional).
+2. **Point it at your documentation folder** — an existing local directory of
+   Markdown files. Nothing is cloned or copied. The name defaults to the folder
+   name, and you can tick **Allow edits** to permit move/rename/edit proposals
+   (still approval-gated; nothing is written without your explicit accept).
+
+You can skip step 2 and register a repository later, but a workspace with no
+documentation repository has an empty document tree and chat has nothing to
+read, so it is worth doing now.
+
+The path is validated by the backend, not the form: the allow-list in
+`ALLOWED_WORKSPACE_ROOTS` is the security boundary, and the form shows the
+server's rejection message verbatim rather than duplicating those rules in
+TypeScript. The default development config allows any path.
+
+### Doing it by hand
 
 Two processes. Start the backend first:
 
 ```bash
 cd backend
-..\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+..\.venv\Scripts\python -m uvicorn app.main:app --port 5274
 ```
 
 > **Set `APP_ENV=development` in `backend/.env` before starting locally.**
@@ -29,20 +97,43 @@ Then the frontend, in a second terminal:
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5273
 ```
 
 Vite proxies `/api` to the backend, so the browser stays same-origin and CORS
 never bites in development. Point it elsewhere with
 `VITE_BACKEND_URL=http://127.0.0.1:9000 npm run dev`.
 
+### The generated development config
+
+`scripts\setup.ps1` writes a `backend\.env` for you on first run, because the
+application defaults to `APP_ENV=production` and a production configuration
+without credentials deliberately refuses to start. The generated file sets:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `APP_ENV` | `development` | Relaxes the production startup checks |
+| `DATABASE_URL` | `sqlite:///./gaia_dev.db` | No database server needed; the schema is created from the models on startup |
+| `AUTH_ENABLED` | `false` | No login screen while working locally. Production refuses this |
+| `ALLOW_UNRESTRICTED_WORKSPACE_ROOTS` | `true` | Any local directory can be registered as a repository |
+
+Both servers bind to `127.0.0.1` only, so even unauthenticated the API is not
+reachable from the network. `.env` is gitignored, and an existing one is never
+overwritten.
+
+To use a real LLM, add `LLM_API_KEY` and `LLM_MODEL` to `backend\.env`.
+Everything except chat works without them. To require a login locally, set
+`AUTH_ENABLED=true` and fill in `AUTH_PASSWORD_HASH` and `SESSION_SECRET`
+(generate both with `python -m app.security`) â€” see
+[Security](#security).
+
 ### The three panels
 
 | Panel | Contains |
 | --- | --- |
-| **Left — Workspace** | Repositories, the real documentation tree, Git revision |
-| **Centre — Conversation** | The architectural discussion, mode switch, citations |
-| **Right — Context** | Document viewer, inventory plan, proposals (collapsible) |
+| **Left â€” Workspace** | Repositories, the real documentation tree, Git revision |
+| **Centre â€” Conversation** | The architectural discussion, mode switch, citations |
+| **Right â€” Context** | Document viewer, inventory plan, proposals (collapsible) |
 
 The centre panel is the point of the application; the right panel collapses so
 the discussion can take the full width.
@@ -55,7 +146,7 @@ an LLM. It is built to be reachable only by its owner.
 ### Threat model
 
 The realistic attacker is **anyone who can reach the HTTP port but is not the
-operator** — a browser-based attacker on another site, or a process on the same
+operator** â€” a browser-based attacker on another site, or a process on the same
 network. The defences below aim at that, plus at the "I forgot to configure
 something" failure mode, which is treated as just as dangerous.
 
@@ -83,7 +174,7 @@ Two credentials are accepted, both checked **server-side on every request**:
   exfiltrate the session), `SameSite=Strict` (blocks cross-site submission), and
   `Secure` in production.
 - Every comparison uses `hmac.compare_digest`, never `==`.
-- A malformed or corrupt stored hash **fails closed** — it denies access rather
+- A malformed or corrupt stored hash **fails closed** â€” it denies access rather
   than raising, so a broken configuration can never become a bypass.
 
 Enforcement lives in `AuthenticationMiddleware` in `app/main.py`, not on
@@ -135,7 +226,7 @@ workspace repositories.
 `allow_origins` comes from configuration and is never a wildcard:
 
 - **Development** with an empty list defaults to the Vite dev server
-  (`http://localhost:5173`, `http://127.0.0.1:5173`).
+  (`http://localhost:5273`, `http://127.0.0.1:5273`).
 - **Production** requires an explicit list; an empty list is a startup error.
 - `"*"` is **rejected in production**. With credentials enabled it would let
   any website on the internet make authenticated requests against this API.
@@ -175,17 +266,17 @@ python -m app.security generate-secret    # -> SESSION_SECRET
 | **A plan is not an action** | `services/inventory.py` produces a plan; `routes_inventory.py` only moves on approval |
 | Classification follows content, not filenames | the inventory prompt shows document *text*; a test asserts the model sees it |
 | Admitting uncertainty is a feature | ambiguous items are flagged and are **never** auto-applied |
-| No writes without explicit human approval | `services/proposals.py` + `routes_proposals.py` — `accept_proposal` is the only writer |
+| No writes without explicit human approval | `services/proposals.py` + `routes_proposals.py` â€” `accept_proposal` is the only writer |
 | Source repositories are read-only | `_writable_repository()` returns 403 for `kind="source"` |
-| No filesystem access outside authorized repos | `services/paths.py` — every path goes through `safe_path`; empty root list fails closed |
-| **Every API request is authenticated server-side** | `AuthenticationMiddleware` in `app/main.py` — a 4-path public allowlist, not per-route dependencies |
+| No filesystem access outside authorized repos | `services/paths.py` â€” every path goes through `safe_path`; empty root list fails closed |
+| **Every API request is authenticated server-side** | `AuthenticationMiddleware` in `app/main.py` â€” a 4-path public allowlist, not per-route dependencies |
 | **No accidental exposure from missing config** | `Settings.validate_security()` refuses to start an unsafe production deployment |
-| **Every request fits the model's context window** | `app/llm/context.py` — `LLM_CONTEXT_TOKENS` is enforced, not advisory |
+| **Every request fits the model's context window** | `app/llm/context.py` â€” `LLM_CONTEXT_TOKENS` is enforced, not advisory |
 | Original always preserved through Git | `apply_change()` refuses to touch untracked files |
 | Claims are traceable | `Citation` records repo, path, lines, revision and evidence type |
 | An interpretation is not a fact | evidence types are kept distinct and never silently upgraded |
 | Being discussed is not being decided | `prompts.py` states this explicitly in every mode |
-| No AI-generated shell commands | `services/git.py` — fixed command list, argument arrays, never a shell string |
+| No AI-generated shell commands | `services/git.py` â€” fixed command list, argument arrays, never a shell string |
 | Git history preserved, nothing auto-committed | accepts leave the tree dirty; `requires_manual_commit` is returned to the UI |
 
 ## The proposal flow
@@ -200,7 +291,7 @@ decide                     POST /proposals/{id}/accept        -> APPLIES the cha
 ```
 
 `accept` is a separate call the human makes. It re-validates against the current
-filesystem, refuses untracked files, and **never commits** — the change is left
+filesystem, refuses untracked files, and **never commits** â€” the change is left
 in the working tree for you to review and commit yourself.
 
 ## The agent
@@ -212,7 +303,7 @@ agent framework and no autonomous planning.
 Its six tools are all read-only: `search_documents`, `read_document`,
 `read_code`, `list_documents`, `list_decisions`, `structure`. Every path
 argument is untrusted model output and passes through the sandbox, so a model
-that hallucinates `../../etc/passwd` gets an error string back — not a file.
+that hallucinates `../../etc/passwd` gets an error string back â€” not a file.
 
 Conversation modes (`explore` / `investigate` / `apply`) change **only the
 system prompt**. Switching mode never discards the transcript, so a discussion
@@ -269,7 +360,7 @@ backend/
       routes_chat.py
       routes_inventory.py
     services/
-      paths.py          PATH SANDBOX — security boundary
+      paths.py          PATH SANDBOX â€” security boundary
       documents.py      read-only document access
       search.py         lexical search (no vector store, by design)
       git.py            read-only Git helpers
@@ -302,7 +393,7 @@ LLM_MODEL=your-model-id
 
 Omit `LLM_API_KEY` for local endpoints (Ollama, LM Studio, vLLM) that do not
 require one. The app starts and the document explorer works even with no LLM
-configured — only chat returns `503` with an explanatory message, and
+configured â€” only chat returns `503` with an explanatory message, and
 `GET /api/workspaces/{id}/chat/status` reports `llm_configured: false`.
 
 No model is hardcoded anywhere.
@@ -325,7 +416,7 @@ copy .env.example .env      # then edit DATABASE_URL
 ..\.venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-Interactive API docs at http://localhost:8000/docs.
+Interactive API docs at http://localhost:5274/docs.
 
 ### Tests
 
@@ -347,7 +438,7 @@ DATABASE_URL=sqlite:///./dev.db
 ```
 
 On PostgreSQL the schema is applied and verified by **Alembic**, not by
-`init_db()` — see [Database and migrations](#database-and-migrations). On
+`init_db()` â€” see [Database and migrations](#database-and-migrations). On
 SQLite, `init_db()` derives the schema directly from the models, which is
 adequate for a throwaway local file.
 
@@ -355,42 +446,42 @@ adequate for a throwaway local file.
 
 ```bash
 # 1. Create a workspace
-curl -X POST localhost:8000/api/workspaces -H "content-type: application/json" \
+curl -X POST localhost:5274/api/workspaces -H "content-type: application/json" \
   -d '{"name": "Gaia"}'
 
 # 2. Register your EXISTING local documentation repo (nothing is cloned)
-curl -X POST localhost:8000/api/workspaces/1/repositories \
+curl -X POST localhost:5274/api/workspaces/1/repositories \
   -H "content-type: application/json" \
   -d '{"name":"gaia-docs","local_path":"C:/src/gaia-docs","kind":"documentation","writable":true}'
 
 # 3. Browse, read, search, inspect changes
-curl localhost:8000/api/workspaces/1/repositories/1/tree
-curl "localhost:8000/api/workspaces/1/repositories/1/document?path=architecture/overview.md"
-curl "localhost:8000/api/workspaces/1/repositories/1/search?q=memory"
-curl localhost:8000/api/workspaces/1/repositories/1/git
+curl localhost:5274/api/workspaces/1/repositories/1/tree
+curl "localhost:5274/api/workspaces/1/repositories/1/document?path=architecture/overview.md"
+curl "localhost:5274/api/workspaces/1/repositories/1/search?q=memory"
+curl localhost:5274/api/workspaces/1/repositories/1/git
 
 # 4. PLAN a move -- this changes nothing on disk
-curl -X POST localhost:8000/api/workspaces/1/proposals/move \
+curl -X POST localhost:5274/api/workspaces/1/proposals/move \
   -H "content-type: application/json" \
   -d '{"repository_id":1,"source_path":"notes.md","target_dir":"architecture/components","reason":"Memory notes belong with the component."}'
 
 # 5. Review it (GET /proposals/2 shows the diff), then ACCEPT explicitly
-curl -X POST localhost:8000/api/workspaces/1/proposals/2/accept
+curl -X POST localhost:5274/api/workspaces/1/proposals/2/accept
 
 # 6. Discuss the architecture with the AI
-curl -X POST localhost:8000/api/workspaces/1/conversations \
+curl -X POST localhost:5274/api/workspaces/1/conversations \
   -H "content-type: application/json" -d '{"mode":"investigate"}'
 
-curl -X POST localhost:8000/api/workspaces/1/conversations/1/messages \
+curl -X POST localhost:5274/api/workspaces/1/conversations/1/messages \
   -H "content-type: application/json" \
   -d '{"content":"I think our memory architecture is unnecessarily complicated."}'
 
 # 7. Inventory the documentation -- a plan, nothing is moved
-curl -X POST localhost:8000/api/workspaces/1/inventory/runs \
+curl -X POST localhost:5274/api/workspaces/1/inventory/runs \
   -H "content-type: application/json" -d '{}'
 
 # 8. Approve the whole plan (or individual items)
-curl -X POST localhost:8000/api/workspaces/1/inventory/runs/1/apply \
+curl -X POST localhost:5274/api/workspaces/1/inventory/runs/1/apply \
   -H "content-type: application/json" -d '{}'
 ```
 
@@ -400,7 +491,7 @@ as uncommitted. Review it and commit it yourself.
 ## Context management
 
 `LLM_CONTEXT_TOKENS` is the **total** context window of the configured model,
-in tokens — the ceiling for input *and* output combined, exactly as the model
+in tokens â€” the ceiling for input *and* output combined, exactly as the model
 vendor states it. It is enforced in the application, not left to the provider.
 
 ### The budget
@@ -414,19 +505,19 @@ The window is not all input:
 +--------------------------------------------------+------------------+
 ```
 
-`input_budget = context_tokens − max_output_tokens − safety_margin`. The margin
+`input_budget = context_tokens âˆ’ max_output_tokens âˆ’ safety_margin`. The margin
 is 2% (minimum 64 tokens), because tokenizers differ between implementations
 and over-estimating is the safe direction.
 
 ### What is admitted, in order
 
-1. **System prompt and tool definitions** — always kept. They carry the evidence
+1. **System prompt and tool definitions** â€” always kept. They carry the evidence
    discipline the whole product depends on.
-2. **The current user message** — never silently removed. A request that cannot
+2. **The current user message** â€” never silently removed. A request that cannot
    be answered without the actual question is not answerable, so an oversized
    message is truncated with a visible marker instead of dropped.
 3. **Recent conversation turns**, newest first.
-4. **Tool results** — budgeted like any other content. A large tool result is
+4. **Tool results** â€” budgeted like any other content. A large tool result is
    truncated rather than dropped, because the model explicitly asked for that
    evidence and discarding it would also orphan the assistant message that
    requested it.
@@ -450,7 +541,7 @@ document, so it cannot report a confident claim about text it never saw.
 
 ### Failure handling
 
-If the request cannot be made to fit — even after truncating — the application
+If the request cannot be made to fit â€” even after truncating â€” the application
 raises `ContextBudgetError` **before** contacting the provider. The API returns
 `413` with an actionable message. A raw provider error is never the primary
 user experience, and no oversized request is ever sent.
@@ -462,8 +553,8 @@ than being invisible.
 
 | Variable | Default | Constraint |
 | --- | --- | --- |
-| `LLM_CONTEXT_TOKENS` | `128000` | 1 024 – 4 000 000 |
-| `LLM_MAX_OUTPUT_TOKENS` | `8192` | ≥ 256, and < `LLM_CONTEXT_TOKENS` |
+| `LLM_CONTEXT_TOKENS` | `128000` | 1 024 â€“ 4 000 000 |
+| `LLM_MAX_OUTPUT_TOKENS` | `8192` | â‰¥ 256, and < `LLM_CONTEXT_TOKENS` |
 
 Both are validated at construction, so an unusable configuration fails at
 startup rather than on the first message. A typo such as `128000000` is
@@ -478,7 +569,7 @@ from its first 12,000 characters.
 
 A head-truncation classifies a document by its *introduction*. An ADR whose
 `## Decision` sits at the bottom, or a runbook whose failure modes are the
-last section, gets filed by its preamble — which is usually the least
+last section, gets filed by its preamble â€” which is usually the least
 characteristic part of it.
 
 ### The strategy
@@ -490,7 +581,7 @@ for byte**. A document that does not is replaced by a **structural digest**
 | Share | Contents |
 | --- | --- |
 | small, fixed | Title, document statistics, front-matter metadata |
-| 35% | The **heading outline** — the cheapest whole-document signal there is |
+| 35% | The **heading outline** â€” the cheapest whole-document signal there is |
 | small, fixed | Code-block inventory (language, size) and link inventory |
 | remainder | **Section openings**, sampled at even intervals |
 
@@ -504,7 +595,7 @@ Three details matter:
   headings it dropped; a partial section listing says how many sections fitted.
   Nothing silently reads as complete.
 
-The digest is bounded like any excerpt — but unlike an excerpt it is not
+The digest is bounded like any excerpt â€” but unlike an excerpt it is not
 biased toward the beginning.
 
 ### Honest classification
@@ -513,8 +604,8 @@ The model is asked for, and the API now returns:
 
 | Field | Meaning |
 | --- | --- |
-| `confidence` | 0.0–1.0, explicitly encouraged to be honest rather than reassuring |
-| `alternatives` | Other folders seriously weighed — validated against the real structure |
+| `confidence` | 0.0â€“1.0, explicitly encouraged to be honest rather than reassuring |
+| `alternatives` | Other folders seriously weighed â€” validated against the real structure |
 | `reason` | The evidence in the document that drove the decision |
 | `ambiguous` | Genuinely unplaceable; never auto-applied |
 | `partial` | The classification rests on a digest, not the whole document |
@@ -528,7 +619,7 @@ low confidence rather than a comfortable one.
 
 `build_representation` returns either the original string or a separately
 constructed digest. The document on disk is never rewritten, and an inventory
-run does not touch it — asserted by
+run does not touch it â€” asserted by
 `test_run_inventory_does_not_modify_documents`, which compares the file's
 contents *and* its mtime before and after a run.
 
@@ -553,7 +644,7 @@ alembic upgrade head
 ```
 
 The database URL comes from `DATABASE_URL` (or `TEST_DATABASE_URL`) at
-runtime — `alembic.ini` deliberately has no `sqlalchemy.url`, so there is one
+runtime â€” `alembic.ini` deliberately has no `sqlalchemy.url`, so there is one
 source of truth and a stale URL in a checked-in file cannot send a migration to
 the wrong database.
 
@@ -574,11 +665,11 @@ race, and an unreviewed migration would reach production unannounced.
 
 If the application has already been running, the tables were created by
 `create_all` and there is **no** `alembic_version` table. Do **not** run
-`alembic upgrade head` — it will fail with `relation "workspaces" already
+`alembic upgrade head` â€” it will fail with `relation "workspaces" already
 exists`, and it is not the right operation anyway, because the tables already
 match the initial migration.
 
-**Back up first**, then *stamp* — record the revision without touching data:
+**Back up first**, then *stamp* â€” record the revision without touching data:
 
 ```bash
 pg_dump "$DATABASE_URL" -Fc -f gaia_docs-$(date +%F).dump   # 1. back up
@@ -598,7 +689,7 @@ survives the stamp.
 > PostgreSQL-appropriate schema (JSONB, native UUID, `timestamptz`, CHECK
 > constraints). Existing SQLite data needs no conversion; existing PostgreSQL
 > data created by the old `create_all` code will differ in *column types only*
-> (`VARCHAR(40)` instead of `UUID`, `JSON` instead of `JSONB`) — see
+> (`VARCHAR(40)` instead of `UUID`, `JSON` instead of `JSONB`) â€” see
 > [Remaining compatibility concerns](#remaining-database-concerns). Nothing in
 > this task performs that conversion, because it would rewrite existing rows.
 
@@ -610,7 +701,7 @@ alembic downgrade base   # drop everything
 ```
 
 `downgrade` on the initial revision drops all tables. It is only appropriate
-for a disposable database — the test suite's migration database, for instance.
+for a disposable database â€” the test suite's migration database, for instance.
 
 ### SQLite
 
@@ -639,7 +730,7 @@ suite still runs with no database server.
   values, discarding the offset. PostgreSQL round-trips a true `timestamptz`.
   Code must not rely on a tz-aware value coming back on SQLite.
 - **JSONB is not indexable in practice here.** The columns are JSONB, so an
-  index is *possible*, but no GIN index is created — citations are read whole
+  index is *possible*, but no GIN index is created â€” citations are read whole
   rather than queried by content. If a query ever needs to search inside
   `citations`, add `USING gin (citations)`.
 - **CHECK constraints assume the data already conforms.** They were added
@@ -647,7 +738,7 @@ suite still runs with no database server.
   row outside those values would make the constraint fail to apply; the
   migration would need a repair step first.
 - **No migration for the old `create_all` PostgreSQL types.** See the note
-  above — deliberately not done, because it rewrites existing rows.
+  above â€” deliberately not done, because it rewrites existing rows.
 
 ## Environment variables
 
@@ -664,11 +755,11 @@ filled-in copy**.
 | `AUTH_PASSWORD` | *(none)* | Alternative to the hash |
 | `AUTH_API_TOKEN` | *(none)* | Optional; empty disables bearer tokens |
 | `SESSION_SECRET` | *(none)* | Required, min. 32 characters |
-| `SESSION_MAX_AGE_SECONDS` | `43200` | — |
-| `AUTH_COOKIE_NAME` | `gaia_session` | — |
+| `SESSION_MAX_AGE_SECONDS` | `43200` | â€” |
+| `AUTH_COOKIE_NAME` | `gaia_session` | â€” |
 | `AUTH_COOKIE_SECURE` | *(auto)* | `Secure` in production |
 | `CORS_ORIGINS` | `[]` | Required, no `"*"` |
-| `CORS_ALLOW_CREDENTIALS` | `true` | — |
+| `CORS_ALLOW_CREDENTIALS` | `true` | â€” |
 | `ALLOWED_WORKSPACE_ROOTS` | `[]` | At least one root required |
 | `ALLOW_UNRESTRICTED_WORKSPACE_ROOTS` | `false` | Cannot be `true` |
 
@@ -683,7 +774,7 @@ ALLOWED_WORKSPACE_ROOTS=["C:/src/gaia-docs","C:/src/gaia"]
 
 An empty list used to mean "any existing local path", which allowed the API to
 read arbitrary directories on the host. It now means "no repository can be
-registered" — and in production it is a startup error. Only in development, and
+registered" â€” and in production it is a startup error. Only in development, and
 only when `ALLOW_UNRESTRICTED_WORKSPACE_ROOTS=true` alongside
 `APP_ENV=development`, does an empty list regain its permissive meaning.
 
@@ -706,17 +797,17 @@ These are deliberate scope decisions for this phase, not oversights:
 
 ## Roadmap
 
-- **Milestone 1 (done)** — workspaces, repositories, path sandbox, document
+- **Milestone 1 (done)** â€” workspaces, repositories, path sandbox, document
   tree/read/search, Git inspection.
-- **Milestone 2 (done)** — approval-gated move/rename/edit/create proposals with
+- **Milestone 2 (done)** â€” approval-gated move/rename/edit/create proposals with
   readable diffs, untracked-file protection, no auto-commit.
-- **Milestone 3 (done)** — LLM provider abstraction + architecture chat
+- **Milestone 3 (done)** â€” LLM provider abstraction + architecture chat
   (explore / investigate / apply) with citable references and read-only tools.
-- **Milestone 4 (done)** — AI document inventory: content-based classification,
+- **Milestone 4 (done)** â€” AI document inventory: content-based classification,
   overlap and ambiguity detection, and an approval-gated organisation plan.
-- **Milestone 5 (done)** — React three-panel UI: document explorer, architecture
+- **Milestone 5 (done)** â€” React three-panel UI: document explorer, architecture
   chat with citations, and the approval-gated inventory plan.
-- **Later** — open questions, decision records, reconciliation, streaming.
+- **Later** â€” open questions, decision records, reconciliation, streaming.
 
 ## Notes and known limitations
 
@@ -724,10 +815,12 @@ These are deliberate scope decisions for this phase, not oversights:
   would be the natural next improvement.
 - **The inventory runs in one request** with no progress feedback, and
   documents are truncated at 12,000 characters when classifying.
-- **No UI yet for open questions or decisions** — the data model and endpoint
-  groundwork exists in the backend schema, but the views are not built.
 - **The Markdown renderer is intentionally small** (headings, lists, tables,
   code, quotes). It renders into React elements rather than `innerHTML`, so
   document content cannot inject markup.
 - **The frontend has no unit tests.** It is verified by a TypeScript build plus
   the Playwright smoke scripts. Component tests would be worth adding.
+- **Registering a repository is only offered during first-run setup.** Adding a
+  second documentation repository to an existing workspace has no UI, and the
+  backend rejects it with 409 in any case: a workspace has at most one
+  documentation repository.

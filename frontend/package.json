@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "smoke:decisions": "node scripts/smoke-decisions.mjs"
+    "smoke:decisions": "node scripts/smoke-decisions.mjs",
+    "smoke:setup": "node scripts/smoke-setup.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
