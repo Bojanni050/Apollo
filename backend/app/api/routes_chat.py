@@ -32,7 +32,7 @@ from app.schemas import (
 )
 from app.services.agent import Agent
 
-logger = logging.getLogger("gaia_docs_architect")
+logger = logging.getLogger("apollo")
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["chat"])
 

@@ -1,4 +1,4 @@
-"""Gaia Docs Architect API.
+"""Apollo API.
 
 A standalone workspace for exploring, discussing and maintaining Gaia's
 architecture documentation. The app is independent of Gaia's runtime: it only
@@ -45,7 +45,7 @@ from app.config import Settings, settings
 from app.db import init_db
 from app.security import authenticate_request
 
-logger = logging.getLogger("gaia_docs_architect")
+logger = logging.getLogger("apollo")
 
 #: Routes reachable without a session. Everything else under /api requires
 #: authentication. Health is unauthenticated so that a load balancer or

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Desktop shell for Gaia Docs Architect.
+"""Desktop shell for Apollo.
 
     python scripts\\desktop.py
 
@@ -171,7 +171,7 @@ def run_browser(fastapi_app, port: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Open Gaia Docs Architect in a desktop window.",
+        description="Open Apollo in a desktop window.",
     )
     parser.add_argument(
         "--port",
@@ -242,7 +242,7 @@ def main() -> int:
     log(f"Opening the desktop window at {url}")
     try:
         webview.create_window(
-            "Gaia Docs Architect",
+            "Apollo",
             url,
             width=1440,
             height=900,

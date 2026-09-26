@@ -16,7 +16,7 @@
 services:
   postgres-test:
     image: postgres:16-alpine
-    container_name: docarchitect-pg-test
+    container_name: apollo-pg-test
     environment:
       POSTGRES_USER: gaia
       POSTGRES_PASSWORD: gaia

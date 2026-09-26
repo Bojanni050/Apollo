@@ -35,7 +35,7 @@ import time
 
 from app.config import Settings
 
-logger = logging.getLogger("gaia_docs_architect.auth")
+logger = logging.getLogger("apollo.auth")
 
 #: Bumped if the cookie format ever changes, so old cookies are rejected
 #: instead of mis-parsed.

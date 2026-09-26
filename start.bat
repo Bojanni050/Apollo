@@ -1,6 +1,6 @@
 @echo off
 REM =============================================================================
-REM Start Gaia Docs Architect -- backend AND frontend (double-click this file).
+REM Start Apollo -- backend AND frontend (double-click this file).
 REM
 REM This is a thin alias for start.cmd, which does the real work by calling
 REM scripts\dev.ps1. That script installs anything missing, starts the backend,

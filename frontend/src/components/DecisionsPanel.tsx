@@ -1377,7 +1377,7 @@ export function DecisionsPanel({
                       No ADR document has been generated yet for this Decision.
                     </p>
                     <p className="faint" style={{ maxWidth: 480, margin: '0 auto 16px' }}>
-                      Decisions remain in the database until explicitly approved. When you click &ldquo;Approve Decision&rdquo;, DocArchitect generates the corresponding Architecture Decision Record Markdown document.
+                      Decisions remain in the database until explicitly approved. When you click &ldquo;Approve Decision&rdquo;, Apollo generates the corresponding Architecture Decision Record Markdown document.
                     </p>
                     <button
                       className="btn primary"
@@ -1461,7 +1461,7 @@ export function DecisionsPanel({
                     <strong>Note on Git Commit & Push:</strong>
                   </p>
                   <p className="faint" style={{ fontSize: 11, margin: 0 }}>
-                    DocArchitect never automatically commits or pushes to remote repositories. Generated and updated ADRs remain in your local Git working tree for manual inspection and commit through your normal repository workflow.
+                    Apollo never automatically commits or pushes to remote repositories. Generated and updated ADRs remain in your local Git working tree for manual inspection and commit through your normal repository workflow.
                   </p>
                 </div>
               </div>

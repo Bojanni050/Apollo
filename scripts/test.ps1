@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_common.ps1")
 
 Write-Host ""
-Write-Host "Gaia Docs Architect -- tests" -ForegroundColor Cyan
+Write-Host "Apollo -- tests" -ForegroundColor Cyan
 Write-Host ""
 
 $failed = $false

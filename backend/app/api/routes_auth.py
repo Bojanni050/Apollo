@@ -15,7 +15,7 @@ from app.config import settings
 from app.schemas import AuthStatusOut, LoginIn, LoginOut
 from app.security import check_credentials, create_session_token
 
-logger = logging.getLogger("gaia_docs_architect.auth")
+logger = logging.getLogger("apollo.auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

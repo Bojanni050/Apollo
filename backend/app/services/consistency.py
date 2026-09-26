@@ -25,7 +25,7 @@ from app.llm.base import LLMProvider
 from app.models import Decision, Repository, Workspace
 from app.services.paths import safe_path
 
-logger = logging.getLogger("gaia_docs_architect")
+logger = logging.getLogger("apollo")
 
 # Common English stop words to exclude from keyword extraction
 STOP_WORDS = frozenset({
@@ -375,7 +375,7 @@ def _compare_via_llm(
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Invoke LLM provider to analyze proposal against candidate decisions."""
-    prompt = f"""You are an architectural consistency analysis engine for DocArchitect.
+    prompt = f"""You are an architectural consistency analysis engine for Apollo.
 Your task is to compare a proposed architectural decision against existing approved architectural decisions and ADRs.
 
 Analyze the proposal for:

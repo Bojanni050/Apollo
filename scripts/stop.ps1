@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_common.ps1")
 
 Write-Host ""
-Write-Host "Stopping Gaia Docs Architect..." -ForegroundColor Cyan
+Write-Host "Stopping Apollo..." -ForegroundColor Cyan
 Write-Host ""
 
 $stoppedAny = $false

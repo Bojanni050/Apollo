@@ -42,7 +42,7 @@ from app.services.embeddings import (
 from app.services.parsing import ParseError, content_hash, parse_file
 from app.services.vector_store import SQLAlchemyVectorStore, vector_store
 
-logger = logging.getLogger("gaia_docs_architect")
+logger = logging.getLogger("apollo")
 
 #: Longest a documentation section may be before it is split at paragraph
 #: boundaries into sub-chunks. Sections usually fit; this is the safeguard

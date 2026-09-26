@@ -35,7 +35,7 @@ from app.models import Conversation, Message, Repository
 from app.prompts import system_prompt
 from app.services.tools import ToolContext, run_tool, tool_schemas
 
-logger = logging.getLogger("gaia_docs_architect")
+logger = logging.getLogger("apollo")
 
 MAX_TOOL_ITERATIONS = 8
 

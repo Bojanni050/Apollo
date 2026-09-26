@@ -37,7 +37,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_common.ps1")
 
 Write-Host ""
-Write-Host "Gaia Docs Architect" -ForegroundColor Cyan
+Write-Host "Apollo" -ForegroundColor Cyan
 Write-Host "Repository: $script:RepoRoot"
 Write-Host ""
 

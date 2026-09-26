@@ -1,6 +1,6 @@
 @echo off
 REM =============================================================================
-REM Open Gaia Docs Architect in a desktop window (double-click this file).
+REM Open Apollo in a desktop window (double-click this file).
 REM
 REM Runs scripts\desktop.py, which starts the API in a background thread, builds
 REM the frontend if needed, and opens a native window. No browser, no second

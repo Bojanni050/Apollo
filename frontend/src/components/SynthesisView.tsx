@@ -115,7 +115,7 @@ export function SynthesisView({
           <div>
             <h2 className="synthesis-title">{displayTitle}</h2>
             <div className="synthesis-meta">
-              DOCUMENT ARCHITECTURE • {repository?.name} • {path}
+              APO ARCHITECTURE • {repository?.name} • {path}
             </div>
           </div>
         </div>

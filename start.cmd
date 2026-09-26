@@ -1,6 +1,6 @@
 @echo off
 REM =============================================================================
-REM Start Gaia Docs Architect (double-click this file).
+REM Start Apollo (double-click this file).
 REM
 REM Runs scripts\dev.ps1, which starts the backend, waits for it to answer
 REM /api/health, starts the Vite dev server, and opens the browser.

@@ -1,5 +1,5 @@
 # =============================================================================
-# First-run setup for Gaia Docs Architect.
+# First-run setup for Apollo.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 #
@@ -21,7 +21,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_common.ps1")
 
 Write-Host ""
-Write-Host "Gaia Docs Architect -- setup" -ForegroundColor Cyan
+Write-Host "Apollo -- setup" -ForegroundColor Cyan
 Write-Host "Repository: $script:RepoRoot"
 Write-Host ""
 

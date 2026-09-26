@@ -1,5 +1,5 @@
 /**
- * Typed client for the Gaia Docs Architect API.
+ * Typed client for the Apollo API.
  *
  * The UI never constructs URLs inline; everything the backend exposes is
  * declared here once, so a contract change surfaces as a type error rather

@@ -345,7 +345,7 @@ export default function App() {
     return (
       <div className="app">
         <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
+          <h1>Apollo</h1>
         </div>
       </div>
     )
@@ -355,7 +355,7 @@ export default function App() {
     return (
       <div className="app">
         <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
+          <h1>Apollo</h1>
         </div>
         <div className="empty" style={{ paddingTop: 80 }}>
           <LoginForm onAuthenticated={onAuthenticated} />
@@ -368,7 +368,7 @@ export default function App() {
     return (
       <div className="app">
         <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
+          <h1>Apollo</h1>
         </div>
         <div className="empty" style={{ paddingTop: 60 }}>
           <SetupWizard onWorkspaceCreated={onWorkspaceCreated} />
@@ -388,7 +388,7 @@ export default function App() {
             </svg>
           </div>
           <div className="brand-text-block">
-            <h1 className="brand-title">Gaia Docs Architect</h1>
+            <h1 className="brand-title">Apollo</h1>
             <span className="brand-subtitle">ARCHITECTURE &amp; SYNTHESIS</span>
           </div>
         </div>

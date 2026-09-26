@@ -57,7 +57,7 @@ class SecurityConfigurationError(RuntimeError):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "Gaia Docs Architect"
+    app_name: str = "Apollo"
     # Debug output must never be the default for a self-hosted deployment.
     debug: bool = False
 

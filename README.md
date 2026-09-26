@@ -1,4 +1,4 @@
-﻿# Gaia Docs Architect
+﻿# Apollo
 
 An AI-powered documentation and architecture workspace for the Gaia ecosystem.
 
