@@ -382,7 +382,7 @@ def test_api_surfaces_confidence_and_alternatives(
 
     monkeypatch.setattr(
         "app.api.routes_inventory.get_provider",
-        lambda: ScriptedProvider([
+        lambda *a, **k: ScriptedProvider([
             _inventory_response([{
                 "path": "notes.md", "suggested_path": "architecture/decisions",
                 "confidence": 0.35,
@@ -430,7 +430,7 @@ def test_inventory_classifies_a_long_document_by_its_ending(
                               "suggested_path": "architecture/decisions",
                               "confidence": 0.92}])
     ])
-    monkeypatch.setattr("app.api.routes_inventory.get_provider", lambda: provider)
+    monkeypatch.setattr("app.api.routes_inventory.get_provider", lambda *a, **k: provider)
 
     response = client.post(f"/api/workspaces/{workspace['id']}/inventory/runs", json={})
 
@@ -452,7 +452,7 @@ def test_inventory_handles_an_empty_document_in_a_repository(
 
     monkeypatch.setattr(
         "app.api.routes_inventory.get_provider",
-        lambda: ScriptedProvider([_inventory_response([])]),
+        lambda *a, **k: ScriptedProvider([_inventory_response([])]),
     )
 
     response = client.post(f"/api/workspaces/{workspace['id']}/inventory/runs", json={})

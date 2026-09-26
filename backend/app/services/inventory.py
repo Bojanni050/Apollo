@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import settings
+from app.llm import BackgroundSettingsView
 from app.llm.base import LLMProvider
 from app.llm.context import (
     MESSAGE_OVERHEAD_TOKENS,
@@ -230,7 +231,9 @@ def run_inventory(provider: LLMProvider, root: str, subdir: str = ".") -> Invent
     results: list[Classification] = []
     summaries: list[str] = []
 
-    budget = ContextBudget.from_settings(settings)
+    # Budget against the background model's window (BACKGROUND_LLM_* with
+    # primary fallback), because that is the model this request goes to.
+    budget = ContextBudget.from_settings(BackgroundSettingsView())
     system = _system_prompt()
 
     for batch in _batches(documents, budget):

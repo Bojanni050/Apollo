@@ -51,6 +51,11 @@ LLM_ENV_KEYS = (
     "LLM_CONTEXT_TOKENS",
     "LLM_MAX_OUTPUT_TOKENS",
     "LLM_TEMPERATURE",
+    "BACKGROUND_LLM_BASE_URL",
+    "BACKGROUND_LLM_MODEL",
+    "BACKGROUND_LLM_API_KEY",
+    "BACKGROUND_LLM_CONTEXT_TOKENS",
+    "BACKGROUND_LLM_MAX_OUTPUT_TOKENS",
 )
 
 
@@ -61,6 +66,11 @@ class LlmSettingsResponse(BaseModel):
     max_output_tokens: int
     temperature: float
     api_key_configured: bool
+    background_base_url: str | None = None
+    background_model: str | None = None
+    background_context_tokens: int | None = None
+    background_max_output_tokens: int | None = None
+    background_api_key_configured: bool = False
 
 
 class LlmSettingsUpdate(BaseModel):
@@ -70,6 +80,11 @@ class LlmSettingsUpdate(BaseModel):
     context_tokens: int | None = None
     max_output_tokens: int | None = None
     temperature: float | None = None
+    background_base_url: str | None = None
+    background_model: str | None = None
+    background_api_key: str | None = None
+    background_context_tokens: int | None = None
+    background_max_output_tokens: int | None = None
 
 
 class ModelInfo(BaseModel):
@@ -196,6 +211,16 @@ def _apply_llm_settings(update: LlmSettingsUpdate) -> None:
             settings.llm_max_output_tokens = update.max_output_tokens
         if update.temperature is not None:
             settings.llm_temperature = update.temperature
+        if update.background_base_url is not None:
+            settings.background_llm_base_url = update.background_base_url.strip() or None
+        if update.background_model is not None:
+            settings.background_llm_model = update.background_model.strip() or None
+        if update.background_api_key is not None:
+            settings.background_llm_api_key = update.background_api_key.strip() or None
+        if update.background_context_tokens is not None:
+            settings.background_llm_context_tokens = update.background_context_tokens
+        if update.background_max_output_tokens is not None:
+            settings.background_llm_max_output_tokens = update.background_max_output_tokens
         settings._validate_llm_context()
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -213,6 +238,15 @@ def _write_llm_env() -> None:
         "LLM_CONTEXT_TOKENS": str(settings.llm_context_tokens),
         "LLM_MAX_OUTPUT_TOKENS": str(settings.llm_max_output_tokens),
         "LLM_TEMPERATURE": str(settings.llm_temperature),
+        "BACKGROUND_LLM_BASE_URL": settings.background_llm_base_url or "",
+        "BACKGROUND_LLM_MODEL": settings.background_llm_model or "",
+        "BACKGROUND_LLM_API_KEY": settings.background_llm_api_key or "",
+        "BACKGROUND_LLM_CONTEXT_TOKENS": (
+            str(settings.background_llm_context_tokens) if settings.background_llm_context_tokens else ""
+        ),
+        "BACKGROUND_LLM_MAX_OUTPUT_TOKENS": (
+            str(settings.background_llm_max_output_tokens) if settings.background_llm_max_output_tokens else ""
+        ),
     }
 
     lines: list[str] = []
@@ -246,6 +280,11 @@ def get_llm_settings() -> LlmSettingsResponse:
         max_output_tokens=settings.llm_max_output_tokens,
         temperature=settings.llm_temperature,
         api_key_configured=bool(settings.llm_api_key),
+        background_base_url=settings.background_llm_base_url,
+        background_model=settings.background_llm_model,
+        background_context_tokens=settings.background_llm_context_tokens,
+        background_max_output_tokens=settings.background_llm_max_output_tokens,
+        background_api_key_configured=bool(settings.background_llm_api_key),
     )
 
 

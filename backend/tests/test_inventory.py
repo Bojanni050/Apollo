@@ -27,7 +27,7 @@ def _inventory_response(entries: list[dict], summary: str = "Some docs.") -> LLM
 def mock_llm(monkeypatch: pytest.MonkeyPatch):
     def install(turns: list[LLMResponse]) -> ScriptedProvider:
         provider = ScriptedProvider(turns)
-        monkeypatch.setattr("app.api.routes_inventory.get_provider", lambda: provider)
+        monkeypatch.setattr("app.api.routes_inventory.get_provider", lambda *a, **k: provider)
         return provider
 
     return install

@@ -674,7 +674,7 @@ def test_e2e_inventory_job_and_results_flow(
         )
         provider = ScriptedProvider([LLMResponse(content=inventory_json)])
         monkeypatch.setattr(
-            "app.api.routes_inventory.get_provider", lambda: provider
+            "app.api.routes_inventory.get_provider", lambda *a, **k: provider
         )
 
         # 1. Create inventory run

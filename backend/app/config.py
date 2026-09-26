@@ -197,6 +197,17 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: int = 120
 
+    # ---- Background LLM (cheap model for inventory and classification) ----
+    # Falls back to the primary LLM settings when unset, so a single-model
+    # setup keeps working unchanged. Set BACKGROUND_LLM_* to route bulk work
+    # (structural digests, document classification in the inventory) to a
+    # compact/cheap model while the chat keeps the strong one.
+    background_llm_base_url: str | None = None
+    background_llm_api_key: str | None = None
+    background_llm_model: str | None = None
+    background_llm_context_tokens: int | None = Field(default=None, ge=MIN_CONTEXT_TOKENS, le=MAX_CONTEXT_TOKENS)
+    background_llm_max_output_tokens: int | None = Field(default=None, ge=256)
+
     # ---- Derived behaviour ---------------------------------------------
     @property
     def is_development(self) -> bool:

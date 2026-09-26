@@ -82,7 +82,10 @@ def create_inventory_run(
     root = resolve_repo_root(repo)
 
     try:
-        provider = get_provider()
+        # The background role: the inventory is bulk classification, which a
+        # compact/cheap model handles well; the interactive chat keeps the
+        # strong primary model.
+        provider = get_provider(role="background")
     except LLMNotConfigured as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except LLMError as exc:

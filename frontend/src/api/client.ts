@@ -377,6 +377,11 @@ export interface LlmSettings {
   max_output_tokens: number
   temperature: number
   api_key_configured: boolean
+  background_base_url?: string | null
+  background_model?: string | null
+  background_context_tokens?: number | null
+  background_max_output_tokens?: number | null
+  background_api_key_configured?: boolean
 }
 
 export interface LlmSettingsUpdatePayload {
@@ -386,6 +391,11 @@ export interface LlmSettingsUpdatePayload {
   context_tokens?: number
   max_output_tokens?: number
   temperature?: number
+  background_base_url?: string
+  background_model?: string
+  background_api_key?: string
+  background_context_tokens?: number
+  background_max_output_tokens?: number
 }
 
 export interface LlmModelInfo {

@@ -354,7 +354,7 @@ def test_unauthorized_cannot_apply_inventory(
 
     monkeypatch.setattr(
         "app.api.routes_inventory.get_provider",
-        lambda: ScriptedProvider(
+        lambda *a, **k: ScriptedProvider(
             [
                 _inventory_response(
                     [{"path": "notes.md", "suggested_path": "architecture", "confidence": 0.9}]
