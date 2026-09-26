@@ -54,11 +54,24 @@ $ports = @(
 
 foreach ($entry in $ports) {
     $owner = Get-PortOwner -Port $entry.Port
-    if ($null -ne $owner) {
+    if ($null -eq $owner) { continue }
+
+    # One exception to "never kill what we did not record": a backend
+    # running from THIS repo's .venv is unmistakably ours -- it survived its
+    # pid file (a crash, .dev\ removed, a reboot without cleanup). Stopping it
+    # here is what "stop Apollo" means; leaving it means the next start fails
+    # with "port already in use" until the pid is hunted down by hand.
+    if ($entry.What -like "backend*" -and (Test-IsApolloBackend -ProcessId $owner)) {
         Write-Host ""
-        Write-Warn "Port $($entry.Port) is still in use by pid $owner -- not started by these scripts, so it was left alone."
-        Write-Info "To stop it:  taskkill /PID $owner /T /F"
+        Write-Warn "Port $($entry.Port) is held by an orphaned Apollo backend from this repository (pid $owner). Stopping it."
+        Stop-ProcessTree -ProcessId $owner -What "orphaned backend"
+        $stoppedAny = $true
+        continue
     }
+
+    Write-Host ""
+    Write-Warn "Port $($entry.Port) is still in use by pid $owner -- not started by these scripts, so it was left alone."
+    Write-Info "To stop it:  taskkill /PID $owner /T /F"
 }
 
 # --- Cleanup -----------------------------------------------------------------

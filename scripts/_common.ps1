@@ -343,16 +343,49 @@ function Stop-SavedServer {
 
 # --- Startup guards ----------------------------------------------------------
 
+function Test-IsApolloBackend {
+    <#
+      .SYNOPSIS
+        Whether a pid is a backend started from THIS repository's .venv.
+      .DESCRIPTION
+        The recorded pid file can be lost (a crash, .dev\ deleted, a reboot
+        without cleanup), while the backend it named keeps holding the port.
+        Refusing to start then forces the user to hunt a pid by hand for what
+        is still, unmistakably, this repo's own orphaned server.
+
+        The decision rests on the process's executable path: an Apollo backend
+        runs from <repo>\.venv\Scripts\python.exe. A process whose executable
+        is anything else is left strictly alone -- killing an unrelated process
+        to start a dev server is a genuinely destructive thing to do unasked.
+    #>
+    param(
+        [Parameter(Mandatory)][int]$ProcessId
+    )
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
+    }
+    catch {
+        return $false
+    }
+    if (-not $proc -or -not $proc.ExecutablePath) { return $false }
+    return ($proc.ExecutablePath -like "$script:VenvScripts*")
+}
+
 function Resolve-PortConflict {
     <#
       .SYNOPSIS
         Decide what to do about a port that is already in use.
       .DESCRIPTION
-        There are two cases needing opposite handling. A pid we started means a
-        previous run is still alive: stop it and carry on. Anything else --
-        another application, or a process we cannot identify -- is left strictly
-        alone, because killing an unrelated process to start a dev server is a
-        genuinely destructive thing to do unasked.
+        Three cases, each with its own handling:
+
+        * the pid we recorded -- the previous run is still alive: stop it.
+        * no pid file, but the port is held by a python.exe from THIS repo's
+          .venv -- our own orphaned backend (crash, cleaned .dev\, reboot):
+          stop it too, because it is unmistakably ours.
+        * anything else -- another application, or a process we cannot
+          identify -- is left strictly alone, because killing an unrelated
+          process to start a dev server is a genuinely destructive thing to do
+          unasked.
       .OUTPUTS
         $true if the port is free, or was freed by stopping our own process.
     #>
@@ -369,6 +402,13 @@ function Resolve-PortConflict {
         Write-Warn "Port $Port is held by the previous $What run (pid $owner). Stopping it."
         Stop-ProcessTree -ProcessId $owner -What $What
         Remove-PidFile -Path $PidFile
+        Start-Sleep -Milliseconds 700
+        if (-not (Test-PortInUse -Port $Port)) { return $true }
+    }
+
+    if ($What -eq "backend" -and (Test-IsApolloBackend -ProcessId $owner)) {
+        Write-Warn "Port $Port is held by an orphaned Apollo backend from this repository (pid $owner). Stopping it."
+        Stop-ProcessTree -ProcessId $owner -What $What
         Start-Sleep -Milliseconds 700
         if (-not (Test-PortInUse -Port $Port)) { return $true }
     }
