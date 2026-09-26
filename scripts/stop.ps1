@@ -56,21 +56,33 @@ foreach ($entry in $ports) {
     $owner = Get-PortOwner -Port $entry.Port
     if ($null -eq $owner) { continue }
 
-    # One exception to "never kill what we did not record": a backend
-    # running from THIS repo's .venv is unmistakably ours -- it survived its
-    # pid file (a crash, .dev\ removed, a reboot without cleanup). Stopping it
-    # here is what "stop Apollo" means; leaving it means the next start fails
-    # with "port already in use" until the pid is hunted down by hand.
-    if ($entry.What -like "backend*" -and (Test-IsApolloBackend -ProcessId $owner)) {
+    # One exception to "never kill what we did not record": a process that is
+    # unmistakably one of THIS repo's own servers (the backend through its
+    # .venv python or its uvicorn command line, the frontend through node
+    # running vite from this repo's node_modules) survived its pid file -- a
+    # crash, .dev\ removed, a reboot without cleanup. Stopping it is what "stop
+    # Apollo" means; leaving it means the next start fails with "port already
+    # in use" until the pid is hunted down by hand.
+    $kind = if ($entry.What -like "backend*") { "backend" } else { "frontend" }
+    if (Test-IsApolloServer -ProcessId $owner -What $kind) {
         Write-Host ""
-        Write-Warn "Port $($entry.Port) is held by an orphaned Apollo backend from this repository (pid $owner). Stopping it."
-        Stop-ProcessTree -ProcessId $owner -What "orphaned backend"
+        Write-Warn "Port $($entry.Port) is held by an orphaned Apollo $kind from this repository (pid $owner). Stopping it."
+        Stop-ProcessTree -ProcessId $owner -What "orphaned $kind"
         $stoppedAny = $true
         continue
     }
 
     Write-Host ""
     Write-Warn "Port $($entry.Port) is still in use by pid $owner -- not started by these scripts, so it was left alone."
+    $details = Get-ProcessDetails -ProcessId $owner
+    if ($details) {
+        Write-Info "That process is: $($details.Name)"
+        if ($details.ExecutablePath) { Write-Info "  executable: $($details.ExecutablePath)" }
+        if ($details.CommandLine) { Write-Info "  command line: $($details.CommandLine)" }
+    }
+    else {
+        Write-Info "Its details could not be read (it may belong to another user or have just exited)."
+    }
     Write-Info "To stop it:  taskkill /PID $owner /T /F"
 }
 

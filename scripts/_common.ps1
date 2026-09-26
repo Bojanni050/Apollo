@@ -343,32 +343,105 @@ function Stop-SavedServer {
 
 # --- Startup guards ----------------------------------------------------------
 
+function Get-ProcessDetails {
+    <#
+      .SYNOPSIS
+        Name, executable path and command line of a pid, or $null.
+      .DESCRIPTION
+        Used both for orphan identification and for diagnostics: when a port
+        is held by something we will not touch, the user is shown WHAT it is,
+        so "left alone" is a decision they can verify instead of a guess they
+        have to reproduce with netstat and task manager.
+    #>
+    param(
+        [Parameter(Mandatory)][int]$ProcessId
+    )
+    try {
+        return (Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
 function Test-IsApolloBackend {
     <#
       .SYNOPSIS
-        Whether a pid is a backend started from THIS repository's .venv.
+        Whether a pid is a backend started from THIS repository.
       .DESCRIPTION
         The recorded pid file can be lost (a crash, .dev\ deleted, a reboot
         without cleanup), while the backend it named keeps holding the port.
         Refusing to start then forces the user to hunt a pid by hand for what
         is still, unmistakably, this repo's own orphaned server.
 
-        The decision rests on the process's executable path: an Apollo backend
-        runs from <repo>\.venv\Scripts\python.exe. A process whose executable
-        is anything else is left strictly alone -- killing an unrelated process
+        Two signals, either of which identifies this repo's backend:
+        * the executable is this repo's .venv\Scripts\python.exe; or
+        * it is a python process whose command line mentions uvicorn /
+          app.main / app.serve AND this repository's path (the desktop shell
+          starts it the same way, so its children are covered too).
+
+        Anything else is left strictly alone -- killing an unrelated process
         to start a dev server is a genuinely destructive thing to do unasked.
     #>
     param(
         [Parameter(Mandatory)][int]$ProcessId
     )
-    try {
-        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction Stop
+    $proc = Get-ProcessDetails -ProcessId $ProcessId
+    if (-not $proc) { return $false }
+    if ($proc.ExecutablePath -and ($proc.ExecutablePath -like "$script:VenvScripts*")) {
+        return $true
     }
-    catch {
-        return $false
+    $cmd = $proc.CommandLine
+    if (-not $cmd) { return $false }
+    $isPython = ($proc.Name -like "python*")
+    $servesThisApp = ($cmd -like "*uvicorn*") -or ($cmd -like "*app.main*") -or ($cmd -like "*app.serve*")
+    return ($isPython -and $servesThisApp -and ($cmd -like "*$script:RepoRoot*"))
+}
+
+function Test-IsApolloFrontend {
+    <#
+      .SYNOPSIS
+        Whether a pid is the Vite dev server started from THIS repository.
+      .DESCRIPTION
+        `npm run dev` for the frontend ends in node.exe running vite from
+        <repo>\frontend\node_modules, with the repository path in its command
+        line. That combination cannot belong to another project, so it is safe
+        to treat as this repo's orphaned frontend -- the alternative is a
+        "port already in use" dead end for the user.
+
+        An editor opened on this repository also has the repo path in its
+        command line, which is exactly why the executable must be node.exe:
+        only a node process with the repo in its arguments is the dev server.
+    #>
+    param(
+        [Parameter(Mandatory)][int]$ProcessId
+    )
+    $proc = Get-ProcessDetails -ProcessId $ProcessId
+    if (-not $proc) { return $false }
+    if ($proc.Name -notlike "node*") { return $false }
+    $cmd = $proc.CommandLine
+    if (-not $cmd) { return $false }
+    return ($cmd -like "*$script:RepoRoot*")
+}
+
+function Test-IsApolloServer {
+    <#
+      .SYNOPSIS
+        Whether a pid is one of THIS repository's own servers (either one).
+      .DESCRIPTION
+        A thin dispatcher so callers that only care "is this ours or not" --
+        Resolve-PortConflict and stop.ps1 -- do not have to repeat the
+        backend/frontend split (and its reasoning) in two places that would
+        then drift apart.
+    #>
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][ValidateSet("backend", "frontend")][string]$What
+    )
+    if ($What -eq "backend") {
+        return (Test-IsApolloBackend -ProcessId $ProcessId)
     }
-    if (-not $proc -or -not $proc.ExecutablePath) { return $false }
-    return ($proc.ExecutablePath -like "$script:VenvScripts*")
+    return (Test-IsApolloFrontend -ProcessId $ProcessId)
 }
 
 function Resolve-PortConflict {
@@ -406,14 +479,20 @@ function Resolve-PortConflict {
         if (-not (Test-PortInUse -Port $Port)) { return $true }
     }
 
-    if ($What -eq "backend" -and (Test-IsApolloBackend -ProcessId $owner)) {
-        Write-Warn "Port $Port is held by an orphaned Apollo backend from this repository (pid $owner). Stopping it."
+    if (Test-IsApolloServer -ProcessId $owner -What $What) {
+        Write-Warn "Port $Port is held by an orphaned Apollo $What from this repository (pid $owner). Stopping it."
         Stop-ProcessTree -ProcessId $owner -What $What
         Start-Sleep -Milliseconds 700
         if (-not (Test-PortInUse -Port $Port)) { return $true }
     }
 
-    Stop-WithError -Message "Port $Port is already in use by another process (pid $owner), so the $What cannot start." -Hint @(
+    $details = Get-ProcessDetails -ProcessId $owner
+    $description = "pid $owner"
+    if ($details) {
+        $description = "pid $owner ($($details.Name)$(if ($details.ExecutablePath) { ", $($details.ExecutablePath)" }))"
+    }
+
+    Stop-WithError -Message "Port $Port is already in use by another process ($description), so the $What cannot start." -Hint @(
         "Stop that process yourself, or",
         "find it with:  netstat -ano | findstr :$Port      then   taskkill /PID <pid> /T /F",
         "or start on a different port (see the script parameters)."
