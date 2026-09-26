@@ -19,6 +19,7 @@ import { ContextPanel } from './components/ContextPanel'
 import { DecisionsPanel } from './components/DecisionsPanel'
 import { LoginForm } from './components/LoginForm'
 import { QuestionsPanel } from './components/QuestionsPanel'
+import { SynthesisView } from './components/SynthesisView'
 import { SetupWizard } from './components/SetupWizard'
 import { WorkspacePanel } from './components/WorkspacePanel'
 
@@ -31,7 +32,7 @@ export default function App() {
   const [documentMarkdown, setDocumentMarkdown] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
 
-  const [view, setView] = useState<'conversation' | 'questions' | 'decisions'>('conversation')
+  const [view, setView] = useState<'conversation' | 'synthesis' | 'questions' | 'decisions'>('synthesis')
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
   const [decisions, setDecisions] = useState<Decision[]>([])
 
@@ -222,6 +223,7 @@ export default function App() {
       if (!workspace || !repository) return
       setDocumentPath(path)
       setDocumentMarkdown(null)
+      setView('synthesis')
       setContextOpen(true)
       try {
         const doc = await api.document(workspace.id, repository.id, path)
@@ -378,48 +380,73 @@ export default function App() {
   return (
     <div className="app">
       <div className="titlebar">
-        <h1>Gaia Docs Architect</h1>
-        <select
-          value={workspace?.id ?? ''}
-          onChange={(e) => {
-            const ws = workspaces.find((w) => w.id === Number(e.target.value))
-            if (ws) selectWorkspace(ws)
-          }}
-          style={{ width: 180 }}
-        >
-          {workspaces.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
+        <div className="brand-wrapper">
+          <div className="brand-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+              <path d="M6 6h10M6 10h10M6 14h6" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div className="brand-text-block">
+            <h1 className="brand-title">Chronicle</h1>
+            <span className="brand-subtitle">ARCHIVE &amp; SYNTHESIS</span>
+          </div>
+        </div>
 
-        <div className="modes" style={{ marginLeft: 8 }}>
+        <div className="titlebar-modes" style={{ marginLeft: 16 }}>
+          {/* Insights button with chart icon */}
           <button
-            className={view === 'conversation' ? 'active' : ''}
+            type="button"
+            className={`topbar-nav-btn ${view === 'decisions' || view === 'questions' ? 'active' : ''}`}
+            onClick={() => setView(view === 'decisions' ? 'questions' : 'decisions')}
+            title="View Questions & Decisions"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 20V10M12 20V4M6 20v-6"/>
+            </svg>
+            Insights
+            {(questions.filter((q) => q.status === 'open').length > 0 || decisions.length > 0) && (
+              <span style={{ fontSize: 10, background: '#E59838', color: '#FFF', padding: '1px 5px', borderRadius: 8, fontWeight: 700 }}>
+                {questions.filter((q) => q.status === 'open').length + decisions.length}
+              </span>
+            )}
+          </button>
+
+          {/* Knowledge Base button (active olive-green pill) */}
+          <button
+            type="button"
+            className={`topbar-nav-btn knowledge-base ${view === 'synthesis' ? 'active' : ''}`}
+            onClick={() => setView('synthesis')}
+            title="View Synthesis & Document Archive"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+              <path d="M6 6h10M6 10h10M6 14h6"/>
+            </svg>
+            Knowledge Base
+          </button>
+
+          {/* Power Search button with magnifying glass */}
+          <button
+            type="button"
+            className={`topbar-nav-btn ${view === 'conversation' ? 'active' : ''}`}
             onClick={() => setView('conversation')}
+            title="Power Search & Conversation"
           >
-            Conversation
-          </button>
-          <button
-            className={view === 'questions' ? 'active' : ''}
-            onClick={() => setView('questions')}
-          >
-            Questions {questions.filter((q) => q.status === 'open').length > 0 ? `(${questions.filter((q) => q.status === 'open').length})` : ''}
-          </button>
-          <button
-            className={view === 'decisions' ? 'active' : ''}
-            onClick={() => setView('decisions')}
-          >
-            Decisions {decisions.length > 0 ? `(${decisions.length})` : ''}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Power Search
           </button>
         </div>
 
         {view === 'conversation' && conversations.length > 0 && (
           <select
+            className="workspace-select-pill"
             value={conversation?.id ?? ''}
             onChange={(e) => workspace && openConversation(workspace.id, Number(e.target.value))}
-            style={{ width: 260 }}
+            style={{ width: 180, marginLeft: 8 }}
           >
             {conversations.map((c) => (
               <option key={c.id} value={c.id}>
@@ -429,44 +456,63 @@ export default function App() {
           </select>
         )}
         {view === 'conversation' && workspace && (
-          <button className="btn" onClick={() => newConversation(workspace.id)}>
-            New
+          <button className="btn text-sm" onClick={() => newConversation(workspace.id)}>
+            + New
           </button>
         )}
 
         <span className="spacer" />
+
+        <select
+          className="workspace-select-pill"
+          value={workspace?.id ?? ''}
+          onChange={(e) => {
+            const ws = workspaces.find((w) => w.id === Number(e.target.value))
+            if (ws) selectWorkspace(ws)
+          }}
+          title="Active Workspace"
+        >
+          {workspaces.map((w) => (
+            <option key={w.id} value={w.id}>
+              📁 {w.name}
+            </option>
+          ))}
+        </select>
+
         {authRequired && (
-          <button className="btn" onClick={signOut}>
+          <button className="btn text-sm" onClick={signOut}>
             Sign out
           </button>
         )}
-        <button className="btn" onClick={() => setContextOpen((v) => !v)}>
-          {contextOpen ? 'Hide context' : 'Show context'}
+        <button
+          className="btn text-sm"
+          onClick={() => setContextOpen((v) => !v)}
+          title="Toggle Related Chats & Context Panel"
+        >
+          {contextOpen ? 'Hide Context' : 'Related Chats'}
         </button>
       </div>
 
       <div className={`layout ${contextOpen ? '' : 'context-collapsed'}`}>
-        <div className="panel">
-          <div className="panel-header">Workspace</div>
-          <div className="panel-body tight">
-            {workspace ? (
-              <WorkspacePanel
-                workspace={workspace}
-                repository={repository}
-                tree={tree}
-                selectedPath={documentPath}
-                onSelectDocument={openDocument}
-                currentView={view}
-                onSelectView={setView}
-                openQuestionsCount={questions.filter((q) => q.status === 'open').length}
-                decisionsCount={decisions.length}
-                onRepositoryAdded={async () => {
-                  const updated = await api.getWorkspace(workspace.id)
-                  await selectWorkspace(updated)
-                }}
-              />
-            ) : null}
-          </div>
+        <div className="panel left-sidebar">
+          {workspace && (
+            <WorkspacePanel
+              workspace={workspace}
+              repository={repository}
+              tree={tree}
+              selectedPath={documentPath}
+              onSelectDocument={openDocument}
+              currentView={view}
+              onSelectView={setView}
+              openQuestionsCount={questions.filter((q) => q.status === 'open').length}
+              decisionsCount={decisions.length}
+              onRepositoryAdded={async () => {
+                if (!workspace) return
+                const updated = await api.getWorkspace(workspace.id)
+                await selectWorkspace(updated)
+              }}
+            />
+          )}
         </div>
 
         <div className="panel conversation">
@@ -484,6 +530,16 @@ export default function App() {
               onOpenDecision={() => setView('decisions')}
               onQuestionSaved={refreshQuestions}
               onDecisionSaved={refreshDecisions}
+            />
+          )}
+          {view === 'synthesis' && (
+            <SynthesisView
+              repository={repository}
+              path={documentPath}
+              markdown={documentMarkdown}
+              onOpenConversation={() => setView('conversation')}
+              onToggleRaw={() => setShowRaw((v) => !v)}
+              showRaw={showRaw}
             />
           )}
           {view === 'questions' && workspace && (
@@ -511,9 +567,8 @@ export default function App() {
           )}
         </div>
 
-
         {contextOpen && (
-          <div className="panel">
+          <div className="panel right-context">
             <ContextPanel
               repository={repository}
               documentPath={documentPath}
@@ -529,6 +584,7 @@ export default function App() {
               onRejectProposal={rejectProposal}
               onToggleRaw={() => setShowRaw((v) => !v)}
               showRaw={showRaw}
+              onClose={() => setContextOpen(false)}
             />
           </div>
         )}
