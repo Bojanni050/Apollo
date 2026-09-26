@@ -26,24 +26,7 @@ export function FileContentColumn({
   const [tags, setTags] = useState<string[]>(['pulse-weave'])
   const [copied, setCopied] = useState(false)
 
-  // Demo fallback content if no document is loaded yet
-  const defaultTitle = selectedItem?.title || 'The Conflict of Portability vs. Structure'
-  const defaultMetaId = selectedItem?.id?.slice(0, 8) || '7caa08e4'
-  const defaultUpdated = '6 Jul, 01:23'
-
-  const demoBody = `While Steph Ango advocates for 'file-over-app' to ensure long-term ownership, the 'object-based' nature of Capacities introduces a dependency on complex metadata that raw files often struggle to replicate. This creates a friction point between the desire for digital permanence and the need for high-context organization.
-
-— Woven from Delphi Pulse on Jul 5, 2026
-
-### Sources
-- **Steph Ango** (person) — Founder of Obsidian
-- **Capacities is great** (note) — Object-oriented knowledge management`
-
-  const activeContent = documentMarkdown !== null && documentMarkdown !== undefined
-    ? documentMarkdown
-    : selectedItem?.snippet
-    ? `${selectedItem.snippet}\n\n${demoBody}`
-    : demoBody
+  const activeContent = documentMarkdown ?? selectedItem?.snippet ?? null
 
   const handleShare = () => {
     navigator.clipboard?.writeText(window.location.href)
@@ -129,9 +112,9 @@ export function FileContentColumn({
         <div className="file-canvas-inner">
           {/* Metadata line */}
           <div className="file-meta-line">
-            <span>id · {defaultMetaId}</span>
+            <span>id · {selectedItem?.id?.slice(0, 8) || '—'}</span>
             <span>·</span>
-            <span>updated {defaultUpdated}</span>
+            <span>updated —</span>
             {repository && (
               <>
                 <span>·</span>
@@ -140,27 +123,10 @@ export function FileContentColumn({
             )}
           </div>
 
-          {/* Linked Sources Section (matching screenshot) */}
-          <div className="file-linked-sources">
-            <span className="linked-sources-label">04 LINKED SOURCES</span>
-            <div className="linked-sources-chips">
-              <button
-                type="button"
-                className="linked-source-chip"
-                onClick={onOpenAiChat}
-              >
-                <span className="chip-icon">👤</span>
-                <span>Steph Ango</span>
-              </button>
-              <button
-                type="button"
-                className="linked-source-chip"
-                onClick={onOpenAiChat}
-              >
-                <span className="chip-icon">📝</span>
-                <span>Capacities is great</span>
-              </button>
-              {selectedItem?.rawDecision && (
+          {selectedItem?.rawDecision && (
+            <div className="file-linked-sources">
+              <span className="linked-sources-label">LINKED ADR</span>
+              <div className="linked-sources-chips">
                 <button
                   type="button"
                   className="linked-source-chip ok"
@@ -169,14 +135,14 @@ export function FileContentColumn({
                   <span className="chip-icon">⚖️</span>
                   <span>ADR-{selectedItem.rawDecision.id}</span>
                 </button>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Large Document Title (matching screenshot) */}
-          <h1 className="file-document-title">{defaultTitle}</h1>
+          {/* Large Document Title */}
+          <h1 className="file-document-title">{selectedItem?.title || 'No document selected'}</h1>
 
-          {/* Tag Chips Row (matching screenshot) */}
+          {/* Tag Chips Row */}
           <div className="file-tags-bar">
             {tags.map((t) => (
               <span key={t} className="file-tag-pill">
@@ -201,15 +167,23 @@ export function FileContentColumn({
           </div>
 
           {/* Rendered Prose Content */}
-          <div className="file-document-body">
-            {showRaw ? (
-              <pre className="file-raw-markdown">{activeContent}</pre>
-            ) : (
-              <div className="file-prose">
-                {renderMarkdown(activeContent)}
+          {activeContent ? (
+            <div className="file-document-body">
+              {showRaw ? (
+                <pre className="file-raw-markdown">{activeContent}</pre>
+              ) : (
+                <div className="file-prose">
+                  {renderMarkdown(activeContent)}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="file-document-body">
+              <div className="file-prose file-empty-hint">
+                Select a document from the folder view to read it here.
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

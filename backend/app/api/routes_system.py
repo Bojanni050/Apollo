@@ -8,10 +8,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import BACKEND_DIR, settings
+from app.db import get_db
+from app.models import Workspace
 from app.services.paths import PathSecurityError, assert_authorized_root
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -40,6 +44,19 @@ class NativePickResponse(BaseModel):
     path: str | None = None
     cancelled: bool = False
     error: str | None = None
+
+
+class DatabaseResetRequest(BaseModel):
+    # A deliberate confirmation word rather than a bare boolean: a reset wipes
+    # every workspace, repository registration, conversation, proposal and
+    # pulse run, so a stray click or a retried request must not be able to
+    # trigger it. The client sends exactly this string.
+    confirm: str
+
+
+class DatabaseResetResponse(BaseModel):
+    deleted_workspaces: int
+
 
 
 #: The LLM settings the UI may read and write. Everything else in .env stays
@@ -441,3 +458,34 @@ def pick_native_folder() -> NativePickResponse:
         return NativePickResponse(cancelled=True, error="Folder picker timed out.")
     except Exception as exc:
         return NativePickResponse(error=f"Could not open native folder dialog: {exc}")
+
+
+@router.post("/database/reset", response_model=DatabaseResetResponse)
+def reset_database(
+    payload: DatabaseResetRequest, db: Session = Depends(get_db)
+) -> DatabaseResetResponse:
+    """Delete ALL application data and start from a clean slate.
+
+    Every workspace is deleted, and the database-level cascades remove
+    everything attached to them: repository registrations (the folders on
+    disk are never touched -- only the app's records of them), conversations,
+    messages, decisions, open questions, change proposals, inventory runs,
+    Delphi Pulse runs and the workspace pulse settings.
+
+    This is the "start over" button for a database polluted with test or
+    demo content. It cannot be undone, which is why the client must send
+    confirm="RESET" -- a bare POST body or an accidental double-click must
+    never be enough.
+    """
+    if payload.confirm != "RESET":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            'Send {"confirm": "RESET"} to confirm the database reset.',
+        )
+
+    workspace_ids = list(db.scalars(select(Workspace.id)))
+    for workspace in db.scalars(select(Workspace)):
+        db.delete(workspace)
+    db.commit()
+
+    return DatabaseResetResponse(deleted_workspaces=len(workspace_ids))

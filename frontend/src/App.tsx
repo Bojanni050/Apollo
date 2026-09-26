@@ -231,6 +231,42 @@ export default function App() {
     [selectWorkspace],
   )
 
+  const onDeleteWorkspace = useCallback(
+    async (ws: Workspace) => {
+      const ok = window.confirm(
+        `Delete workspace "${ws.name}"?\n\nThis removes its repositories, conversations, decisions, questions, proposals and pulse runs from the app. Files on disk are not touched. This cannot be undone.`,
+      )
+      if (!ok) return
+      try {
+        await api.deleteWorkspace(ws.id)
+        const remaining = await api.listWorkspaces()
+        setWorkspaces(remaining)
+        if (workspace?.id === ws.id) {
+          if (remaining.length > 0) {
+            await selectWorkspace(remaining[0])
+          } else {
+            setWorkspace(null)
+            setRepository(null)
+            setTree(null)
+            setSelectedItem(null)
+            setDocumentPath(null)
+            setDocumentMarkdown(null)
+            setConversations([])
+            setConversation(null)
+            setDecisions([])
+            setQuestions([])
+            setProposals([])
+            setInventoryRun(null)
+            setPulseRun(null)
+          }
+        }
+      } catch (e) {
+        report(e)
+      }
+    },
+    [selectWorkspace, workspace],
+  )
+
   // Document selection
   const openDocument = useCallback(
     async (path: string) => {
@@ -526,6 +562,7 @@ export default function App() {
           onSelectWorkspace={selectWorkspace}
           onAddRepository={() => setAddRepoModalOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onDeleteWorkspace={onDeleteWorkspace}
         />
 
         {/* Column 2: Folder Contents */}
@@ -617,7 +654,31 @@ export default function App() {
           }}
         />
       )}
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={async () => {
+          const remaining = await api.listWorkspaces()
+          setWorkspaces(remaining)
+          if (remaining.length > 0) {
+            await selectWorkspace(remaining[0])
+          } else {
+            setWorkspace(null)
+            setRepository(null)
+            setTree(null)
+            setSelectedItem(null)
+            setDocumentPath(null)
+            setDocumentMarkdown(null)
+            setConversations([])
+            setConversation(null)
+            setDecisions([])
+            setQuestions([])
+            setProposals([])
+            setInventoryRun(null)
+            setPulseRun(null)
+          }
+        }}
+      />
       {workspace && (
         <PulseSettingsModal
           isOpen={pulseSettingsOpen}

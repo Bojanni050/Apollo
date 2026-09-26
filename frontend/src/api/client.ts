@@ -370,6 +370,10 @@ export interface NativePickResult {
   error?: string
 }
 
+export interface DatabaseResetResult {
+  deleted_workspaces: number
+}
+
 export interface LlmSettings {
   base_url: string | null
   model: string | null
@@ -555,6 +559,8 @@ export const api = {
       body: JSON.stringify({ name, description: description ?? null }),
     }),
   getWorkspace: (id: number) => request<Workspace>(`/workspaces/${id}`),
+  deleteWorkspace: (id: number) =>
+    request<void>(`/workspaces/${id}`, { method: 'DELETE' }),
 
   // `writable` only has an effect for kind='documentation': the backend forces
   // source repositories to read-only, and rejects a second documentation
@@ -859,6 +865,11 @@ export const api = {
   },
   pickNativeFolder: () =>
     request<NativePickResult>('/system/pick-native-folder', { method: 'POST' }),
+  resetDatabase: () =>
+    request<DatabaseResetResult>('/system/database/reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'RESET' }),
+    }),
   getLlmSettings: () =>
     request<LlmSettings>('/system/settings/llm'),
   updateLlmSettings: (payload: LlmSettingsUpdatePayload) =>

@@ -127,43 +127,52 @@ export function ContextSidebar({
           </button>
         </div>
 
-        {/* 3. Tab: Related Objects (matching screenshot right column) */}
+        {/* 3. Tab: Related Objects */}
         {tab === 'related' && (
           <div className="context-scroll-body">
             <div className="context-section-label">RELATED OBJECTS</div>
 
-            {/* Card 1: Capacities is great */}
-            <div className="context-object-card">
-              <div className="context-card-header">
-                <span className="context-card-title">Capacities is great</span>
-                <span className="context-card-badge note">note</span>
+            {(inventoryRun?.items.length ?? 0) === 0 && !pulseRun && (
+              <div className="context-related-empty">
+                Nothing here yet. Run Delphi Pulse or an inventory scan to
+                discover connections for this workspace.
               </div>
-              <p className="context-card-body">
-                Explicitly cited source that discusses the object-based structure of Capacities, which is central to the conflict described.
-              </p>
-            </div>
+            )}
 
-            {/* Card 2: Steph Ango */}
-            <div className="context-object-card">
-              <div className="context-card-header">
-                <span className="context-card-title">Steph Ango</span>
-                <span className="context-card-badge person">person</span>
-              </div>
-              <p className="context-card-body">
-                Explicitly cited source and central figure in the &apos;file-over-app&apos; philosophy discussed as a point of friction.
-              </p>
-            </div>
+            {inventoryRun?.items
+              .filter((item) => item.decision === 'applied')
+              .slice(0, 10)
+              .map((item) => (
+                <div key={`inv-${item.id}`} className="context-object-card">
+                  <div className="context-card-header">
+                    <span className="context-card-title">{item.source_path}</span>
+                    <span className="context-card-badge note">inventory</span>
+                  </div>
+                  <p className="context-card-body">
+                    {item.reason || item.purpose}
+                  </p>
+                </div>
+              ))}
 
-            {/* Card 3: Apollo Architecture Knowledge */}
-            <div className="context-object-card">
-              <div className="context-card-header">
-                <span className="context-card-title">Architecture Specs</span>
-                <span className="context-card-badge spec">spec</span>
-              </div>
-              <p className="context-card-body">
-                Repository documentation graph connecting decisions, verified code implementations, and open questions.
-              </p>
-            </div>
+            {pulseRun?.items
+              .filter((item) => item.decision === 'applied')
+              .slice(0, 10)
+              .map((item) => (
+                <div key={`pulse-${item.id}`} className="context-object-card">
+                  <div className="context-card-header">
+                    <span className="context-card-title">{item.file_path}</span>
+                    <span className="context-card-badge spec">delphi pulse</span>
+                  </div>
+                  <p className="context-card-body">
+                    {item.tags.length > 0 && <>tags: {item.tags.join(', ')}<br /></>}
+                    {item.connections.length > 0 && (
+                      <>
+                        connected to: {item.connections.map((c) => c.path).join(', ')}
+                      </>
+                    )}
+                  </p>
+                </div>
+              ))}
           </div>
         )}
 

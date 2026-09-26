@@ -23,6 +23,22 @@ def test_workspace_lifecycle(client: TestClient) -> None:
     assert client.get(f"/api/workspaces/{ws_id}").status_code == 404
 
 
+def test_database_reset_requires_confirmation(client: TestClient) -> None:
+    assert (
+        client.post("/api/system/database/reset", json={"confirm": "yes"}).status_code
+        == 400
+    )
+
+
+def test_database_reset_wipes_all_workspaces(client: TestClient, workspace: dict) -> None:
+    client.post("/api/workspaces", json={"name": "Second"})
+    response = client.post("/api/system/database/reset", json={"confirm": "RESET"})
+    assert response.status_code == 200
+    assert response.json()["deleted_workspaces"] == 2
+    assert client.get("/api/workspaces").json() == []
+    assert client.get(f"/api/workspaces/{workspace['id']}").status_code == 404
+
+
 def test_register_repositories_sets_permissions(workspace: dict) -> None:
     repos = {r["name"]: r for r in workspace["repositories"]}
     assert repos["gaia-docs"]["writable"] is True

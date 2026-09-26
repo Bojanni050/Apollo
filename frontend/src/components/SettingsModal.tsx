@@ -412,12 +412,19 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [resetArmed, setResetArmed] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
+  const [resetDone, setResetDone] = useState<number | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
     setLoading(true)
     setError(null)
     setSaved(false)
+    setResetArmed(false)
+    setResetError(null)
+    setResetDone(null)
     api
       .getLlmSettings()
       .then((res) => {
@@ -552,6 +559,64 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                   onChange={(e) => setTemperature(e.target.value)}
                   inputMode="decimal"
                 />
+              </div>
+              <div className="settings-divider" />
+              <div className="settings-section">
+                <div className="settings-section-title">Danger zone</div>
+                <p className="settings-hint">
+                  Reset deletes every workspace, repository registration, conversation, decision,
+                  question, proposal and Delphi Pulse run from the database. Your files on disk are
+                  never touched. This cannot be undone.
+                </p>
+                {resetDone !== null && !resetError && (
+                  <div className="settings-saved">
+                    Database reset — {resetDone} workspace{resetDone === 1 ? '' : 's'} deleted. Reload the window to start fresh.
+                  </div>
+                )}
+                {resetError && <div className="picker-error">{resetError}</div>}
+                {!resetDone && !resetError && (
+                  <div className="btn-row">
+                    {!resetArmed ? (
+                      <button
+                        className="btn danger"
+                        type="button"
+                        onClick={() => setResetArmed(true)}
+                      >
+                        Reset database…
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => setResetArmed(false)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="btn danger"
+                          type="button"
+                          disabled={resetting}
+                          onClick={async () => {
+                            setResetting(true)
+                            setResetError(null)
+                            try {
+                              const res = await api.resetDatabase()
+                              setResetDone(res.deleted_workspaces)
+                              onSaved?.()
+                            } catch (err) {
+                              setResetError(err instanceof Error ? err.message : 'Reset failed.')
+                            } finally {
+                              setResetting(false)
+                            }
+                          }}
+                        >
+                          {resetting ? 'Resetting…' : 'Yes, delete everything'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               {error && <div className="picker-error">{error}</div>}
               {saved && !error && (

@@ -427,6 +427,63 @@ input:focus, textarea:focus, select:focus {
   margin: 4px 0;
 }
 
+/* A workspace row in the switcher: the name button plus a delete icon. */
+.popup-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.popup-menu-row .popup-menu-item { flex: 1; min-width: 0; }
+
+.popup-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.popup-menu-icon:hover { background: #F4F4F5; color: var(--text); }
+.popup-menu-icon.danger:hover { background: #FEF2F2; color: #DC2626; }
+
+.btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn.danger {
+  background: #FFFFFF;
+  color: #B91C1C;
+  border-color: #DC2626;
+}
+
+.btn.danger:hover { background: #FEF2F2; }
+
+.context-related-empty {
+  padding: 18px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.file-empty-hint {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.settings-key-note {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
 /* ==========================================================================
    Column 2: Folder Contents Column (folder-contents-column)
    ========================================================================== */
