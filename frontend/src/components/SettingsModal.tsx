@@ -23,6 +23,7 @@ interface ProviderPreset {
 
 const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', needsKey: true, local: false },
+  { id: 'gemini', label: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/', needsKey: true, local: false },
   { id: 'ollama', label: 'Ollama (local)', baseUrl: 'http://127.0.0.1:11434/v1', needsKey: false, local: true },
   { id: 'lmstudio', label: 'LM Studio (local)', baseUrl: 'http://127.0.0.1:1234/v1', needsKey: false, local: true },
 ]
@@ -254,7 +255,7 @@ function LlmSectionFields({
           className="settings-input"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://api.openai.com/v1  ·  http://127.0.0.1:11434/v1 (Ollama)  ·  http://127.0.0.1:1234/v1 (LM Studio)"
+          placeholder="https://api.openai.com/v1  ·  https://generativelanguage.googleapis.com/v1beta/openai/ (Gemini)  ·  http://127.0.0.1:11434/v1 (Ollama)  ·  http://127.0.0.1:1234/v1 (LM Studio)"
           spellCheck={false}
           disabled={sameAsChat}
         />

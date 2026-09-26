@@ -128,26 +128,75 @@ class ListModelsResponse(BaseModel):
 #: Best-effort metadata for well-known model families. The /models endpoint of
 #: the OpenAI protocol does not carry pricing or capabilities, so known ids are
 #: enriched here and everything else is returned as-is with null pricing.
-#: Prices are USD per 1M tokens, as the vendors publish them.
+#: Prices are USD per 1M tokens, as the vendors publish them. The key is the
+#: longest family name contained in the model id, so "gpt-4o-2024-11-20" and
+#: dated or fine-tuned variants resolve to their family entry.
 _KNOWN_MODELS: dict[str, dict[str, Any]] = {
+    # --- OpenAI -----------------------------------------------------------
     "gpt-4o": {"in": 2.5, "out": 10.0, "caps": ["vision", "tools"]},
     "gpt-4o-mini": {"in": 0.15, "out": 0.6, "caps": ["vision", "tools"]},
     "gpt-4.1": {"in": 2.0, "out": 8.0, "caps": ["vision", "tools"]},
     "gpt-4.1-mini": {"in": 0.4, "out": 1.6, "caps": ["vision", "tools"]},
     "gpt-4.1-nano": {"in": 0.1, "out": 0.4, "caps": ["vision", "tools"]},
+    "gpt-4-turbo": {"in": 10.0, "out": 30.0, "caps": ["vision", "tools"]},
+    "gpt-4": {"in": 30.0, "out": 60.0, "caps": ["tools"]},
+    "gpt-3.5-turbo": {"in": 0.5, "out": 1.5, "caps": ["tools"]},
     "o3": {"in": 2.0, "out": 8.0, "caps": ["vision", "tools", "reasoning"]},
+    "o3-mini": {"in": 1.1, "out": 4.4, "caps": ["tools", "reasoning"]},
     "o4-mini": {"in": 1.1, "out": 4.4, "caps": ["vision", "tools", "reasoning"]},
+    "o1": {"in": 15.0, "out": 60.0, "caps": ["vision", "tools", "reasoning"]},
+    "o1-mini": {"in": 1.1, "out": 4.4, "caps": ["reasoning"]},
     "gpt-5": {"in": 1.25, "out": 10.0, "caps": ["vision", "tools", "reasoning"]},
+    "gpt-5-mini": {"in": 0.25, "out": 2.0, "caps": ["vision", "tools", "reasoning"]},
+    "gpt-5-nano": {"in": 0.05, "out": 0.4, "caps": ["vision", "tools", "reasoning"]},
+    # --- Anthropic ----------------------------------------------------------
+    "claude-opus-4-5": {"in": 5.0, "out": 25.0, "caps": ["vision", "tools", "reasoning"]},
     "claude-opus-4": {"in": 15.0, "out": 75.0, "caps": ["vision", "tools", "reasoning"]},
+    "claude-sonnet-4-5": {"in": 3.0, "out": 15.0, "caps": ["vision", "tools", "reasoning"]},
     "claude-sonnet-4": {"in": 3.0, "out": 15.0, "caps": ["vision", "tools", "reasoning"]},
+    "claude-3-7-sonnet": {"in": 3.0, "out": 15.0, "caps": ["vision", "tools", "reasoning"]},
+    "claude-3-5-sonnet": {"in": 3.0, "out": 15.0, "caps": ["vision", "tools"]},
+    "claude-3-5-haiku": {"in": 0.8, "out": 4.0, "caps": ["vision", "tools"]},
     "claude-haiku": {"in": 0.8, "out": 4.0, "caps": ["vision", "tools"]},
+    # --- Google Gemini -------------------------------------------------------
+    "gemini-3-pro": {"in": 2.0, "out": 12.0, "caps": ["vision", "tools", "reasoning"]},
     "gemini-2.5-pro": {"in": 1.25, "out": 10.0, "caps": ["vision", "tools", "reasoning"]},
-    "gemini-2.5-flash": {"in": 0.3, "out": 2.5, "caps": ["vision", "tools"]},
+    "gemini-2.5-flash": {"in": 0.3, "out": 2.5, "caps": ["vision", "tools", "reasoning"]},
+    "gemini-2.5-flash-lite": {"in": 0.1, "out": 0.4, "caps": ["vision", "tools"]},
+    "gemini-2.0-flash": {"in": 0.1, "out": 0.4, "caps": ["vision", "tools"]},
+    "gemini-2.0-flash-lite": {"in": 0.075, "out": 0.3, "caps": ["vision", "tools"]},
+    "gemini-1.5-pro": {"in": 1.25, "out": 5.0, "caps": ["vision", "tools"]},
+    "gemini-1.5-flash": {"in": 0.075, "out": 0.3, "caps": ["vision", "tools"]},
+    "gemma-3": {"in": None, "out": None, "caps": ["vision", "tools"]},
+    # --- DeepSeek ------------------------------------------------------------
     "deepseek-chat": {"in": 0.27, "out": 1.1, "caps": ["tools"]},
     "deepseek-reasoner": {"in": 0.55, "out": 2.19, "caps": ["tools", "reasoning"]},
+    # --- Meta Llama (Groq / Together style ids) ------------------------------
+    "llama-3.3-70b": {"in": None, "out": None, "caps": ["tools"]},
+    "llama-3.1-405b": {"in": None, "out": None, "caps": ["tools"]},
+    "llama-3.1-70b": {"in": None, "out": None, "caps": ["tools"]},
+    "llama-3.1-8b": {"in": None, "out": None, "caps": ["tools"]},
+    "llama-3-70b": {"in": None, "out": None, "caps": ["tools"]},
+    "llama-3-8b": {"in": None, "out": None, "caps": ["tools"]},
     "llama": {"in": None, "out": None, "caps": ["tools"]},
+    # --- Mistral ------------------------------------------------------------
+    "mistral-large": {"in": 2.0, "out": 6.0, "caps": ["tools"]},
+    "mistral-medium": {"in": 0.4, "out": 2.0, "caps": ["tools"]},
+    "mistral-small": {"in": 0.1, "out": 0.3, "caps": ["tools"]},
     "mistral": {"in": None, "out": None, "caps": ["tools"]},
+    "mixtral": {"in": None, "out": None, "caps": ["tools"]},
+    "codestral": {"in": 0.3, "out": 0.9, "caps": ["tools"]},
+    # --- Qwen ---------------------------------------------------------------
+    "qwen3-max": {"in": None, "out": None, "caps": ["tools", "reasoning"]},
+    "qwen3": {"in": None, "out": None, "caps": ["tools", "reasoning"]},
+    "qwen2.5-coder": {"in": None, "out": None, "caps": ["tools"]},
+    "qwen2.5": {"in": None, "out": None, "caps": ["tools"]},
     "qwen": {"in": None, "out": None, "caps": ["tools"]},
+    # --- xAI ----------------------------------------------------------------
+    "grok-4": {"in": 3.0, "out": 15.0, "caps": ["vision", "tools", "reasoning"]},
+    "grok-3": {"in": 3.0, "out": 15.0, "caps": ["tools"]},
+    "grok-2": {"in": 2.0, "out": 10.0, "caps": ["tools"]},
+    "grok": {"in": None, "out": None, "caps": ["tools"]},
 }
 
 
