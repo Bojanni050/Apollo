@@ -49,6 +49,7 @@ if (-not $npm) {
     Stop-WithError "npm is not on PATH, so the root install and the frontend build cannot run." -Hint @(
         "Install the LTS build from https://nodejs.org/ and re-open the terminal."
     )
+}
 
 # --- 2. Desktop shell: @tauri-apps/cli at the repository root ------------------
 # A tiny install (one package), but without it `npm run dev` in desktop.cmd
