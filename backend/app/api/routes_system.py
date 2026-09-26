@@ -221,6 +221,12 @@ def _apply_llm_settings(update: LlmSettingsUpdate) -> None:
             settings.background_llm_context_tokens = update.background_context_tokens
         if update.background_max_output_tokens is not None:
             settings.background_llm_max_output_tokens = update.background_max_output_tokens
+        # "Same as chat model": with no background model the background role
+        # resolves to the primary provider, so stale background limits must
+        # not linger and silently shrink its context budget.
+        if not settings.background_llm_model:
+            settings.background_llm_context_tokens = None
+            settings.background_llm_max_output_tokens = None
         settings._validate_llm_context()
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
