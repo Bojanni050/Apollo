@@ -326,6 +326,10 @@ input:focus, textarea:focus, select:focus {
 
 .nav-user-row {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .nav-user-info {
@@ -336,6 +340,8 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.12s ease;
+  flex: 1;
+  min-width: 0;
 }
 .nav-user-info:hover { background: #F4F4F5; }
 
