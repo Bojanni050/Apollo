@@ -201,7 +201,11 @@ class TestEmbeddings:
 class TestTreeSitter:
     def _write(self, tmp_path: Path, source: str) -> Path:
         target = tmp_path / "sample.py"
-        target.write_text(source, encoding="utf-8")
+        # newline="" keeps the fixture byte-for-byte as written. Without it
+        # Windows rewrites every "\n" to "\r\n" on write, and the parser -- which
+        # deliberately preserves source verbatim -- then returns CRLF, so the
+        # verbatim-source assertions below fail on Windows only.
+        target.write_text(source, encoding="utf-8", newline="")
         return target
 
     def test_function_extraction(self, tmp_path: Path) -> None:
