@@ -68,8 +68,8 @@ finally {
 if ($code -ne 0) {
     Write-Host ""
     Write-Warn "The desktop app exited with code $code."
-    Write-Info "`apollo.cmd release` gives a fuller error, or use `apollo.cmd start`"
-    Write-Info "for the browser version."
+    Write-Info 'apollo.cmd release gives a fuller error, or use apollo.cmd start'
+    Write-Info 'for the browser version.'
     exit $code
 }
 Write-Ok "Desktop app closed."

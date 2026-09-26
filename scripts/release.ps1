@@ -33,11 +33,18 @@ Write-Host ""
 
 # --- 1. Prerequisites: the first-run pass (venv, packages, frontend bundle) --
 # Delegated rather than duplicated: first-run.ps1 already skips anything that
-# exists, so this only does what is missing on this machine.
-Write-Step "Preparing prerequisites (each step is skipped when already done)..."
-& (Join-Path $PSScriptRoot "first-run.ps1")
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+# exists, so this only does what is missing on this machine. apollo.cmd has
+# usually done this already before calling this script; the call is kept so
+# the script also works when run directly.
+if ($env:APOLLO_SKIP_FIRST_RUN -ne "1") {
+    Write-Step "Preparing prerequisites (each step is skipped when already done)..."
+    & (Join-Path $PSScriptRoot "first-run.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+else {
+    Write-Info "Prerequisites already prepared by apollo.cmd; skipping first-run."
 }
 Write-Host ""
 
@@ -94,10 +101,20 @@ if (Test-Path $installDir) {
 Write-Host ""
 
 if ($Start) {
-    Write-Step "Starting the release exe..."
-    # A detached start: the script returns immediately, the app keeps running.
-    Start-Process -FilePath $releaseExe -WorkingDirectory (Join-Path $script:RepoRoot "src-tauri\target\release")
-    Write-Ok "Started. Closing the app window also stops its backend."
+    Write-Step "Starting the release exe (backend errors appear below; close the app window to return)..."
+    # Foreground on purpose: the desktop shell inherits the backend's stderr
+    # (Stdio::inherit in src-tauri\src\lib.rs), so a backend that fails to
+    # start prints its reason HERE. A detached start would hide exactly the
+    # message that explains a failed startup. The app opens its own window;
+    # closing it ends the process and returns control to this console.
+    Push-Location (Split-Path $releaseExe -Parent)
+    try {
+        & $releaseExe
+    }
+    finally {
+        Pop-Location
+    }
+    Write-Ok "The release exe exited."
 }
 else {
     Write-Host "Run it directly, or use:  apollo.cmd release-start"

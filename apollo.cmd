@@ -44,6 +44,13 @@ if /i "%ACTION%"=="first-run" goto :first_run
 if /i "%ACTION%"=="firstrun" goto :first_run
 if /i "%ACTION%"=="setup" goto :first_run
 if /i "%ACTION%"=="stop" goto :stop
+REM Numeric aliases, so "apollo.cmd 4" works like choosing 4 in the menu.
+if "%ACTION%"=="1" goto :start
+if "%ACTION%"=="2" goto :desktop
+if "%ACTION%"=="3" goto :release
+if "%ACTION%"=="4" goto :release_start
+if "%ACTION%"=="5" goto :first_run
+if "%ACTION%"=="6" goto :stop
 echo.
 echo   Unknown action: %ACTION%
 echo.
@@ -64,12 +71,14 @@ goto :end
 :release
 call :maybe_first_run
 if not "%ERRORLEVEL%"=="0" goto :failed
+set "APOLLO_SKIP_FIRST_RUN=1"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPTS%\release.ps1"%PSARGS%
 goto :end
 
 :release_start
 call :maybe_first_run
 if not "%ERRORLEVEL%"=="0" goto :failed
+set "APOLLO_SKIP_FIRST_RUN=1"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPTS%\release.ps1" -Start%PSARGS%
 goto :end
 
