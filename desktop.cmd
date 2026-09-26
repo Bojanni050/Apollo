@@ -26,6 +26,16 @@ if not exist "%PYTHON%" (
     exit /b 1
 )
 
+if not exist "%ROOT%node_modules\.bin\tauri.cmd" (
+    echo.
+    echo   The Tauri CLI is not installed at node_modules\.bin\tauri.cmd
+    echo   Run first-run.cmd first: it installs everything, including the Tauri CLI.
+    echo.
+    pause
+    endlocal
+    exit /b 1
+)
+
 where cargo >nul 2>&1
 if errorlevel 1 (
     echo.
