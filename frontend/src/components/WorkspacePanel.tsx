@@ -60,12 +60,20 @@ export function WorkspacePanel({
   tree,
   selectedPath,
   onSelectDocument,
+  currentView = 'conversation',
+  onSelectView,
+  openQuestionsCount,
+  decisionsCount,
 }: {
   workspace: Workspace
   repository: Repository | null
   tree: DocNode | null
   selectedPath: string | null
   onSelectDocument: (path: string) => void
+  currentView?: 'conversation' | 'questions' | 'decisions'
+  onSelectView?: (view: 'conversation' | 'questions' | 'decisions') => void
+  openQuestionsCount?: number
+  decisionsCount?: number
 }) {
   const docs = workspace.repositories.filter((r) => r.kind === 'documentation')
   const sources = workspace.repositories.filter((r) => r.kind === 'source')
@@ -79,6 +87,43 @@ export function WorkspacePanel({
           {workspace.repositories.length} repositor{workspace.repositories.length === 1 ? 'y' : 'ies'}
         </div>
       </div>
+
+      {onSelectView && (
+        <div className="section">
+          <h3>Views</h3>
+          <div
+            className={`list-item ${currentView === 'conversation' ? 'active' : ''}`}
+            onClick={() => onSelectView('conversation')}
+          >
+            <div className="list-title">Conversation</div>
+            <div className="list-sub">Architectural discussion & analysis</div>
+          </div>
+          <div
+            className={`list-item ${currentView === 'questions' ? 'active' : ''}`}
+            onClick={() => onSelectView('questions')}
+          >
+            <div className="list-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Open Questions</span>
+              {openQuestionsCount !== undefined && openQuestionsCount > 0 && (
+                <span className="tag warn">{openQuestionsCount} open</span>
+              )}
+            </div>
+            <div className="list-sub">Unresolved questions & issues</div>
+          </div>
+          <div
+            className={`list-item ${currentView === 'decisions' ? 'active' : ''}`}
+            onClick={() => onSelectView('decisions')}
+          >
+            <div className="list-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Decisions</span>
+              {decisionsCount !== undefined && decisionsCount > 0 && (
+                <span className="tag accent">{decisionsCount}</span>
+              )}
+            </div>
+            <div className="list-sub">Architectural decisions & ADR sync</div>
+          </div>
+        </div>
+      )}
 
       {docs.map((repo) => (
         <div className="section" key={repo.id}>

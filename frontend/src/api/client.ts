@@ -423,6 +423,7 @@ export const api = {
       conversation_id: number | null
       evidence: unknown[]
       affected: unknown[]
+      resolved_at: string | null
     }>,
   ) =>
     request<OpenQuestion>(`/workspaces/${workspaceId}/questions/${questionId}`, {

@@ -1,20 +1,24 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ApiError,
   api,
   type ChatStatus,
   type Conversation,
   type ConversationDetail,
+  type Decision,
   type DocNode,
   type InventoryRun,
   type Mode,
+  type OpenQuestion,
   type Proposal,
   type Repository,
   type Workspace,
 } from './api/client'
 import { ConversationPanel } from './components/ConversationPanel'
 import { ContextPanel } from './components/ContextPanel'
+import { DecisionsPanel } from './components/DecisionsPanel'
 import { LoginForm } from './components/LoginForm'
+import { QuestionsPanel } from './components/QuestionsPanel'
 import { WorkspacePanel } from './components/WorkspacePanel'
 
 export default function App() {
@@ -25,6 +29,10 @@ export default function App() {
   const [documentPath, setDocumentPath] = useState<string | null>(null)
   const [documentMarkdown, setDocumentMarkdown] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
+
+  const [view, setView] = useState<'conversation' | 'questions' | 'decisions'>('conversation')
+  const [questions, setQuestions] = useState<OpenQuestion[]>([])
+  const [decisions, setDecisions] = useState<Decision[]>([])
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
@@ -87,15 +95,19 @@ export default function App() {
       }
 
       try {
-        const [status, convs, props, runs] = await Promise.all([
+        const [status, convs, props, runs, qs, decs] = await Promise.all([
           api.chatStatus(ws.id),
           api.listConversations(ws.id),
           api.listProposals(ws.id),
           api.listInventoryRuns(ws.id),
+          api.listQuestions(ws.id),
+          api.listDecisions(ws.id),
         ])
         setChatStatus(status)
         setConversations(convs)
         setProposals(props)
+        setQuestions(qs)
+        setDecisions(decs)
         if (runs.length > 0) setInventoryRun(runs[0])
         if (convs.length > 0) await openConversation(ws.id, convs[0].id)
         else await newConversation(ws.id)
@@ -105,6 +117,24 @@ export default function App() {
     },
     [newConversation, openConversation, reloadTree],
   )
+
+  const refreshQuestions = useCallback(async () => {
+    if (!workspace) return
+    try {
+      setQuestions(await api.listQuestions(workspace.id))
+    } catch (e) {
+      report(e)
+    }
+  }, [workspace])
+
+  const refreshDecisions = useCallback(async () => {
+    if (!workspace) return
+    try {
+      setDecisions(await api.listDecisions(workspace.id))
+    } catch (e) {
+      report(e)
+    }
+  }, [workspace])
 
   // -- bootstrap ---------------------------------------------------------
   useEffect(() => {
@@ -170,6 +200,7 @@ export default function App() {
       if (!workspace || !repository) return
       setDocumentPath(path)
       setDocumentMarkdown(null)
+      setContextOpen(true)
       try {
         const doc = await api.document(workspace.id, repository.id, path)
         setDocumentMarkdown(doc.raw_markdown)
@@ -347,7 +378,28 @@ export default function App() {
           ))}
         </select>
 
-        {conversations.length > 0 && (
+        <div className="modes" style={{ marginLeft: 8 }}>
+          <button
+            className={view === 'conversation' ? 'active' : ''}
+            onClick={() => setView('conversation')}
+          >
+            Conversation
+          </button>
+          <button
+            className={view === 'questions' ? 'active' : ''}
+            onClick={() => setView('questions')}
+          >
+            Questions {questions.filter((q) => q.status === 'open').length > 0 ? `(${questions.filter((q) => q.status === 'open').length})` : ''}
+          </button>
+          <button
+            className={view === 'decisions' ? 'active' : ''}
+            onClick={() => setView('decisions')}
+          >
+            Decisions {decisions.length > 0 ? `(${decisions.length})` : ''}
+          </button>
+        </div>
+
+        {view === 'conversation' && conversations.length > 0 && (
           <select
             value={conversation?.id ?? ''}
             onChange={(e) => workspace && openConversation(workspace.id, Number(e.target.value))}
@@ -360,7 +412,7 @@ export default function App() {
             ))}
           </select>
         )}
-        {workspace && (
+        {view === 'conversation' && workspace && (
           <button className="btn" onClick={() => newConversation(workspace.id)}>
             New
           </button>
@@ -388,21 +440,45 @@ export default function App() {
                 tree={tree}
                 selectedPath={documentPath}
                 onSelectDocument={openDocument}
+                currentView={view}
+                onSelectView={setView}
+                openQuestionsCount={questions.filter((q) => q.status === 'open').length}
+                decisionsCount={decisions.length}
               />
             ) : null}
           </div>
         </div>
 
         <div className="panel conversation">
-          <ConversationPanel
-            conversation={conversation}
-            chatStatus={chatStatus}
-            sending={sending}
-            error={error}
-            onSend={send}
-            onModeChange={changeMode}
-            onOpenFile={openDocument}
-          />
+          {view === 'conversation' && (
+            <ConversationPanel
+              conversation={conversation}
+              chatStatus={chatStatus}
+              sending={sending}
+              error={error}
+              onSend={send}
+              onModeChange={changeMode}
+              onOpenFile={openDocument}
+            />
+          )}
+          {view === 'questions' && workspace && (
+            <QuestionsPanel
+              workspace={workspace}
+              questions={questions}
+              onRefreshQuestions={refreshQuestions}
+            />
+          )}
+          {view === 'decisions' && workspace && (
+            <DecisionsPanel
+              workspace={workspace}
+              repository={repository}
+              decisions={decisions}
+              questions={questions}
+              onRefreshDecisions={refreshDecisions}
+              onRefreshTree={() => reloadTree(workspace, repository)}
+              onSelectDocument={openDocument}
+            />
+          )}
         </div>
 
         {contextOpen && (
