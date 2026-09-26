@@ -59,13 +59,14 @@ def login(payload: LoginIn, response: Response) -> LoginOut:
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> None:
+def logout() -> Response:
     """Clear the session cookie.
 
     Stateless tokens cannot be revoked server-side, so the cookie is deleted
     and its expiry shortened. Shortening the expiry is what actually stops a
     stolen token from being replayed by a client that ignores the deletion.
     """
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(
         key=settings.auth_cookie_name,
         path="/",
@@ -73,6 +74,7 @@ def logout(response: Response) -> None:
         secure=settings.cookie_secure,
         samesite="strict",
     )
+    return response
 
 
 @router.get("/status", response_model=AuthStatusOut)
