@@ -19,7 +19,7 @@ import logging
 from collections.abc import Iterator
 from urllib.parse import urlsplit
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -217,5 +217,53 @@ def init_db(bind: Engine | None = None) -> None:
     # derived directly from the models. Never used for a real deployment.
     import_models()
     Base.metadata.create_all(bind=bind)
+    _upgrade_sqlite_columns(bind)
     logger.info("Database ready (SQLite at %s).", urlsplit(target_url).path or ":memory:")
+
+
+def _upgrade_sqlite_columns(bind: Engine) -> None:
+    """Add columns the models gained after a SQLite database was created.
+
+    ``create_all`` creates missing *tables* but never touches existing ones:
+    a database created before a model gained a column stays behind, and the
+    first query against that column crashes with "no such column". That is
+    exactly how a local database breaks after pulling a newer version.
+
+    PostgreSQL does not have this problem -- Alembic owns its schema -- so this
+    is SQLite-only. Only additive changes are handled (new nullable columns
+    or columns with a server default); renames and type changes remain a
+    manual, copy-your-data affair, which is honest for a local convenience.
+    """
+    inspector = inspect(bind)
+    with bind.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                compiled = column.type.compile(bind.dialect)
+                default = ""
+                if column.server_default is not None:
+                    # A server_default is either a plain string literal or a
+                    # text() expression; both must render to valid SQL.
+                    arg = column.server_default.arg
+                    rendered = arg.text if hasattr(arg, "text") else str(arg)
+                    default = f" DEFAULT {rendered}"
+                elif column.nullable:
+                    default = " DEFAULT NULL"
+                else:
+                    # A required column without a default cannot be added to a
+                    # populated table; refuse loudly rather than corrupt.
+                    raise RuntimeError(
+                        f"Cannot add required column {table.name}.{column.name} "
+                        "without a default. Migrate your database by hand."
+                    )
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table.name} ADD COLUMN {column.name} {compiled}{default}"
+                )
+                logger.info(
+                    "SQLite upgrade: added %s.%s", table.name, column.name
+                )
 

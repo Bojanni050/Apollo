@@ -418,3 +418,72 @@ def test_scheduler_due_logic() -> None:
     assert not due(s, now)
     s.last_run_at = now - dt.timedelta(hours=7)
     assert due(s, now)
+
+
+def test_sqlite_upgrade_adds_missing_pulse_columns(tmp_path) -> None:
+    """A database created before the schedule columns existed must be
+    upgraded in place at startup, not crash on the first Pulse query."""
+    import os
+
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "old.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        for statement in (
+            """
+            CREATE TABLE workspaces (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE workspace_pulse_settings (
+                workspace_id INTEGER PRIMARY KEY,
+                mode VARCHAR(20) DEFAULT 'suggest' NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "INSERT INTO workspaces (name) VALUES ('Gaia')",
+            """
+            INSERT INTO workspace_pulse_settings (workspace_id, mode)
+                VALUES (1, 'suggest')
+            """,
+        ):
+            conn.exec_driver_sql(statement)
+    engine.dispose()
+
+    # Startup path: init_db must upgrade the stale schema in place.
+    os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+    try:
+        import app.db as db_mod
+
+        stale = create_engine(f"sqlite:///{db_path}")
+        db_mod._upgrade_sqlite_columns(stale)
+        stale.dispose()
+    finally:
+        del os.environ["DATABASE_URL"]
+
+    verify = create_engine(f"sqlite:///{db_path}")
+    with verify.begin() as conn:
+        cols = {
+            r[1]
+            for r in conn.execute(text("PRAGMA table_info(workspace_pulse_settings)"))
+        }
+        assert "schedule_enabled" in cols
+        assert "schedule_kind" in cols
+        assert "interval_hours" in cols
+        assert "weekly_day" in cols
+        assert "weekly_hour" in cols
+        assert "last_run_at" in cols
+        row = conn.execute(
+            text("SELECT schedule_enabled, interval_hours FROM workspace_pulse_settings")
+        ).fetchone()
+        # The pre-existing row keeps working with the defaults applied.
+        assert row[0] == 0
+        assert row[1] == 1
+    verify.dispose()
