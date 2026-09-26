@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -207,6 +207,34 @@ class Settings(BaseSettings):
     background_llm_model: str | None = None
     background_llm_context_tokens: int | None = Field(default=None, ge=MIN_CONTEXT_TOKENS, le=MAX_CONTEXT_TOKENS)
     background_llm_max_output_tokens: int | None = Field(default=None, ge=256)
+
+    @field_validator(
+        "background_llm_base_url",
+        "background_llm_api_key",
+        "background_llm_model",
+        "background_llm_context_tokens",
+        "background_llm_max_output_tokens",
+        "llm_base_url",
+        "llm_api_key",
+        "llm_model",
+        mode="before",
+    )
+    @classmethod
+    def _empty_llm_values_are_unset(cls, value):
+        """Treat an empty string as "not configured".
+
+        The settings screen persists the LLM keys to backend/.env, and an unset
+        optional value is written as ``KEY=`` -- a blank line in the file. On
+        the next start pydantic-settings feeds that literal empty string to
+        the field validators, where the token counts are declared ``int`` and
+        fail to parse, so a settings round-trip through the UI could leave the
+        server unable to boot. Normalizing here keeps ``.env`` readable for
+        humans (empty means unset, as everywhere else in the file) while the
+        application sees a clean ``None``.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     # ---- Derived behaviour ---------------------------------------------
     @property

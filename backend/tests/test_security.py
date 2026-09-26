@@ -85,6 +85,38 @@ def prod_settings(**overrides) -> Settings:
     return isolated_settings(**base)
 
 
+def test_empty_llm_env_values_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A settings round-trip through the UI must not break the next boot.
+
+    The LLM settings screen persists unset optional values as ``KEY=`` lines in
+    backend/.env. On reload those arrive as empty strings, which the token
+    counts (``int``) cannot parse -- so the server refused to start after one
+    visit to the settings screen. An empty value must mean "unset".
+    """
+    for key in (
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "LLM_MODEL",
+        "BACKGROUND_LLM_BASE_URL",
+        "BACKGROUND_LLM_API_KEY",
+        "BACKGROUND_LLM_MODEL",
+        "BACKGROUND_LLM_CONTEXT_TOKENS",
+        "BACKGROUND_LLM_MAX_OUTPUT_TOKENS",
+    ):
+        monkeypatch.setenv(key, "")
+
+    parsed = isolated_settings()
+
+    assert parsed.llm_base_url is None
+    assert parsed.llm_api_key is None
+    assert parsed.llm_model is None
+    assert parsed.background_llm_base_url is None
+    assert parsed.background_llm_api_key is None
+    assert parsed.background_llm_model is None
+    assert parsed.background_llm_context_tokens is None
+    assert parsed.background_llm_max_output_tokens is None
+
+
 def login(client: TestClient) -> None:
     """Establish a session with the test credentials."""
     response = client.post(
