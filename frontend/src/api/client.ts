@@ -4,6 +4,10 @@
  * The UI never constructs URLs inline; everything the backend exposes is
  * declared here once, so a contract change surfaces as a type error rather
  * than a runtime surprise.
+ *
+ * Authentication: the backend issues an HttpOnly session cookie from
+ * /api/auth/login, so `credentials: 'include'` is what carries the session.
+ * The token is never stored in JS, which keeps it unreadable by page scripts.
  */
 
 const BASE = '/api'
@@ -20,6 +24,8 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
+    // Send the session cookie; without this the browser drops it.
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
@@ -146,6 +152,12 @@ export interface ConversationDetail extends Conversation {
 // Endpoints
 // ---------------------------------------------------------------------------
 
+export interface AuthStatus {
+  auth_required: boolean
+  authenticated: boolean
+  username: string | null
+}
+
 export interface ChatStatus {
   llm_configured: boolean
   providers: string[]
@@ -179,6 +191,14 @@ export interface InventoryItem {
   decision: 'pending' | 'applied' | 'skipped'
   target_path: string | null
   needs_move: boolean
+  /** Other categories the model weighed, so a contested call is visible. */
+  alternatives: string[]
+  /** The model's stated evidence for the classification. */
+  reason: string | null
+  /** The classification rests on a structural digest, not the whole document. */
+  partial: boolean
+  /** The model reported low confidence; treat the suggestion as a suggestion. */
+  low_confidence: boolean
 }
 
 export interface InventoryRun {
@@ -205,6 +225,15 @@ export interface GitStatus {
 
 export const api = {
   health: () => request<{ status: string; app: string; version: string }>('/health'),
+
+  // -- authentication ------------------------------------------------------
+  authStatus: () => request<AuthStatus>('/auth/status'),
+  login: (username: string, password: string) =>
+    request<{ authenticated: boolean; username: string | null }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
 
   listWorkspaces: () => request<Workspace[]>('/workspaces'),
   createWorkspace: (name: string) =>

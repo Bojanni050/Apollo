@@ -4,28 +4,46 @@ A deliberately simple loop: send the conversation to the model, let it call
 read-only tools, feed the results back, repeat until it answers. No autonomous
 planning, no background cognition, no agent framework.
 
-Two invariants matter here:
+Three invariants matter here:
 
 1. The agent holds only read tools. It cannot modify a file.
 2. Switching mode never discards the conversation; only the system prompt
    changes, so an architectural discussion survives a move into Apply mode.
+3. **Every request fits the configured context window.** The budget in
+   :mod:`app.llm.context` decides what history and tool output are admitted, so
+   the model is never sent a request it is bound to reject.
 """
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.llm.base import Citation, LLMProvider, LLMResponse
+from app.llm.context import (
+    ContextBudget,
+    ContextBudgetError,
+    Turn,
+    history_turns,
+)
 from app.models import Conversation, Message, Repository
 from app.prompts import system_prompt
 from app.services.tools import ToolContext, run_tool, tool_schemas
 
+logger = logging.getLogger("gaia_docs_architect")
+
 MAX_TOOL_ITERATIONS = 8
-MAX_HISTORY_MESSAGES = 40
+
+#: A fetch bound only, so a very long conversation does not load an unbounded
+#: number of rows from the database. This is NOT the context limit: which
+#: messages actually reach the model is decided by the token budget, which is
+#: the real constraint. Raising it costs nothing but memory.
+MAX_HISTORY_FETCH = 200
 
 
 @dataclass
@@ -64,22 +82,52 @@ class Agent:
             citations=[],
         )
 
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(conversation.mode)}
-        ]
-        for message in _recent_history(db, conversation.id):
-            messages.append({"role": message.role, "content": message.content})
-
+        system = system_prompt(conversation.mode)
         tools = tool_schemas([r.name for r in repositories])
+        budget = self._budget()
         executed: list[dict[str, Any]] = []
 
+        # History is loaded, but not yet committed to the request: the planner
+        # decides how much of it actually fits alongside everything else.
+        history = history_turns(
+            _fetch_history(db, conversation.id), max_messages=MAX_HISTORY_FETCH
+        )
+        current = Turn(
+            messages=[{"role": "user", "content": user_message}],
+            kind="current",
+            # Above every history turn, so it is admitted first and only
+            # truncated when nothing else is left to give.
+            priority=10**6,
+            mandatory=True,
+            label="current message",
+        )
+
+        turns: list[Turn] = [*history, current]
+
         for _ in range(MAX_TOOL_ITERATIONS):
+            messages, report = budget.plan(
+                system=system, turns=turns, tools=tools, current_query=user_message
+            )
+            _log_report(report)
+
             response: LLMResponse = self.provider.chat(messages, tools=tools)
-            messages.append(_assistant_turn(response))
+            assistant_turn = _assistant_turn(response)
+            turns.append(
+                Turn(
+                    messages=[assistant_turn],
+                    # The model's own turn stays attached to its tool results.
+                    kind="history",
+                    priority=len(turns),
+                    label="assistant turn",
+                )
+            )
 
             if not response.tool_calls:
                 return self._finish(db, conversation, response, ctx, executed)
 
+            # One turn holds the assistant's request plus every result, so the
+            # pair can never be separated by the planner.
+            results: list[dict[str, Any]] = []
             for call in response.tool_calls:
                 result = run_tool(call.name, ctx, call.arguments)
                 executed.append(
@@ -89,7 +137,7 @@ class Agent:
                         "result_preview": result[:500],
                     }
                 )
-                messages.append(
+                results.append(
                     {
                         "role": "tool",
                         "tool_call_id": call.id,
@@ -98,17 +146,53 @@ class Agent:
                     }
                 )
 
+            turns[-1] = Turn(
+                messages=[assistant_turn, *results],
+                kind="tool",
+                # Newest evidence is the most useful evidence, so tool turns
+                # outrank old conversation history.
+                priority=10**5 + len(turns),
+                label="tool results",
+            )
+
         # Iteration budget exhausted: ask for a final answer with what we have.
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "Provide your final answer now, based on the evidence gathered so far."
-                ),
-            }
+        turns.append(
+            Turn(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "Provide your final answer now, based on the evidence "
+                            "gathered so far."
+                        ),
+                    }
+                ],
+                kind="current",
+                priority=10**6,
+                mandatory=True,
+                label="final-answer request",
+            )
         )
+        messages, report = budget.plan(
+            system=system, turns=turns, tools=None, current_query=user_message
+        )
+        _log_report(report)
         final = self.provider.chat(messages, tools=None)
         return self._finish(db, conversation, final, ctx, executed)
+
+    @staticmethod
+    def _budget() -> ContextBudget:
+        """The configured context budget for one model call.
+
+        A misconfigured window is a configuration problem, not a user error, so
+        it is reported as one rather than being silently clamped.
+        """
+        try:
+            return ContextBudget.from_settings(settings)
+        except ValueError as exc:
+            raise ContextBudgetError(
+                f"LLM context configuration is invalid: {exc}"
+            ) from exc
 
     def _finish(
         self,
@@ -153,21 +237,38 @@ def _assistant_turn(response: LLMResponse) -> dict[str, Any]:
     return turn
 
 
-def _recent_history(db: Session, conversation_id: int, limit: int = MAX_HISTORY_MESSAGES):
-    """The most recent turns, so long discussions stay within context limits."""
-    total = db.scalar(
-        select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
-    )
-    if not total:
-        return []
-    first = max(0, total - limit)
-    return (
+def _fetch_history(db: Session, conversation_id: int, limit: int = MAX_HISTORY_FETCH):
+    """Load the most recent stored turns, returned oldest-first.
+
+    A plain bounded fetch. Which of these reach the model is decided later by the
+    token budget, so this limit is about memory, not context.
+    """
+    rows = (
         db.scalars(
             select(Message)
-            .where(Message.conversation_id == conversation_id, Message.id > first)
-            .order_by(Message.id)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.id.desc())
+            .limit(limit)
         )
         .all()
+    )
+    # Queried newest-first for the LIMIT to be cheap, then reversed so the
+    # transcript reads chronologically.
+    return list(reversed(rows))
+
+
+def _log_report(report) -> None:
+    """Surface budget decisions: silent truncation would be a lie by omission."""
+    if not report.notes:
+        return
+    logger.info(
+        "Context budget: %d/%d tokens, kept %d turn(s), dropped %d, truncated %d. %s",
+        report.total_tokens,
+        report.input_budget,
+        report.kept_turns,
+        report.dropped_turns,
+        report.truncated_turns,
+        "; ".join(report.notes),
     )
 
 

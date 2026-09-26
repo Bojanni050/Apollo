@@ -17,6 +17,7 @@ from app.api.deps import get_documentation_repository, get_workspace, resolve_re
 from app.db import get_db
 from app.llm import get_provider
 from app.llm.base import LLMError, LLMNotConfigured
+from app.llm.context import ContextBudgetError
 from app.models import InventoryItem, InventoryRun
 from app.schemas import (
     InventoryApplyOut,
@@ -26,19 +27,26 @@ from app.schemas import (
     InventoryRunOut,
     InventoryRunRequest,
 )
-from app.services.inventory import run_inventory
+from app.services.inventory import LOW_CONFIDENCE_THRESHOLD, run_inventory
 from app.services.proposals import ProposalError, apply_change, plan_move
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["inventory"])
 
 
 def _item_out(item: InventoryItem) -> InventoryItemOut:
-    """Render an item, including whether it would actually move anything."""
+    """Render an item, including what would actually move, and how sure we are.
+
+    ``needs_move`` is computed here rather than trusted, because it is the thing
+    the user is actually approving. The confidence flags are surfaced so a weak
+    classification is visible as weak rather than presented like any other.
+    """
     out = InventoryItemOut.model_validate(item)
     source_dir = PurePosixPath(item.source_path).parent.as_posix()
     if item.suggested_path and source_dir != item.suggested_path:
         out.target_path = f"{item.suggested_path}/{PurePosixPath(item.source_path).name}"
         out.needs_move = True
+    out.partial = item.partial
+    out.low_confidence = (item.confidence or 0.0) < LOW_CONFIDENCE_THRESHOLD
     return out
 
 
@@ -82,6 +90,15 @@ def create_inventory_run(
 
     try:
         result = run_inventory(provider, root, payload.path)
+    except ContextBudgetError as exc:
+        # Not a provider fault: the documents cannot be fitted into the
+        # configured context window. Report it as the configuration problem it
+        # is, rather than letting it surface as a bad gateway.
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            "The documentation does not fit the model's context window. "
+            "Raise LLM_CONTEXT_TOKENS or narrow the inventory to a subfolder.",
+        ) from exc
     except LLMError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM error: {exc}") from exc
 
@@ -104,6 +121,9 @@ def create_inventory_run(
                 overlaps=classification.overlaps,
                 ambiguous=classification.ambiguous,
                 note=classification.note,
+                alternatives=classification.alternatives,
+                reason=classification.reason,
+                partial=classification.partial,
                 decision="pending",
             )
         )

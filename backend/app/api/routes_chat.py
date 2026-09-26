@@ -6,6 +6,8 @@ can move from Explore to Investigate to Apply without losing its context.
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -15,6 +17,7 @@ from app.config import settings
 from app.db import get_db
 from app.llm import available_providers, get_provider, is_configured
 from app.llm.base import LLMError, LLMNotConfigured
+from app.llm.context import ContextBudgetError
 from app.models import Conversation, Message, Repository
 from app.prompts import VALID_MODES
 from app.schemas import (
@@ -27,6 +30,8 @@ from app.schemas import (
     SendMessageOut,
 )
 from app.services.agent import Agent
+
+logger = logging.getLogger("gaia_docs_architect")
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["chat"])
 
@@ -190,6 +195,17 @@ def send_message(
     before = set(db.scalars(select(Message.id).where(Message.conversation_id == conversation.id)))
     try:
         Agent(provider).run(db, conversation, payload.content, list(repositories))
+    except ContextBudgetError as exc:
+        # The request could not be made to fit the configured context window.
+        # That is the user's situation to fix (shorter message, or a model with
+        # a larger window), not a provider fault -- so it must not be reported
+        # as a bad gateway, and the internal reason is logged rather than shown.
+        logger.warning("Context budget exceeded for conversation %s: %s", conversation.id, exc)
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            "This message is too large to fit the model's context window. "
+            "Shorten it, or raise LLM_CONTEXT_TOKENS.",
+        ) from exc
     except LLMError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM error: {exc}") from exc
 

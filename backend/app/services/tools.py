@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.llm.base import Citation
 from app.models import Repository, Workspace
 from app.services import git
@@ -22,6 +23,10 @@ from app.services.documents import DocumentError, build_tree, list_documents, re
 from app.services.paths import PathSecurityError, safe_path
 from app.services.search import search_documents
 
+#: A ceiling on any single tool result, in characters. This is the *source*
+#: limit: it stops an unbounded read before the token budget ever sees it. The
+#: budget applies a second, token-accurate limit afterwards, because characters
+#: and tokens are not the same thing.
 MAX_TOOL_RESULT_CHARS = 20_000
 READABLE_SUFFIXES = {".md", ".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java",
                      ".cs", ".rb", ".sql", ".yaml", ".yml", ".toml", ".json"}

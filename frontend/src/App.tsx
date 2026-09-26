@@ -14,6 +14,7 @@ import {
 } from './api/client'
 import { ConversationPanel } from './components/ConversationPanel'
 import { ContextPanel } from './components/ContextPanel'
+import { LoginForm } from './components/LoginForm'
 import { WorkspacePanel } from './components/WorkspacePanel'
 
 export default function App() {
@@ -36,6 +37,11 @@ export default function App() {
   const [sending, setSending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // null = not yet known. The API is the only authority on whether a session
+  // exists; the UI must never assume it is authenticated.
+  const [authRequired, setAuthRequired] = useState<boolean | null>(null)
+  const [authenticated, setAuthenticated] = useState(false)
 
   const report = (e: unknown) =>
     setError(e instanceof ApiError ? e.detail : 'Something went wrong. Is the backend running?')
@@ -110,6 +116,49 @@ export default function App() {
       })
       .catch(report)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Ask the backend whether we need to sign in. Until it answers, render
+  // nothing: fetching data first would flash an error for a signed-in user
+  // whose session is perfectly valid.
+  useEffect(() => {
+    api
+      .authStatus()
+      .then((status) => {
+        setAuthRequired(status.auth_required)
+        setAuthenticated(status.authenticated)
+      })
+      .catch((e) => {
+        // An unreachable backend is not an auth decision; show the app error.
+        setAuthRequired(false)
+        report(e)
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadWorkspaces = useCallback(async () => {
+    const list = await api.listWorkspaces()
+    setWorkspaces(list)
+    if (list.length > 0) selectWorkspace(list[0])
+  }, [selectWorkspace])
+
+  const onAuthenticated = useCallback(() => {
+    setAuthenticated(true)
+    setError(null)
+    void loadWorkspaces().catch(report)
+  }, [loadWorkspaces])
+
+  const signOut = useCallback(async () => {
+    try {
+      await api.logout()
+    } catch {
+      // The cookie is cleared regardless; carry on to the login screen.
+    }
+    setAuthenticated(false)
+    setWorkspace(null)
+    setConversation(null)
+    setTree(null)
+    setDocumentMarkdown(null)
   }, [])
 
 
@@ -234,6 +283,32 @@ export default function App() {
 
   // -- render ------------------------------------------------------------
 
+  // While the auth question is unanswered, render only the frame. Attempting a
+  // data load first would either flash an error or issue a request the backend
+  // is about to reject.
+  if (authRequired === null) {
+    return (
+      <div className="app">
+        <div className="titlebar">
+          <h1>Gaia Docs Architect</h1>
+        </div>
+      </div>
+    )
+  }
+
+  if (authRequired && !authenticated) {
+    return (
+      <div className="app">
+        <div className="titlebar">
+          <h1>Gaia Docs Architect</h1>
+        </div>
+        <div className="empty" style={{ paddingTop: 80 }}>
+          <LoginForm onAuthenticated={onAuthenticated} />
+        </div>
+      </div>
+    )
+  }
+
   if (workspaces.length === 0) {
     return (
       <div className="app">
@@ -292,6 +367,11 @@ export default function App() {
         )}
 
         <span className="spacer" />
+        {authRequired && (
+          <button className="btn" onClick={signOut}>
+            Sign out
+          </button>
+        )}
         <button className="btn" onClick={() => setContextOpen((v) => !v)}>
           {contextOpen ? 'Hide context' : 'Show context'}
         </button>

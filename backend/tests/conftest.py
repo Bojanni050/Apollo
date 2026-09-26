@@ -1,6 +1,15 @@
-"""Tests run against an in-memory SQLite database and throwaway repos on disk."""
+"""Tests run against an in-memory SQLite database and throwaway repos on disk.
+
+The suite runs in *development* mode so that existing tests do not each have to
+authenticate. That relaxation is opt-in per test run, never the application
+default: ``app.config.Settings`` still defaults to production and still refuses
+to start without credentials. The dedicated security tests
+(``tests/test_security.py``) deliberately re-enable authentication and exercise
+the production rules.
+"""
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -11,9 +20,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import models  # noqa: F401  (registers tables on Base.metadata)
-from app.db import Base, get_db
-from app.main import app
+# Must happen before app.config is imported anywhere, because Settings() reads
+# the environment at construction time.
+os.environ.setdefault("APP_ENV", "development")
+os.environ.setdefault("AUTH_ENABLED", "false")
+os.environ.setdefault("ALLOW_UNRESTRICTED_WORKSPACE_ROOTS", "true")
+# Keep any developer .env or shell exports from leaking into the test run.
+os.environ.pop("ALLOWED_WORKSPACE_ROOTS", None)
+os.environ.pop("CORS_ORIGINS", None)
+
+from app import models  # noqa: E402,F401  (registers tables on Base.metadata)
+from app.db import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture()

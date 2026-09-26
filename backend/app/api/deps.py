@@ -44,11 +44,22 @@ def get_documentation_repository(db: Session, workspace_id: int) -> Repository:
 
 
 def resolve_repo_root(repo: Repository) -> str:
-    """Validate the repository's local path, mapping errors to HTTP 400."""
+    """Validate the repository's local path, mapping errors to HTTP 400.
+
+    Re-checked on every use, not just at registration: configuration may have
+    tightened since the repository was recorded, and a path that is no longer
+    authorized must stop being served immediately.
+    """
     from app.config import settings
 
     try:
-        return str(assert_authorized_root(repo.local_path, settings.allowed_workspace_roots))
+        return str(
+            assert_authorized_root(
+                repo.local_path,
+                settings.allowed_workspace_roots,
+                allow_unrestricted=settings.unrestricted_workspace_roots,
+            )
+        )
     except PathSecurityError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

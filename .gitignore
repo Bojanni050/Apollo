@@ -12,3 +12,11 @@ screenshots/
 vite.log
 vite.err
 .DS_Store
+
+# Alembic / database test artefacts.
+# .pgtest is a throwaway local PostgreSQL cluster used when Docker is
+# unavailable; its data directory must never be committed.
+.pgtest/
+*.db-journal
+*.db-wal
+*.db-shm

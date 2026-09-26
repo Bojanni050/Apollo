@@ -125,10 +125,32 @@ function InventoryView({
                 {item.purpose}
               </p>
               {item.note && <p className="faint" style={{ fontSize: 11, margin: '0 0 4px' }}>{item.note}</p>}
+              {item.reason && (
+                <p className="faint" style={{ fontSize: 11, margin: '0 0 4px' }}>
+                  Why: {item.reason}
+                </p>
+              )}
+              {item.alternatives.length > 0 && (
+                <p className="faint" style={{ fontSize: 11, margin: '0 0 4px' }}>
+                  Also considered: {item.alternatives.join(', ')}
+                </p>
+              )}
+              {item.partial && (
+                <p className="faint" style={{ fontSize: 11, margin: '0 0 4px' }}>
+                  Read as a structural summary of the whole document, not in full.
+                </p>
+              )}
               <div className="btn-row" style={{ marginTop: 6, alignItems: 'center' }}>
                 <span className={`tag ${evidence.cls}`}>
-                  {item.ambiguous ? 'needs a human' : `conf ${(item.confidence ?? 0).toFixed(2)}`}
+                  {item.ambiguous
+                    ? 'needs a human'
+                    : `conf ${(item.confidence ?? 0).toFixed(2)}`}
                 </span>
+                {item.low_confidence && !item.ambiguous && (
+                  <span className="tag warn" title="The model was not confident in this placement">
+                    low confidence
+                  </span>
+                )}
                 {item.decision === 'pending' ? (
                   <>
                     <button

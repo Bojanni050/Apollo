@@ -374,3 +374,36 @@ pre.code {
 }
 
 .empty { padding: 24px 12px; text-align: center; color: var(--text-faint); font-size: 12px; }
+
+/* Login gate ------------------------------------------------------------- */
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+  margin: 0 auto;
+  text-align: left;
+  font-size: 12px;
+}
+
+.login h2 { margin: 0; font-size: 15px; color: var(--text); }
+.login p { margin: 0; }
+
+.login label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.login input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.login input:focus { outline: none; border-color: var(--accent); }

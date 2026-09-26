@@ -41,6 +41,29 @@ class WorkspaceCreate(BaseModel):
     description: str | None = None
 
 
+# --------------------------------------------------------------------------
+# Authentication
+# --------------------------------------------------------------------------
+
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=1000)
+
+
+class LoginOut(BaseModel):
+    authenticated: bool
+    username: str | None = None
+    # Lets the UI distinguish "logged in" from "auth is switched off locally".
+    auth_required: bool = True
+
+
+class AuthStatusOut(BaseModel):
+    auth_required: bool
+    authenticated: bool
+    username: str | None = None
+
+
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
@@ -253,6 +276,16 @@ class InventoryItemOut(BaseModel):
     # The target path including the original filename, if a move is proposed.
     target_path: str | None = None
     needs_move: bool = False
+    # Other categories the model seriously weighed, so a judgement can be
+    # reviewed rather than taken on trust.
+    alternatives: list[str] = Field(default_factory=list)
+    # The model's stated evidence for the classification.
+    reason: str | None = None
+    # True when the classification rests on a structural digest rather than the
+    # whole document, and when the model reported low confidence. Both mean the
+    # suggestion deserves a human look before it is applied.
+    partial: bool = False
+    low_confidence: bool = False
 
 
 class InventoryRunOut(BaseModel):

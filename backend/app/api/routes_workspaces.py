@@ -104,7 +104,9 @@ def add_repository(
 
     try:
         root = assert_authorized_root(
-            payload.local_path, settings.allowed_workspace_roots
+            payload.local_path,
+            settings.allowed_workspace_roots,
+            allow_unrestricted=settings.unrestricted_workspace_roots,
         )
     except PathSecurityError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc

@@ -68,12 +68,24 @@ def _is_within(candidate: Path, root: Path) -> bool:
     return True
 
 
-def assert_authorized_root(root: str | Path, allowed_roots: list[str]) -> Path:
+def assert_authorized_root(
+    root: str | Path,
+    allowed_roots: list[str],
+    *,
+    allow_unrestricted: bool = False,
+) -> Path:
     """Verify a repository root is inside one of the configured roots.
 
-    An empty ``allowed_roots`` list means the operator has not restricted the
-    app yet; in that case any existing directory is accepted so the app is
-    usable out of the box, but this is logged-worthy and documented.
+    The candidate is resolved *before* the check, so a symlink pointing
+    outside the allowed tree is rejected rather than followed, and ``..``
+    segments are collapsed before containment is decided.
+
+    An empty ``allowed_roots`` list means the operator has not configured any
+    roots. That is a refusal, not a permission: registering a repository would
+    otherwise expose an arbitrary directory on the host. The only exception is
+    ``allow_unrestricted``, which the settings layer grants in development mode
+    alone. Failing closed is deliberate -- an unconfigured deployment can serve
+    no repository rather than serving every repository.
     """
     resolved = Path(root).expanduser().resolve()
     if not resolved.exists():
@@ -82,9 +94,17 @@ def assert_authorized_root(root: str | Path, allowed_roots: list[str]) -> Path:
         raise PathSecurityError(f"Repository path is not a directory: {resolved}")
 
     if not allowed_roots:
-        return resolved
+        if allow_unrestricted:
+            return resolved
+        raise PathSecurityError(
+            "No workspace roots are configured, so no repository can be "
+            "authorized. Set ALLOWED_WORKSPACE_ROOTS to the directories that "
+            "may be registered."
+        )
 
     for allowed in allowed_roots:
+        # The allowed root is resolved too, so a candidate that only matches
+        # lexically (via a symlinked parent, say) is still caught.
         allowed_resolved = Path(allowed).expanduser().resolve()
         if _is_within(resolved, allowed_resolved):
             return resolved
