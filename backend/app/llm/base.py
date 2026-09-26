@@ -59,9 +59,11 @@ class Citation:
     revision: str | None = None
     evidence_type: str = "ai_interpretation"
     note: str | None = None
+    decision_id: int | None = None
+    question_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "repository": self.repository,
             "path": self.path,
             "start_line": self.start_line,
@@ -70,6 +72,11 @@ class Citation:
             "evidence_type": self.evidence_type,
             "note": self.note,
         }
+        if self.decision_id is not None:
+            d["decision_id"] = self.decision_id
+        if self.question_id is not None:
+            d["question_id"] = self.question_id
+        return d
 
 
 @runtime_checkable

@@ -206,6 +206,8 @@ class CitationOut(BaseModel):
     revision: str | None = None
     evidence_type: str = "ai_interpretation"
     note: str | None = None
+    decision_id: int | None = None
+    question_id: int | None = None
 
 
 class MessageOut(BaseModel):
@@ -216,6 +218,7 @@ class MessageOut(BaseModel):
     content: str
     mode: str | None = None
     citations: list[dict] | None = None
+    tool_calls: list[dict] | None = None
     created_at: dt.datetime
 
 

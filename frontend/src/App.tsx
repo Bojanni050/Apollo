@@ -452,6 +452,7 @@ export default function App() {
         <div className="panel conversation">
           {view === 'conversation' && (
             <ConversationPanel
+              workspaceId={workspace?.id}
               conversation={conversation}
               chatStatus={chatStatus}
               sending={sending}
@@ -459,6 +460,10 @@ export default function App() {
               onSend={send}
               onModeChange={changeMode}
               onOpenFile={openDocument}
+              onOpenQuestion={() => setView('questions')}
+              onOpenDecision={() => setView('decisions')}
+              onQuestionSaved={refreshQuestions}
+              onDecisionSaved={refreshDecisions}
             />
           )}
           {view === 'questions' && workspace && (

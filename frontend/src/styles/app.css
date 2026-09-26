@@ -518,3 +518,18 @@ pre.code {
   color: var(--text-faint);
   margin-bottom: 4px;
 }
+
+/* Draft proposals in conversation */
+.draft-card {
+  margin-top: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  max-width: 640px;
+}
+
+.draft-card.saved {
+  border-color: rgba(143, 191, 127, 0.4);
+  background: rgba(143, 191, 127, 0.06);
+}

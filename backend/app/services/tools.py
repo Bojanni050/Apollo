@@ -13,11 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.llm.base import Citation
-from app.models import Repository, Workspace
+from app.models import Decision, OpenQuestion, Repository, Workspace
 from app.services import git
 from app.services.documents import DocumentError, build_tree, list_documents, read_document
 from app.services.paths import PathSecurityError, safe_path
@@ -37,6 +38,7 @@ class ToolContext:
     workspace: Workspace
     repositories: list[Repository]
     citations: list[Citation]
+    db: Session | None = None
 
     def by_name(self, name: str) -> Repository | None:
         for repo in self.repositories:
@@ -196,6 +198,222 @@ def tool_structure(ctx: ToolContext, repository: str) -> str:
 
 
 
+def tool_search_questions(
+    ctx: ToolContext, query: str = "", status: str = "", limit: int = 10
+) -> str:
+    """Search open questions in the current workspace by query and/or status."""
+    if ctx.db is None:
+        return "Error: Database session not available."
+
+    stmt = select(OpenQuestion).where(OpenQuestion.workspace_id == ctx.workspace.id)
+    if status.strip():
+        stmt = stmt.where(OpenQuestion.status == status.strip().lower())
+    if query.strip():
+        pattern = f"%{query.strip()}%"
+        stmt = stmt.where(
+            or_(
+                OpenQuestion.title.ilike(pattern),
+                OpenQuestion.description.ilike(pattern),
+            )
+        )
+    stmt = stmt.order_by(OpenQuestion.updated_at.desc()).limit(max(1, min(int(limit or 10), 20)))
+    questions = ctx.db.scalars(stmt).all()
+    if not questions:
+        return f"No open questions found matching query={query!r} status={status!r}."
+
+    lines: list[str] = []
+    for q in questions:
+        aff = f" (affected: {', '.join(str(a) for a in q.affected)})" if q.affected else ""
+        desc_snippet = (q.description[:100] + "...") if len(q.description) > 100 else q.description
+        lines.append(f"#{q.id} [{q.status}] {q.title}{aff} - {desc_snippet}")
+        ctx.citations.append(
+            Citation(
+                repository="workspace",
+                path=f"questions/{q.id}",
+                evidence_type="uncertainty",
+                note=q.title,
+                question_id=q.id,
+            )
+        )
+    return "\n".join(lines)
+
+
+def tool_search_decisions(
+    ctx: ToolContext, query: str = "", status: str = "", limit: int = 10
+) -> str:
+    """Search architectural decisions in the current workspace by query and/or status."""
+    if ctx.db is None:
+        return "Error: Database session not available."
+
+    stmt = select(Decision).where(Decision.workspace_id == ctx.workspace.id)
+    if status.strip():
+        stmt = stmt.where(Decision.status == status.strip().lower())
+    if query.strip():
+        pattern = f"%{query.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Decision.title.ilike(pattern),
+                Decision.context.ilike(pattern),
+                Decision.decision.ilike(pattern),
+                Decision.rationale.ilike(pattern),
+            )
+        )
+    stmt = stmt.order_by(Decision.updated_at.desc()).limit(max(1, min(int(limit or 10), 20)))
+    decisions = ctx.db.scalars(stmt).all()
+    if not decisions:
+        return f"No decisions found matching query={query!r} status={status!r}."
+
+    lines: list[str] = []
+    repo_name = ctx.repositories[0].name if ctx.repositories else "workspace"
+    for d in decisions:
+        adr = f" (ADR: {d.markdown_path})" if d.markdown_path else ""
+        snippet = (d.decision[:100] + "...") if len(d.decision) > 100 else d.decision
+        lines.append(f"#{d.id} [{d.status}] {d.title}{adr} - {snippet}")
+        ctx.citations.append(
+            Citation(
+                repository=repo_name if d.markdown_path else "workspace",
+                path=d.markdown_path or f"decisions/{d.id}",
+                evidence_type="explicit_decision",
+                note=d.title,
+                decision_id=d.id,
+            )
+        )
+    return "\n".join(lines)
+
+
+def tool_get_question(ctx: ToolContext, question_id: int) -> str:
+    """Retrieve full details of an open architectural question by ID."""
+    if ctx.db is None:
+        return "Error: Database session not available."
+
+    q = ctx.db.scalar(
+        select(OpenQuestion).where(
+            OpenQuestion.id == int(question_id),
+            OpenQuestion.workspace_id == ctx.workspace.id,
+        )
+    )
+    if q is None:
+        return f"Error: Question #{question_id} not found in workspace {ctx.workspace.id}."
+
+    ctx.citations.append(
+        Citation(
+            repository="workspace",
+            path=f"questions/{q.id}",
+            evidence_type="uncertainty",
+            note=q.title,
+            question_id=q.id,
+        )
+    )
+
+    lines = [
+        f"Question #{q.id} (UID: {q.uid})",
+        f"Title: {q.title}",
+        f"Status: {q.status}",
+        f"Source: {q.source}",
+        f"Affected: {', '.join(str(a) for a in q.affected) if q.affected else 'none'}",
+        f"Description:\n{q.description or '(no description)'}",
+    ]
+    if q.resolution:
+        lines.append(f"Resolution:\n{q.resolution}")
+    return "\n".join(lines)
+
+
+def tool_get_decision(ctx: ToolContext, decision_id: int) -> str:
+    """Retrieve full details of an architectural decision by ID."""
+    if ctx.db is None:
+        return "Error: Database session not available."
+
+    d = ctx.db.scalar(
+        select(Decision).where(
+            Decision.id == int(decision_id),
+            Decision.workspace_id == ctx.workspace.id,
+        )
+    )
+    if d is None:
+        return f"Error: Decision #{decision_id} not found in workspace {ctx.workspace.id}."
+
+    repo_name = ctx.repositories[0].name if ctx.repositories else "workspace"
+    ctx.citations.append(
+        Citation(
+            repository=repo_name if d.markdown_path else "workspace",
+            path=d.markdown_path or f"decisions/{d.id}",
+            evidence_type="explicit_decision",
+            note=d.title,
+            decision_id=d.id,
+        )
+    )
+
+    lines = [
+        f"Decision #{d.id}",
+        f"Title: {d.title}",
+        f"Status: {d.status}",
+        f"ADR Path: {d.markdown_path or '(no ADR generated yet)'}",
+        f"Decided On: {d.decided_on.isoformat() if d.decided_on else 'none'}",
+        f"Approved At: {d.approved_at.isoformat() if d.approved_at else 'none'}",
+        f"Context:\n{d.context or '(none)'}",
+        f"Decision:\n{d.decision or '(none)'}",
+        f"Rationale:\n{d.rationale or '(none)'}",
+        f"Consequences:\n{d.consequences or '(none)'}",
+    ]
+    if d.related_questions:
+        lines.append(f"Related Questions: {', '.join(str(q) for q in d.related_questions)}")
+    if d.related_documents:
+        lines.append(f"Related Documents: {', '.join(str(doc) for doc in d.related_documents)}")
+    return "\n".join(lines)
+
+
+def tool_draft_question(
+    ctx: ToolContext,
+    title: str,
+    description: str = "",
+    affected: list[str] | None = None,
+    status: str = "open",
+) -> str:
+    """Draft an OpenQuestion for operator review.
+
+    IMPORTANT: Drafting is not persistence. This tool does NOT write to the
+    database. The draft is surfaced to the operator in the UI for review.
+    """
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return "Error: Question title cannot be empty."
+
+    return (
+        f"Drafted OpenQuestion: {clean_title!r}. "
+        "This draft proposal has been presented to the operator for review in the chat UI. "
+        "It is NOT yet saved in the database. The operator must explicitly review and save it."
+    )
+
+
+def tool_draft_decision(
+    ctx: ToolContext,
+    title: str,
+    context: str = "",
+    decision: str = "",
+    rationale: str = "",
+    consequences: str = "",
+    related_questions: list[Any] | None = None,
+    related_documents: list[str] | None = None,
+) -> str:
+    """Draft an architectural Decision for operator review.
+
+    IMPORTANT: Drafting is not persistence. This tool does NOT write to the
+    database, does NOT approve, and does NOT generate an ADR. The draft is
+    surfaced to the operator in the UI for review.
+    """
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return "Error: Decision title cannot be empty."
+
+    return (
+        f"Drafted Decision: {clean_title!r}. "
+        "This draft decision proposal has been presented to the operator for review in the chat UI. "
+        "It is NOT yet saved in the database, and is NOT approved. "
+        "If the operator saves it, it enters the workspace with status 'proposed', "
+        "which still requires explicit approval before any ADR is generated."
+    )
+
+
 def _repo_property() -> dict[str, Any]:
     return {
         "type": "string",
@@ -279,7 +497,7 @@ def tool_schemas(repository_names: list[str]) -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "list_decisions",
-                "description": "List the architecture decision records found in the documentation repository.",
+                "description": "List the architecture decision records found on disk in the documentation repository.",
                 "parameters": {
                     "type": "object",
                     "properties": {"repository": _repo_property()},
@@ -296,6 +514,127 @@ def tool_schemas(repository_names: list[str]) -> list[dict[str, Any]]:
                     "type": "object",
                     "properties": {"repository": _repo_property()},
                     "required": ["repository"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_questions",
+                "description": "Search existing open architectural questions in the workspace by query or status (open, answered, resolved).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search keywords matching title or description."},
+                        "status": {
+                            "type": "string",
+                            "enum": ["open", "answered", "resolved"],
+                            "description": "Optional status filter.",
+                        },
+                        "limit": {"type": "integer", "description": "Maximum number of questions (default 10)."},
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_decisions",
+                "description": "Search architectural decisions in the workspace by query or status (proposed, approved, rejected, superseded).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search keywords matching title, context, decision, or rationale."},
+                        "status": {
+                            "type": "string",
+                            "enum": ["proposed", "approved", "rejected", "superseded"],
+                            "description": "Optional status filter.",
+                        },
+                        "limit": {"type": "integer", "description": "Maximum number of decisions (default 10)."},
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_question",
+                "description": "Retrieve full details of an open architectural question by its ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question_id": {"type": "integer", "description": "The ID of the question to retrieve."},
+                    },
+                    "required": ["question_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_decision",
+                "description": "Retrieve full details of an architectural decision by its ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "decision_id": {"type": "integer", "description": "The ID of the decision to retrieve."},
+                    },
+                    "required": ["decision_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "draft_question",
+                "description": "Draft a new OpenQuestion for operator review. IMPORTANT: Drafting does not save to the database. The operator will review and save it in the UI.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Question title summary."},
+                        "description": {"type": "string", "description": "Background, trade-offs, and why this is unresolved."},
+                        "affected": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Components, files, or subsystems affected.",
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["open", "answered", "resolved"],
+                            "description": "Initial status (default 'open').",
+                        },
+                    },
+                    "required": ["title"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "draft_decision",
+                "description": "Draft an architectural Decision for operator review. IMPORTANT: Drafting does not save to the database and does not approve or create an ADR. The operator will review and save it in the UI, and must explicitly approve it later.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Decision title."},
+                        "context": {"type": "string", "description": "Context and problem statement."},
+                        "decision": {"type": "string", "description": "The chosen architectural solution or policy."},
+                        "rationale": {"type": "string", "description": "Why this was chosen over alternatives."},
+                        "consequences": {"type": "string", "description": "Positive and negative consequences, trade-offs."},
+                        "related_questions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Referenced question IDs or titles.",
+                        },
+                        "related_documents": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Referenced document file paths.",
+                        },
+                    },
+                    "required": ["title"],
                 },
             },
         },
@@ -338,4 +677,10 @@ TOOL_REGISTRY: dict[str, ToolFunction] = {
     "read_code": tool_read_code,
     "list_decisions": tool_list_decisions,
     "structure": tool_structure,
+    "search_questions": tool_search_questions,
+    "search_decisions": tool_search_decisions,
+    "get_question": tool_get_question,
+    "get_decision": tool_get_decision,
+    "draft_question": tool_draft_question,
+    "draft_decision": tool_draft_decision,
 }

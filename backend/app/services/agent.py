@@ -80,6 +80,7 @@ class Agent:
             workspace=conversation.workspace,
             repositories=repositories,
             citations=[],
+            db=db,
         )
 
         system = system_prompt(conversation.mode)
@@ -285,9 +286,14 @@ def _dedupe(citations: list[Citation]) -> list[Citation]:
         "ai_interpretation": 3,
         "uncertainty": 4,
     }
-    best: dict[tuple[str, str], Citation] = {}
+    best: dict[tuple[str, str, int | None, int | None], Citation] = {}
     for citation in citations:
-        key = (citation.repository, citation.path)
+        key = (
+            citation.repository,
+            citation.path,
+            citation.decision_id,
+            citation.question_id,
+        )
         existing = best.get(key)
         if existing is None or priority.get(citation.evidence_type, 9) < priority.get(
             existing.evidence_type, 9

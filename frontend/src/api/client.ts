@@ -119,6 +119,14 @@ export interface Citation {
   revision: string | null
   evidence_type: EvidenceType
   note: string | null
+  decision_id?: number | null
+  question_id?: number | null
+}
+
+export interface ToolCall {
+  tool: string
+  arguments: Record<string, any>
+  result_preview?: string
 }
 
 export interface Message {
@@ -127,6 +135,7 @@ export interface Message {
   content: string
   mode: Mode | null
   citations: Citation[] | null
+  tool_calls?: ToolCall[] | null
   created_at: string
 }
 
