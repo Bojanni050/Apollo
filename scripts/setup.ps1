@@ -81,8 +81,9 @@ Push-Location $script:RepoRoot
 try {
     & $python -m pip install --upgrade pip
     # Installed editable so that edits to backend/app take effect without a
-    # reinstall. The [dev] extra pulls in pytest and friends for the test suite.
-    & $python -m pip install -e ".\backend[dev]"
+    # reinstall. The [dev] extra pulls in pytest and friends for the test
+    # suite; [desktop] pulls in pywebview for the desktop window.
+    & $python -m pip install -e ".\backend[dev,desktop]"
     if ($LASTEXITCODE -ne 0) {
         Stop-WithError "Installing the backend dependencies failed."
     }

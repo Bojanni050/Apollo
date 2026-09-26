@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function SynthesisView({
-  repository: _repository,
+  repository,
   path,
   markdown,
   onOpenConversation,
@@ -23,39 +23,87 @@ export function SynthesisView({
   const isRaw = onToggleRaw ? showRaw : internalRaw
   const toggleRaw = onToggleRaw || (() => setInternalRaw((v) => !v))
 
-  // If no document is selected yet, render the showcase Bioinformatics Framework from screenshot
-  const isDemo = !path
-  const cleanName = path ? (path.replace(/[\\/]/g, '/').split('/').pop() || path) : 'bioinformatics-framework.md'
+  if (!path) {
+    return (
+      <div className="synthesis-container">
+        <div className="synthesis-empty-wrapper">
+          <div className="synthesis-avatar-icon" style={{ margin: '0 auto 16px' }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </div>
+          <h2 className="synthesis-title" style={{ textAlign: 'center' }}>No Document Selected</h2>
+          <div className="synthesis-meta" style={{ textAlign: 'center', marginBottom: 20 }}>
+            SELECT A DOCUMENT FROM THE ARCHIVE TO VIEW ITS ARCHITECTURAL SYNTHESIS
+          </div>
+          <div className="synthesis-main-card" style={{ maxWidth: 560, margin: '0 auto', textAlign: 'center' }}>
+            <p style={{ color: 'var(--text-dim)', fontSize: 13, lineHeight: 1.7, margin: 0 }}>
+              Choose any documentation file, specification, or architectural decision record from the archive on the left to read its synthesized summary, review verified code implementations, and discuss proposals with the AI architect.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (markdown === null) {
+    return (
+      <div className="synthesis-container">
+        <div className="synthesis-empty-wrapper">
+          <div className="synthesis-avatar-icon" style={{ margin: '0 auto 16px' }}>
+            ⏳
+          </div>
+          <h2 className="synthesis-title" style={{ textAlign: 'center' }}>Loading Document…</h2>
+          <div className="synthesis-meta" style={{ textAlign: 'center' }}>
+            {repository?.name} • {path}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Derive real document title, abstract, and tags from actual content
+  const cleanName = path.replace(/[\\/]/g, '/').split('/').pop() || path
   const nameWithoutExt = cleanName.replace(/\.[^/.]+$/, '')
   const rawTitle = nameWithoutExt.replace(/[-_]/g, ' ')
-  const title = (rawTitle.toLowerCase().includes('synthesis') ? rawTitle : `SYNTHESIS: ${rawTitle}`).toUpperCase()
-  const displaySummaryHeading = `${rawTitle.replace(/^synthesis[:\s]*/i, '').trim().toUpperCase() || 'BIOINFORMATICS'} STRATEGIC SUMMARY`
+  const ext = path.split('.').pop()?.toUpperCase() || 'MD'
+  const isAdr = path.toLowerCase().includes('adr') || path.toLowerCase().includes('decision')
+  const folderName = path.includes('/') ? path.split('/')[0].toUpperCase() : 'ROOT'
 
-  const folderName = path && path.includes('/') ? path.split('/')[0].toUpperCase() : 'GENETICS'
+  const lines = markdown.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0)
 
-  let firstParagraph = 'Consolidated intelligence for bioinformatics strategy.'
-  if (markdown) {
-    const lines = markdown.split(/\r?\n/).filter((l) => l.trim().length > 0)
-    for (const line of lines) {
-      const stripped = line.trim()
-      if (!stripped.startsWith('#') && stripped.length > 20) {
-        firstParagraph = stripped.slice(0, 260) + (stripped.length > 260 ? '…' : '')
-        break
-      }
+  // Find first heading as title if present
+  let displayTitle = rawTitle.toUpperCase()
+  for (const line of lines) {
+    if (line.startsWith('# ')) {
+      displayTitle = line.replace(/^#+\s*/, '').trim().toUpperCase()
+      break
+    }
+  }
+
+  // Find first descriptive paragraph as abstract
+  let abstract = `Consolidated architectural specification and structure for ${cleanName}.`
+  for (const line of lines) {
+    if (!line.startsWith('#') && !line.startsWith('```') && !line.startsWith('- ') && !line.startsWith('> ') && line.length > 25) {
+      abstract = line.slice(0, 260) + (line.length > 260 ? '…' : '')
+      break
     }
   }
 
   const tags = [
     `◇ ${folderName}`,
-    '◇ SYNTHESIS',
-    '◇ STRATEGIC',
+    `◇ ${ext}`,
+    isAdr ? '◇ ADR' : '◇ SPEC',
+    `◇ ${repository?.writable ? 'WRITABLE' : 'READ-ONLY'}`,
   ]
-
-  const todayStr = 'SEPTEMBER 25, 2026'
 
   return (
     <div className="synthesis-container">
-      {/* Top Header matching screenshot */}
+      {/* Top Header */}
       <div className="synthesis-header">
         <div className="synthesis-header-left">
           <div className="synthesis-avatar-icon">
@@ -65,9 +113,9 @@ export function SynthesisView({
             </svg>
           </div>
           <div>
-            <h2 className="synthesis-title">{title}</h2>
+            <h2 className="synthesis-title">{displayTitle}</h2>
             <div className="synthesis-meta">
-              PERSONAL SYNTHESIS • {todayStr}
+              DOCUMENT ARCHITECTURE • {repository?.name} • {path}
             </div>
           </div>
         </div>
@@ -91,29 +139,13 @@ export function SynthesisView({
           >
             {isRaw ? '📖' : '✎'}
           </button>
-          <button
-            type="button"
-            className="synthesis-icon-btn"
-            title="Create sub-note or add section"
-            onClick={() => onOpenConversation && onOpenConversation()}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className="synthesis-icon-btn"
-            title="Delete or archive"
-            onClick={() => {}}
-          >
-            🗑
-          </button>
         </div>
       </div>
 
       {/* Abstract Callout Box with Perched Badge */}
       <div className="synthesis-abstract-card">
         <span className="synthesis-abstract-badge">ABSTRACT</span>
-        <p className="synthesis-abstract-text">{firstParagraph}</p>
+        <p className="synthesis-abstract-text">{abstract}</p>
       </div>
 
       {/* Tag Pills Row (centered) */}
@@ -127,28 +159,11 @@ export function SynthesisView({
 
       {/* Main Content Floating Card with Dashed Border */}
       <div className="synthesis-main-card">
-        {isRaw && markdown ? (
+        {isRaw ? (
           <pre className="code">{markdown}</pre>
-        ) : isDemo || !markdown ? (
-          <div className="synthesis-rendered-body">
-            <h1>{displaySummaryHeading}</h1>
-            <p>
-              Consolidating findings from multiple AI interactions regarding sequencing ancient dna from permafrost samples.
-            </p>
-            <h2>KEY DRIVERS</h2>
-            <ul>
-              <li>genetics stability</li>
-              <li>data integration</li>
-              <li>Optimization of medicine</li>
-            </ul>
-            <p className="synthesis-footer-note">
-              This synthesis serves as a foundation for further architectural planning.
-            </p>
-          </div>
         ) : (
           <div className="synthesis-rendered-body">
-            {/* If markdown doesn't have an h1, provide the Chronicle header */}
-            {!markdown.trim().startsWith('# ') && <h1>{displaySummaryHeading}</h1>}
+            {!markdown.trim().startsWith('# ') && <h1>{displayTitle}</h1>}
             {renderMarkdown(markdown)}
           </div>
         )}

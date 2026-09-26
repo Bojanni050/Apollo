@@ -240,54 +240,6 @@ function AddRepoModal({
   )
 }
 
-export const SAMPLE_MEMORIES = [
-  {
-    path: 'investigations/algorithmic-trading.md',
-    title: 'Algorithmic Trading Investigation - Session 1',
-    badge: '● CLAUDE',
-    badgeType: 'claude',
-    date: '25 sep',
-    snippet: 'In-depth exploration of algorithmic trading using machine learning signals.',
-    pills: ['FINANCE', 'PYTHON', 'MARKETS'],
-  },
-  {
-    path: 'synthesis/algorithmic-trading-framework.md',
-    title: 'Synthesis: Algorithmic Trading Framework',
-    badge: '✏️ MANUAL',
-    badgeType: 'manual',
-    date: '25 sep',
-    snippet: 'Consolidated intelligence for algorithmic trading strategy.',
-    pills: ['FINANCE', 'SYNTHESIS', 'STRATEGIC'],
-  },
-  {
-    path: 'synthesis/bioinformatics-framework.md',
-    title: 'Synthesis: Bioinformatics Framework',
-    badge: '✏️ MANUAL',
-    badgeType: 'manual',
-    date: '25 sep',
-    snippet: 'Consolidated intelligence for bioinformatics strategy.',
-    pills: ['GENETICS', 'SYNTHESIS', 'STRATEGIC'],
-  },
-  {
-    path: 'synthesis/algorithmic-trading-framework-v2.md',
-    title: 'Synthesis: Algorithmic Trading Framework',
-    badge: '✏️ MANUAL',
-    badgeType: 'manual',
-    date: '25 sep',
-    snippet: 'Consolidated intelligence for algorithmic trading strategy.',
-    pills: ['FINANCE', 'SYNTHESIS', 'STRATEGIC'],
-  },
-  {
-    path: 'synthesis/cybernetic-philosophy.md',
-    title: 'Synthesis: Cybernetic Philosophy Framework',
-    badge: '✏️ MANUAL',
-    badgeType: 'manual',
-    date: '24 sep',
-    snippet: 'Consolidated intelligence for cybernetic philosophy strategy.',
-    pills: ['ETHICS', 'SYNTHESIS', 'STRATEGIC'],
-  },
-]
-
 export function WorkspacePanel({
   workspace,
   repository,
@@ -348,7 +300,7 @@ export function WorkspacePanel({
             className="sidebar-search-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter memories..."
+            placeholder="Search documents…"
           />
           <span
             className="search-filter-icon"
@@ -399,9 +351,9 @@ export function WorkspacePanel({
         )}
       </div>
 
-      {/* Retained count banner matching screenshot */}
+      {/* Real document count banner */}
       <div className="memories-counter-banner">
-        <span>{flatDocNodes.length > 0 ? `${flatDocNodes.length} DOCUMENTS RETAINED` : '1744 MEMORIES RETAINED'}</span>
+        <span>{flatDocNodes.length} {flatDocNodes.length === 1 ? 'DOCUMENT' : 'DOCUMENTS'} IN ARCHIVE</span>
         <button
           type="button"
           className="btn text-sm"
@@ -417,52 +369,29 @@ export function WorkspacePanel({
       {viewMode === 'cards' ? (
         <div className="doc-cards-list">
           {filteredDocs.length === 0 ? (
-            SAMPLE_MEMORIES.map((mem) => {
-              const isSelected = selectedPath === mem.path || (!selectedPath && mem.path.includes('bioinformatics'))
-              return (
-                <div
-                  key={mem.path}
-                  className={`doc-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => onSelectDocument(mem.path)}
-                  title={mem.path}
-                >
-                  <div className="doc-card-header">
-                    <span className={`doc-card-badge ${mem.badgeType}`}>
-                      {mem.badge}
-                    </span>
-                    <span className="doc-card-date">{mem.date}</span>
-                  </div>
-
-                  <h4 className="doc-card-title">{mem.title}</h4>
-
-                  <p className="doc-card-snippet">{mem.snippet}</p>
-
-                  <div className="doc-card-pills">
-                    {mem.pills.map((pill) => {
-                      const isHighlighted = isSelected && pill === 'SYNTHESIS'
-                      return (
-                        <span
-                          key={pill}
-                          className={`doc-pill-tag ${isHighlighted ? 'active-pill' : ''}`}
-                        >
-                          {pill}
-                        </span>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })
+            <div className="doc-cards-empty" style={{ textAlign: 'center', padding: '36px 14px' }}>
+              <div className="empty-icon-circle" style={{ margin: '0 auto 12px' }}>📂</div>
+              <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>No Documents Found</h4>
+              <p className="faint" style={{ fontSize: 12, marginBottom: 16 }}>
+                {search
+                  ? `No documents matching "${search}".`
+                  : 'Connect a repository folder to index documentation.'}
+              </p>
+              <button
+                type="button"
+                className="btn primary text-sm"
+                onClick={() => setAddRepoOpen(true)}
+              >
+                + Add Repository
+              </button>
+            </div>
           ) : (
             filteredDocs.map((node) => {
               const ext = node.name.split('.').pop()?.toLowerCase() || 'md'
               const rawTitle = node.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
               const cleanTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1)
-              const cardTitle = cleanTitle.toLowerCase().includes('synthesis') || cleanTitle.toLowerCase().includes('investigation')
-                ? cleanTitle
-                : `Synthesis: ${cleanTitle}`
               const isSelected = selectedPath === node.path
-              const folder = node.path.includes('/') ? node.path.split('/')[0].toUpperCase() : 'ARCHITECTURE'
+              const folder = node.path.includes('/') ? node.path.split('/')[0].toUpperCase() : 'ROOT'
               const isAdr = node.name.toLowerCase().includes('adr') || node.path.toLowerCase().includes('decision')
 
               return (
@@ -474,23 +403,23 @@ export function WorkspacePanel({
                 >
                   <div className="doc-card-header">
                     <span className={`doc-card-badge ${ext}`}>
-                      {ext === 'pdf' ? '📕 PDF' : ext === 'docx' ? '📘 DOCX' : ext === 'txt' ? '📄 TXT' : isAdr ? '⚖️ ADR' : '✏️ MANUAL'}
+                      {ext === 'pdf' ? '📕 PDF' : ext === 'docx' ? '📘 DOCX' : ext === 'txt' ? '📄 TXT' : isAdr ? '⚖️ ADR' : '📝 DOC'}
                     </span>
                     <span className="doc-card-date">
-                      {node.size ? (node.size < 1024 ? `${node.size}B` : `${Math.round(node.size / 1024)}KB`) : '25 sep'}
+                      {node.size ? (node.size < 1024 ? `${node.size} B` : `${Math.round(node.size / 1024)} KB`) : ''}
                     </span>
                   </div>
 
-                  <h4 className="doc-card-title">{cardTitle}</h4>
+                  <h4 className="doc-card-title">{cleanTitle}</h4>
 
                   <p className="doc-card-snippet">
-                    Consolidated intelligence for {rawTitle.toLowerCase()} strategy.
+                    {node.path}
                   </p>
 
                   <div className="doc-card-pills">
                     <span className="doc-pill-tag">{folder}</span>
-                    <span className={`doc-pill-tag ${isSelected ? 'active-pill' : ''}`}>SYNTHESIS</span>
-                    <span className="doc-pill-tag">STRATEGIC</span>
+                    <span className="doc-pill-tag">{ext.toUpperCase()}</span>
+                    {isAdr && <span className="doc-pill-tag">ADR</span>}
                   </div>
                 </div>
               )

@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import type { InventoryRun, Proposal, Repository } from '../api/client'
+import type { Conversation, InventoryRun, Proposal, Repository } from '../api/client'
 import { renderDiff } from '../markdown'
 import { EVIDENCE_LABELS } from './WorkspacePanel'
 
 type Tab = 'proposals' | 'inventory' | 'related'
 
 export function ContextPanel({
-  repository,
-  documentPath,
+  repository: _repository,
+  documentPath: _documentPath,
   inventoryRun,
   proposals,
+  conversations = [],
+  onSelectConversation,
   busy,
   onRunInventory,
   onApplyInventoryAll,
@@ -24,6 +26,8 @@ export function ContextPanel({
   documentMarkdown: string | null
   inventoryRun: InventoryRun | null
   proposals: Proposal[]
+  conversations?: Conversation[]
+  onSelectConversation?: (id: number) => void
   busy: boolean
   onRunInventory: () => void
   onApplyInventoryAll: () => void
@@ -35,21 +39,15 @@ export function ContextPanel({
   showRaw?: boolean
   onClose?: () => void
 }) {
-  const [tab, setTab] = useState<Tab>('related')
-  const [activeFilter, setActiveFilter] = useState('synthesis')
-
-  const repoName = repository?.name || 'docs'
-  const docTitle = documentPath
-    ? documentPath.replace(/[\\/]/g, '/').split('/').pop()?.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ') || 'Document'
-    : `${repoName} Architecture`
+  const [tab, setTab] = useState<Tab>(proposals.length > 0 ? 'proposals' : 'related')
 
   return (
     <>
-      {/* Top Header matching screenshot */}
+      {/* Top Header matching Chronicle aesthetic */}
       <div className="right-panel-header">
         <h3 className="right-panel-title">
           <span>🕒</span>
-          <span>Related Chats</span>
+          <span>Related Context</span>
         </h3>
         {onClose && (
           <button
@@ -64,34 +62,29 @@ export function ContextPanel({
         )}
       </div>
 
-      {/* Active filters bar matching screenshot */}
+      {/* Active context bar */}
       <div className="active-filter-bar">
-        <span className="active-filter-label">ACTIVE FILTERS</span>
-        {activeFilter && (
-          <span className="active-filter-chip">
-            {activeFilter}
-            <button type="button" onClick={() => setActiveFilter('')} title="Clear filter">
-              ✕
-            </button>
-          </span>
-        )}
+        <span className="active-filter-label">ACTIVE VIEW</span>
+        <span className="active-filter-chip">
+          {tab === 'related' ? `chats (${conversations.length})` : tab === 'proposals' ? `proposals (${proposals.length})` : 'inventory'}
+        </span>
       </div>
 
       {/* Tab selection pills */}
       <div style={{ display: 'flex', gap: 6, padding: '10px 14px 4px' }}>
         <button
           type="button"
-          className={`filter-chip ${tab === 'related' ? 'active' : ''}`}
-          onClick={() => setTab('related')}
-        >
-          Related Chats
-        </button>
-        <button
-          type="button"
           className={`filter-chip ${tab === 'proposals' ? 'active' : ''}`}
           onClick={() => setTab('proposals')}
         >
           Proposals {proposals.length > 0 ? `(${proposals.length})` : ''}
+        </button>
+        <button
+          type="button"
+          className={`filter-chip ${tab === 'related' ? 'active' : ''}`}
+          onClick={() => setTab('related')}
+        >
+          Chats {conversations.length > 0 ? `(${conversations.length})` : ''}
         </button>
         <button
           type="button"
@@ -103,92 +96,7 @@ export function ContextPanel({
       </div>
 
       <div className="panel-body">
-        {/* Tab 1: Related Chats in dashed cards matching screenshot */}
-        {tab === 'related' && (
-          <div>
-            <div className="dashed-card">
-              <div className="dashed-card-meta">
-                <span className="dashed-card-badge">✏️ MANUAL</span>
-                <span>25 sep</span>
-              </div>
-              <h4 className="dashed-card-title">Synthesis: Cybernetic Philosophy Framework</h4>
-              <p className="dashed-card-desc">
-                Consolidated intelligence for cybernetic philosophy strategy.
-              </p>
-              <div className="dashed-card-tags">
-                <span className="dashed-tag">ETHICS</span>
-                <span className="dashed-tag">SYNTHESIS</span>
-                <span className="dashed-tag">STRATEGIC</span>
-              </div>
-            </div>
-
-            <div className="dashed-card">
-              <div className="dashed-card-meta">
-                <span className="dashed-card-badge">✏️ MANUAL</span>
-                <span>27 sep</span>
-              </div>
-              <h4 className="dashed-card-title">Synthesis: {docTitle ? `${docTitle} Framework` : 'Bioinformatics Framework'}</h4>
-              <p className="dashed-card-desc">
-                Consolidated intelligence for bioinformatics strategy.
-              </p>
-              <div className="dashed-card-tags">
-                <span className="dashed-tag">GENETICS</span>
-                <span className="dashed-tag">SYNTHESIS</span>
-                <span className="dashed-tag">STRATEGIC</span>
-              </div>
-            </div>
-
-            <div className="dashed-card">
-              <div className="dashed-card-meta">
-                <span className="dashed-card-badge">✏️ MANUAL</span>
-                <span>6 oct</span>
-              </div>
-              <h4 className="dashed-card-title">Synthesis: Bioinformatics Framework</h4>
-              <p className="dashed-card-desc">
-                Consolidated intelligence for bioinformatics strategy.
-              </p>
-              <div className="dashed-card-tags">
-                <span className="dashed-tag">GENETICS</span>
-                <span className="dashed-tag">SYNTHESIS</span>
-                <span className="dashed-tag">STRATEGIC</span>
-              </div>
-            </div>
-
-            <div className="dashed-card">
-              <div className="dashed-card-meta">
-                <span className="dashed-card-badge">✏️ MANUAL</span>
-                <span>25 sep</span>
-              </div>
-              <h4 className="dashed-card-title">Synthesis: Cybernetic Philosophy Framework</h4>
-              <p className="dashed-card-desc">
-                Consolidated intelligence for cybernetic philosophy strategy.
-              </p>
-              <div className="dashed-card-tags">
-                <span className="dashed-tag">ETHICS</span>
-                <span className="dashed-tag">SYNTHESIS</span>
-                <span className="dashed-tag">STRATEGIC</span>
-              </div>
-            </div>
-
-            <div className="dashed-card">
-              <div className="dashed-card-meta">
-                <span className="dashed-card-badge">✏️ MANUAL</span>
-                <span>24 oct</span>
-              </div>
-              <h4 className="dashed-card-title">Synthesis: Modern Stoicism Framework</h4>
-              <p className="dashed-card-desc">
-                Consolidated intelligence for modern stoicism strategy.
-              </p>
-              <div className="dashed-card-tags">
-                <span className="dashed-tag">MINDSET</span>
-                <span className="dashed-tag">SYNTHESIS</span>
-                <span className="dashed-tag">STRATEGIC</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 2: Proposals in dashed warm amber cards */}
+        {/* Tab 1: Proposals in dashed warm amber cards */}
         {tab === 'proposals' && (
           <div>
             {proposals.length === 0 ? (
@@ -232,6 +140,40 @@ export function ContextPanel({
                     <span className="dashed-tag">PROPOSAL</span>
                     <span className="dashed-tag">{p.kind.toUpperCase()}</span>
                     <span className="dashed-tag">DOCS</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: Real Conversations in dashed cards matching Chronicle style */}
+        {tab === 'related' && (
+          <div>
+            {conversations.length === 0 ? (
+              <div className="faint" style={{ textAlign: 'center', padding: 24, fontSize: 13 }}>
+                No active conversations yet. Start a discussion with the architect in the conversation panel.
+              </div>
+            ) : (
+              conversations.map((c) => (
+                <div
+                  key={c.id}
+                  className="dashed-card"
+                  onClick={() => onSelectConversation && onSelectConversation(c.id)}
+                  title="Open this conversation thread"
+                >
+                  <div className="dashed-card-meta">
+                    <span className="dashed-card-badge">💬 CONVERSATION</span>
+                    <span>{c.mode.toUpperCase()}</span>
+                  </div>
+                  <h4 className="dashed-card-title">{c.title}</h4>
+                  <p className="dashed-card-desc">
+                    Conversation thread with AI architect ({c.mode} mode)
+                  </p>
+                  <div className="dashed-card-tags">
+                    <span className="dashed-tag">CHAT</span>
+                    <span className="dashed-tag">{c.mode.toUpperCase()}</span>
+                    <span className="dashed-tag">WORKSPACE</span>
                   </div>
                 </div>
               ))

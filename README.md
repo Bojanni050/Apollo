@@ -12,15 +12,57 @@ conversations, questions, decisions and analysis results.
 
 ## Running the whole thing
 
-### The short version
+### As a desktop app
 
-Double-click **`start.cmd`** (or `start.bat` â€” they are the same thing), or run:
+Double-click **`desktop.cmd`**, or run:
+
+```powershell
+.venv\Scripts\python scripts\desktop.py
+```
+
+This opens a real application window: no browser, no second terminal, no
+ports to think about. One process serves both the API and the production
+frontend build on a single local port, and the window opens only once
+`/api/health` answers.
+
+The window is closed by closing it — the server stops with it.
+
+**First run only**, if pywebview is not installed:
+
+```powershell
+.venv\Scripts\python -m pip install -e .\backend[desktop]
+```
+
+(`scripts\setup.ps1` already does this, so a machine set up through setup is
+ready.)
+
+| Flag | Effect |
+| --- | --- |
+| `--browser` | Serve and open in your normal browser — no GUI toolkit needed (SSH, containers, or if you just prefer it) |
+| `--port N` | Preferred port. A busy port falls back to a free one automatically |
+| `--no-build` | Fail instead of building `frontend/dist` if it is missing |
+
+**Why pywebview and not Electron?** The app is already a local HTTP server, so
+a desktop shell only has to supply a window. pywebview uses the operating
+system's own webview — WebView2 on Windows, WebKitGTK on Linux, WKWebView on
+macOS — so nothing extra is downloaded or shipped, and the Python backend
+needs no new packaging story. Electron would bundle a ~200MB browser for a tool
+that already runs on the machine, and would still have to spawn this same
+Python server, leaving all the complexity in place plus a large binary.
+
+The production bundle is served from the same origin as the API (mounted inside
+the FastAPI app), exactly like the dev server's proxy — so there is no CORS
+configuration and only one port.
+
+### For development
+
+Double-click **`start.cmd`** (or `start.bat` — they are the same thing), or run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 ```
 
-One file starts **both** halves: it installs what is missing
+This starts **both** halves: it installs what is missing
 (Python virtualenv, backend packages, frontend packages), writes a development
 `backend/.env` if there isn't one, starts the backend, waits until
 `/api/health` actually answers, starts the Vite dev server, and opens
@@ -415,6 +457,9 @@ cd backend
 copy .env.example .env      # then edit DATABASE_URL
 ..\.venv\Scripts\python -m uvicorn app.main:app --reload
 ```
+
+To run it as a desktop window instead, add the `desktop` extra and use
+`scripts\desktop.py` — see [Running the whole thing](#running-the-whole-thing).
 
 Interactive API docs at http://localhost:5274/docs.
 
