@@ -429,7 +429,7 @@ APP_ENV=development
 # --- Database ----------------------------------------------------------------
 # SQLite keeps the local setup to "no database server". The schema is created
 # from the models at startup, so there is no migration step to forget.
-DATABASE_URL=sqlite:///./gaia_dev.db
+DATABASE_URL=sqlite:///./apollo_dev.db
 DB_MIGRATE_ON_STARTUP=false
 DB_REQUIRE_POSTGRES_IN_PRODUCTION=true
 
@@ -444,7 +444,7 @@ AUTH_PASSWORD=
 SESSION_SECRET=
 AUTH_API_TOKEN=
 SESSION_MAX_AGE_SECONDS=43200
-AUTH_COOKIE_NAME=gaia_session
+AUTH_COOKIE_NAME=apollo_session
 
 # --- CORS --------------------------------------------------------------------
 # Empty falls back to the Vite dev server origins in development. The Vite proxy

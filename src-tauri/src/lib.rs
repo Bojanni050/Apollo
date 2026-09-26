@@ -1,4 +1,4 @@
-//! Desktop shell for Gaia Docs Architect.
+//! Desktop shell for Apollo.
 //!
 //! The application is a Python/FastAPI backend plus a React frontend. This
 //! crate is only the window and the process supervisor: it starts the
@@ -290,7 +290,7 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str) {
     // A failed window may already exist; creating another with the same label
     // would panic, so ignore that case.
     if let Some(existing) = app.get_webview_window("main") {
-        let _ = existing.set_title("Gaia Docs Architect — failed to start");
+        let _ = existing.set_title("Apollo — failed to start");
         return;
     }
 
@@ -300,7 +300,7 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str) {
         .replace('\n', "<br>");
 
     let _ = WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-        .title("Gaia Docs Architect — failed to start")
+        .title("Apollo — failed to start")
         .inner_size(900.0, 500.0)
         .build();
 
@@ -308,7 +308,7 @@ fn show_startup_error(app: &tauri::AppHandle, message: &str) {
         let script = format!(
             "document.addEventListener('DOMContentLoaded', () => {{ \
                document.body.innerHTML = '<div style=\"font:14px system-ui;padding:40px;color:#dfe3ea;background:#14161a\">\
-               <h2 style=\"color:#d97a7a;margin-top:0\">Could not start Gaia Docs Architect</h2>\
+               <h2 style=\"color:#d97a7a;margin-top:0\">Could not start Apollo</h2>\
                <pre style=\"white-space:pre-wrap;color:#8b93a1\">{escaped}</pre></div>'; }});"
         );
         let _ = window.eval(&script);
@@ -364,6 +364,6 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running the Gaia Docs Architect desktop app");
+        .expect("error while running the Apollo desktop app");
 }
 

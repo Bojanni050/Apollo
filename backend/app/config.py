@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     session_secret: str | None = None
     session_max_age_seconds: int = 12 * 60 * 60
 
-    auth_cookie_name: str = "gaia_session"
+    auth_cookie_name: str = "apollo_session"
     # None means "Secure whenever APP_ENV is production".
     auth_cookie_secure: bool | None = None
 

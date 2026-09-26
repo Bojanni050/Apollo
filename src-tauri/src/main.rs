@@ -4,5 +4,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    gaia_docs_architect_lib::run()
+    apollo_lib::run()
 }

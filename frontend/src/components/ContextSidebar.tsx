@@ -145,7 +145,7 @@ export function ContextSidebar({
               </p>
             </div>
 
-            {/* Card 3: Gaia Docs Architecture Knowledge */}
+            {/* Card 3: Apollo Architecture Knowledge */}
             <div className="context-object-card">
               <div className="context-card-header">
                 <span className="context-card-title">Architecture Specs</span>

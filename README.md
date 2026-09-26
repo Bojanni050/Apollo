@@ -805,7 +805,7 @@ filled-in copy**.
 | `AUTH_API_TOKEN` | *(none)* | Optional; empty disables bearer tokens |
 | `SESSION_SECRET` | *(none)* | Required, min. 32 characters |
 | `SESSION_MAX_AGE_SECONDS` | `43200` | â€” |
-| `AUTH_COOKIE_NAME` | `gaia_session` | â€” |
+| `AUTH_COOKIE_NAME` | `apollo_session` | â€” |
 | `AUTH_COOKIE_SECURE` | *(auto)* | `Secure` in production |
 | `CORS_ORIGINS` | `[]` | Required, no `"*"` |
 | `CORS_ALLOW_CREDENTIALS` | `true` | â€” |

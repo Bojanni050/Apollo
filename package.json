@@ -1,8 +1,8 @@
 {
-  "name": "gaia-docs-architect-desktop",
+  "name": "apollo-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "Tauri 2 desktop shell for Gaia Docs Architect",
+  "description": "Tauri 2 desktop shell for Apollo",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

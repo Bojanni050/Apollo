@@ -166,7 +166,7 @@ def test_auth_status_is_public(secured_client: TestClient) -> None:
 
 def test_forged_session_cookie_is_rejected(secured_client: TestClient) -> None:
     """A cookie that is not correctly signed grants nothing."""
-    secured_client.cookies.set("gaia_session", "v1.YWRtaW4.9999999999.forged")
+    secured_client.cookies.set("apollo_session", "v1.YWRtaW4.9999999999.forged")
     assert secured_client.get("/api/workspaces").status_code == 401
 
 
