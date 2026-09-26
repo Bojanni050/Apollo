@@ -1,8 +1,8 @@
-// Renders the PRODUCTION build served by scripts\desktop.py (the static mount
-// on the same origin as /api), rather than the Vite dev server. Start
-// desktop.py first and point SMOKE_URL at the port it logs, e.g.
+// Renders the PRODUCTION build served by `python -m app.serve` -- the same
+// single-origin setup the Tauri desktop app uses, rather than the Vite dev
+// server. Start it first and point SMOKE_URL at the port, e.g.
 //
-//   python scripts\desktop.py --browser
+//   .venv\Scripts\python -m app.serve --port 5274
 //   set SMOKE_URL=http://127.0.0.1:5274
 //   npm run smoke:desktop
 import { chromium } from 'playwright'

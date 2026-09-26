@@ -12,47 +12,51 @@ conversations, questions, decisions and analysis results.
 
 ## Running the whole thing
 
-### As a desktop app
+### As a desktop app (Tauri 2)
 
-Double-click **`desktop.cmd`**, or run:
+Double-click **`desktop.cmd`**, or:
 
-```powershell
-.venv\Scripts\python scripts\desktop.py
+```bash
+npm run dev      # development build, with hot reload
+npm run build    # release installer (.msi / NSIS .exe) in src-tauri\target\release\bundle\
 ```
 
-This opens a real application window: no browser, no second terminal, no
-ports to think about. One process serves both the API and the production
-frontend build on a single local port, and the window opens only once
-`/api/health` answers.
+A real application window: no browser, no second terminal, no ports to think
+about. The Rust shell starts the Python API as a child process, waits until it
+answers, and points the window at it. Closing the window stops the API.
 
-The window is closed by closing it — the server stops with it.
+**Prerequisites** (all verified present on a current Windows dev box):
 
-**First run only**, if pywebview is not installed:
-
-```powershell
-.venv\Scripts\python -m pip install -e .\backend[desktop]
-```
-
-(`scripts\setup.ps1` already does this, so a machine set up through setup is
-ready.)
-
-| Flag | Effect |
+| Requirement | Notes |
 | --- | --- |
-| `--browser` | Serve and open in your normal browser — no GUI toolkit needed (SSH, containers, or if you just prefer it) |
-| `--port N` | Preferred port. A busy port falls back to a free one automatically |
-| `--no-build` | Fail instead of building `frontend/dist` if it is missing |
+| Rust stable | `rustup toolchain install stable` — <https://rustup.rs/> |
+| MSVC build tools | The C++ workload; Tauri will not link without it |
+| WebView2 runtime | Preinstalled on Windows 10/11; the installer fetches it if not |
+| Node.js + the venv | As for the browser version |
 
-**Why pywebview and not Electron?** The app is already a local HTTP server, so
-a desktop shell only has to supply a window. pywebview uses the operating
-system's own webview — WebView2 on Windows, WebKitGTK on Linux, WKWebView on
-macOS — so nothing extra is downloaded or shipped, and the Python backend
-needs no new packaging story. Electron would bundle a ~200MB browser for a tool
-that already runs on the machine, and would still have to spawn this same
-Python server, leaving all the complexity in place plus a large binary.
+The first build compiles the Rust dependency tree and takes a few minutes;
+later builds are incremental.
 
-The production bundle is served from the same origin as the API (mounted inside
-the FastAPI app), exactly like the dev server's proxy — so there is no CORS
-configuration and only one port.
+**How it is wired**
+
+- `src-tauri/` holds the Rust crate. It only does two things: supervise the
+  Python process and manage the window.
+- The child runs `python -m app.serve`, which mounts the built frontend on the
+  same port as the API. The webview and the API are therefore **same-origin** —
+  no CORS configuration, no `tauri://` asset protocol, and the session cookie
+  behaves like an ordinary cookie.
+- The port is chosen at runtime by binding to port 0, so a running dev server
+  never blocks the desktop app and two instances can coexist.
+- On Windows the child is placed in a **Job Object** with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so the OS reaps the whole process tree
+  even if the app is force-killed. A stray server holding a port is otherwise
+  easy to leave behind.
+
+**Security.** The window requests only `core:default` capabilities — no
+filesystem, no shell, no process permissions. The API is spawned from Rust
+with a fixed argument list, so the webview cannot start commands at all; the
+usual `tauri-plugin-shell` + `shell:allow-execute` route is deliberately not
+used.
 
 ### For development
 

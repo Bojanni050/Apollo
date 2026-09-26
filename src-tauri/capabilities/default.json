@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimum permissions for the main window. The application talks to its own local API over HTTP, so it needs no filesystem, shell or process permissions at all.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

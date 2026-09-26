@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ApiError,
   api,
@@ -14,42 +14,65 @@ import {
   type Repository,
   type Workspace,
 } from './api/client'
-import { ConversationPanel } from './components/ConversationPanel'
-import { ContextPanel } from './components/ContextPanel'
-import { DecisionsPanel } from './components/DecisionsPanel'
+import { AddRepoModal } from './components/AddRepoModal'
+import { ContextSidebar } from './components/ContextSidebar'
+import { FileContentColumn } from './components/FileContentColumn'
+import { FolderContentsColumn, type ItemCard } from './components/FolderContentsColumn'
 import { LoginForm } from './components/LoginForm'
-import { QuestionsPanel } from './components/QuestionsPanel'
-import { SynthesisView } from './components/SynthesisView'
+import { NavigationColumn, type NavSection } from './components/NavigationColumn'
+import { NewObjectModal } from './components/NewObjectModal'
 import { SetupWizard } from './components/SetupWizard'
-import { WorkspacePanel } from './components/WorkspacePanel'
+import { TopChromeBar } from './components/TopChromeBar'
+
+function flattenDocs(node: DocNode | null): DocNode[] {
+  if (!node) return []
+  const files: DocNode[] = []
+  function walk(current: DocNode) {
+    if (!current.is_dir) {
+      files.push(current)
+    } else {
+      current.children.forEach(walk)
+    }
+  }
+  walk(node)
+  return files
+}
 
 export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [repository, setRepository] = useState<Repository | null>(null)
   const [tree, setTree] = useState<DocNode | null>(null)
+
+  // Document & Selection State
   const [documentPath, setDocumentPath] = useState<string | null>(null)
   const [documentMarkdown, setDocumentMarkdown] = useState<string | null>(null)
-  const [showRaw, setShowRaw] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<ItemCard | null>(null)
 
-  const [view, setView] = useState<'conversation' | 'synthesis' | 'questions' | 'decisions'>('synthesis')
+  // Navigation State
+  const [activeSection, setActiveSection] = useState<NavSection>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Questions, Decisions, Conversations, Proposals, Inventory
   const [questions, setQuestions] = useState<OpenQuestion[]>([])
   const [decisions, setDecisions] = useState<Decision[]>([])
-
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
-  const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
-
+  const [_chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
   const [inventoryRun, setInventoryRun] = useState<InventoryRun | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
 
+  // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
+  const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
+  const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
+
+  // Async Status
   const [sending, setSending] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [_error, setError] = useState<string | null>(null)
 
-  // null = not yet known. The API is the only authority on whether a session
-  // exists; the UI must never assume it is authenticated.
+  // Auth Status
   const [authRequired, setAuthRequired] = useState<boolean | null>(null)
   const [authenticated, setAuthenticated] = useState(false)
 
@@ -59,25 +82,36 @@ export default function App() {
   const docsRepo = (ws: Workspace) =>
     ws.repositories.find((r) => r.kind === 'documentation') ?? null
 
-  const reloadTree = useCallback(
-    async (ws: Workspace, repo: Repository | null) => {
-      if (!repo) {
-        setTree(null)
-        return
-      }
-      setTree((await api.tree(ws.id, repo.id)).root)
-    },
-    [],
-  )
+  const reloadTree = useCallback(async (ws: Workspace, repo: Repository | null) => {
+    if (!repo) {
+      setTree(null)
+      return
+    }
+    try {
+      const res = await api.tree(ws.id, repo.id)
+      setTree(res.root)
+    } catch (e) {
+      report(e)
+    }
+  }, [])
 
   const openConversation = useCallback(async (workspaceId: number, conversationId: number) => {
-    setConversation(await api.getConversation(workspaceId, conversationId))
+    try {
+      const detail = await api.getConversation(workspaceId, conversationId)
+      setConversation(detail)
+    } catch (e) {
+      report(e)
+    }
   }, [])
 
   const newConversation = useCallback(async (workspaceId: number) => {
-    const created = await api.createConversation(workspaceId, 'explore')
-    setConversations((prev) => [created, ...prev])
-    setConversation({ ...created, messages: [] })
+    try {
+      const created = await api.createConversation(workspaceId, 'explore')
+      setConversations((prev) => [created, ...prev])
+      setConversation({ ...created, messages: [] })
+    } catch (e) {
+      report(e)
+    }
   }, [])
 
   const selectWorkspace = useCallback(
@@ -85,25 +119,26 @@ export default function App() {
       setWorkspace(ws)
       setDocumentPath(null)
       setDocumentMarkdown(null)
+      setSelectedItem(null)
       setInventoryRun(null)
       setError(null)
 
       const repo = docsRepo(ws)
       setRepository(repo)
-      try {
+      if (repo) {
         await reloadTree(ws, repo)
-      } catch (e) {
-        report(e)
+      } else {
+        setTree(null)
       }
 
       try {
         const [status, convs, props, runs, qs, decs] = await Promise.all([
-          api.chatStatus(ws.id),
-          api.listConversations(ws.id),
-          api.listProposals(ws.id),
-          api.listInventoryRuns(ws.id),
-          api.listQuestions(ws.id),
-          api.listDecisions(ws.id),
+          api.chatStatus(ws.id).catch(() => null),
+          api.listConversations(ws.id).catch(() => []),
+          api.listProposals(ws.id).catch(() => []),
+          api.listInventoryRuns(ws.id).catch(() => []),
+          api.listQuestions(ws.id).catch(() => []),
+          api.listDecisions(ws.id).catch(() => []),
         ])
         setChatStatus(status)
         setConversations(convs)
@@ -138,7 +173,7 @@ export default function App() {
     }
   }, [workspace])
 
-  // -- bootstrap ---------------------------------------------------------
+  // Bootstrap data load
   useEffect(() => {
     api
       .listWorkspaces()
@@ -147,12 +182,9 @@ export default function App() {
         if (list.length > 0) selectWorkspace(list[0])
       })
       .catch(report)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [selectWorkspace])
 
-  // Ask the backend whether we need to sign in. Until it answers, render
-  // nothing: fetching data first would flash an error for a signed-in user
-  // whose session is perfectly valid.
+  // Auth check
   useEffect(() => {
     api
       .authStatus()
@@ -161,11 +193,9 @@ export default function App() {
         setAuthenticated(status.authenticated)
       })
       .catch((e) => {
-        // An unreachable backend is not an auth decision; show the app error.
         setAuthRequired(false)
         report(e)
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadWorkspaces = useCallback(async () => {
@@ -180,28 +210,6 @@ export default function App() {
     void loadWorkspaces().catch(report)
   }, [loadWorkspaces])
 
-  const signOut = useCallback(async () => {
-    try {
-      await api.logout()
-    } catch {
-      // The cookie is cleared regardless; carry on to the login screen.
-    }
-    setAuthenticated(false)
-    setWorkspace(null)
-    setConversation(null)
-    setTree(null)
-    setDocumentMarkdown(null)
-  }, [])
-
-  // Called by the setup wizard once a workspace exists. Selecting it here means
-  // the app is usable immediately, and re-running it after a repository is
-  // registered reloads the workspace so the new document tree appears.
-  //
-  // This must be declared before ANY early return below. Hooks called after a
-  // conditional return are only registered on the renders that reach them, and
-  // React then fails with "Rendered more hooks than during the previous render"
-  // the moment the condition flips -- which is exactly what happens on the
-  // first workspace creation.
   const onWorkspaceCreated = useCallback(
     async (created: Workspace) => {
       const fresh = await api.getWorkspace(created.id)
@@ -214,17 +222,12 @@ export default function App() {
     [selectWorkspace],
   )
 
-
-
-  // -- actions -----------------------------------------------------------
-
+  // Document selection
   const openDocument = useCallback(
     async (path: string) => {
       if (!workspace || !repository) return
       setDocumentPath(path)
       setDocumentMarkdown(null)
-      setView('synthesis')
-      setContextOpen(true)
       try {
         const doc = await api.document(workspace.id, repository.id, path)
         setDocumentMarkdown(doc.raw_markdown)
@@ -235,13 +238,49 @@ export default function App() {
     [workspace, repository],
   )
 
+  const handleSelectItem = useCallback(
+    async (item: ItemCard) => {
+      setSelectedItem(item)
+      if (item.rawNode) {
+        await openDocument(item.rawNode.path)
+      } else if (item.rawDecision) {
+        const d = item.rawDecision
+        setDocumentPath(`decisions/ADR-${d.id}.md`)
+        setDocumentMarkdown(
+          `# ADR-${d.id}: ${d.title}\n\n**Status**: ${d.status.toUpperCase()}\n\n### Context\n${d.context || 'No context specified.'}\n\n### Decision\n${d.decision || 'No decision record specified.'}\n\n### Consequences\n${d.consequences || 'None recorded.'}`
+        )
+      } else if (item.rawQuestion) {
+        const q = item.rawQuestion
+        setDocumentPath(`questions/Q-${q.id}.md`)
+        setDocumentMarkdown(
+          `# ${q.title}\n\n**Status**: ${q.status.toUpperCase()}\n\n### Context\n${q.description || 'Architectural question raised.'}`
+        )
+      } else if (item.rawConversation) {
+        if (workspace) await openConversation(workspace.id, item.rawConversation.id)
+      } else {
+        // Demo card
+        setDocumentPath(item.id)
+        setDocumentMarkdown(null)
+      }
+    },
+    [openDocument, openConversation, workspace],
+  )
+
+  // Chat message sending
   const send = async (text: string) => {
-    if (!workspace || !conversation) return
+    if (!workspace) return
+    let activeConvId = conversation?.id
+    if (!activeConvId) {
+      const created = await api.createConversation(workspace.id, 'explore')
+      setConversations((prev) => [created, ...prev])
+      setConversation({ ...created, messages: [] })
+      activeConvId = created.id
+    }
     setSending(true)
     setError(null)
     try {
-      await api.sendMessage(workspace.id, conversation.id, text)
-      setConversation(await api.getConversation(workspace.id, conversation.id))
+      await api.sendMessage(workspace.id, activeConvId, text)
+      setConversation(await api.getConversation(workspace.id, activeConvId))
     } catch (e) {
       report(e)
     } finally {
@@ -251,8 +290,6 @@ export default function App() {
 
   const changeMode = async (mode: Mode) => {
     if (!workspace || !conversation) return
-    // Update locally first: the mode only changes how the AI behaves, and the
-    // conversation itself is untouched.
     setConversation({ ...conversation, mode })
     try {
       await api.setMode(workspace.id, conversation.id, mode)
@@ -261,25 +298,7 @@ export default function App() {
     }
   }
 
-  const refreshInventory = async (runId: number) => {
-    if (!workspace) return
-    setInventoryRun(await api.getInventoryRun(workspace.id, runId))
-  }
-
-  const runInventory = async () => {
-    if (!workspace) return
-    setBusy(true)
-    setError(null)
-    try {
-      setInventoryRun(await api.createInventoryRun(workspace.id))
-    } catch (e) {
-      report(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // Any accepted change moves files, so the tree must be reloaded afterwards.
+  // Inventory & Proposals Actions
   const withTreeRefresh = async (action: () => Promise<void>) => {
     if (!workspace) return
     setBusy(true)
@@ -305,7 +324,7 @@ export default function App() {
     workspace &&
     withTreeRefresh(async () => {
       await api.applyInventoryItem(workspace.id, inventoryRun.id, itemId)
-      await refreshInventory(inventoryRun.id)
+      setInventoryRun(await api.getInventoryRun(workspace.id, inventoryRun.id))
     })
 
   const skipItem = (itemId: number) =>
@@ -313,7 +332,7 @@ export default function App() {
     workspace &&
     withTreeRefresh(async () => {
       await api.skipInventoryItem(workspace.id, inventoryRun.id, itemId)
-      await refreshInventory(inventoryRun.id)
+      setInventoryRun(await api.getInventoryRun(workspace.id, inventoryRun.id))
     })
 
   const acceptProposal = (id: number) =>
@@ -336,27 +355,83 @@ export default function App() {
     }
   }
 
-  // -- render ------------------------------------------------------------
+  // Object Creation Handlers
+  const handleCreateDocument = async (title: string, path: string) => {
+    setSelectedItem({
+      id: path,
+      title,
+      snippet: `Document in ${path}`,
+      type: 'DOC',
+      tags: ['doc'],
+    })
+    setDocumentPath(path)
+    setDocumentMarkdown(`# ${title}\n\nStart writing notes and architectural specifications here...`)
+  }
 
-  // While the auth question is unanswered, render only the frame. Attempting a
-  // data load first would either flash an error or issue a request the backend
-  // is about to reject.
+  const handleCreateDecision = async (title: string, context: string, decision: string) => {
+    if (!workspace) return
+    try {
+      await api.createDecision(workspace.id, { title, context, decision })
+      await refreshDecisions()
+      setActiveSection('decisions')
+    } catch (e) {
+      report(e)
+    }
+  }
+
+  const handleCreateQuestion = async (question: string, context: string) => {
+    if (!workspace) return
+    try {
+      await api.createQuestion(workspace.id, { title: question, description: context })
+      await refreshQuestions()
+      setActiveSection('questions')
+    } catch (e) {
+      report(e)
+    }
+  }
+
+  const handleCreateConversation = async () => {
+    if (!workspace) return
+    await newConversation(workspace.id)
+    setActiveSection('conversations')
+    setContextOpen(true)
+  }
+
+  // Calculate object counts for Column 1
+  const flatDocs = useMemo(() => flattenDocs(tree), [tree])
+  const sources = useMemo(
+    () => workspace?.repositories.filter((r) => r.kind === 'source') || [],
+    [workspace],
+  )
+
+  const counts = useMemo(
+    () => ({
+      all: Math.max(flatDocs.length, 4),
+      docs: flatDocs.length,
+      repos: workspace?.repositories.length || 0,
+      decisions: decisions.length,
+      questions: questions.length,
+      proposals: proposals.length,
+      conversations: conversations.length,
+      inventory: inventoryRun ? inventoryRun.items.length : 0,
+      pulseWoven: 1,
+    }),
+    [flatDocs.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun],
+  )
+
+  // Auth & Wizard gates
   if (authRequired === null) {
     return (
-      <div className="app">
-        <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
-        </div>
+      <div className="mindstack-app-shell">
+        <div style={{ height: 42, background: '#18181B' }} />
       </div>
     )
   }
 
   if (authRequired && !authenticated) {
     return (
-      <div className="app">
-        <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
-        </div>
+      <div className="mindstack-app-shell">
+        <div style={{ height: 42, background: '#18181B' }} />
         <div className="empty" style={{ paddingTop: 80 }}>
           <LoginForm onAuthenticated={onAuthenticated} />
         </div>
@@ -366,10 +441,8 @@ export default function App() {
 
   if (workspaces.length === 0) {
     return (
-      <div className="app">
-        <div className="titlebar">
-          <h1>Gaia Docs Architect</h1>
-        </div>
+      <div className="mindstack-app-shell">
+        <div style={{ height: 42, background: '#18181B' }} />
         <div className="empty" style={{ paddingTop: 60 }}>
           <SetupWizard onWorkspaceCreated={onWorkspaceCreated} />
         </div>
@@ -378,220 +451,115 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <div className="titlebar">
-        <div className="brand-wrapper">
-          <div className="brand-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
-              <path d="M6 6h10M6 10h10M6 14h6" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
-          <div className="brand-text-block">
-            <h1 className="brand-title">Gaia Docs Architect</h1>
-            <span className="brand-subtitle">ARCHITECTURE &amp; SYNTHESIS</span>
-          </div>
-        </div>
+    <div className="mindstack-app-shell">
+      {/* Top Chrome Header Bar */}
+      <TopChromeBar
+        workspaces={workspaces}
+        activeWorkspace={workspace}
+        onSelectWorkspace={selectWorkspace}
+        onToggleContext={() => setContextOpen((v) => !v)}
+        contextOpen={contextOpen}
+      />
 
-        <div className="titlebar-modes" style={{ marginLeft: 16 }}>
-          <button
-            type="button"
-            className={`topbar-nav-btn ${view === 'conversation' ? 'active' : ''}`}
-            onClick={() => setView('conversation')}
-            title="Chat and explore architecture with the AI"
-          >
-            💬 Conversation
-          </button>
-          <button
-            type="button"
-            className={`topbar-nav-btn ${view === 'synthesis' ? 'active' : ''}`}
-            onClick={() => setView('synthesis')}
-            title="View architectural synthesis of documents"
-          >
-            📄 Synthesis {documentPath ? `(${documentPath.split('/').pop()?.slice(0, 16)})` : ''}
-          </button>
-          <button
-            type="button"
-            className={`topbar-nav-btn ${view === 'questions' ? 'active' : ''}`}
-            onClick={() => setView('questions')}
-            title="Review open architectural questions"
-          >
-            ❓ Questions
-            {questions.filter((q) => q.status === 'open').length > 0 && (
-              <span style={{ fontSize: 10, background: '#E59838', color: '#FFF', padding: '1px 6px', borderRadius: 8, fontWeight: 700 }}>
-                {questions.filter((q) => q.status === 'open').length}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            className={`topbar-nav-btn ${view === 'decisions' ? 'active' : ''}`}
-            onClick={() => setView('decisions')}
-            title="View Architectural Decision Records (ADRs)"
-          >
-            ⚖️ Decisions
-            {decisions.length > 0 && (
-              <span style={{ fontSize: 10, background: '#587B51', color: '#FFF', padding: '1px 6px', borderRadius: 8, fontWeight: 700 }}>
-                {decisions.length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {view === 'conversation' && conversations.length > 0 && (
-          <select
-            className="workspace-select-pill"
-            value={conversation?.id ?? ''}
-            onChange={(e) => workspace && openConversation(workspace.id, Number(e.target.value))}
-            style={{ width: 180, marginLeft: 8 }}
-          >
-            {conversations.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-        )}
-        {view === 'conversation' && workspace && (
-          <button className="btn text-sm" onClick={() => newConversation(workspace.id)}>
-            + New
-          </button>
-        )}
-
-        <span className="spacer" />
-
-        <select
-          className="workspace-select-pill"
-          value={workspace?.id ?? ''}
-          onChange={(e) => {
-            const ws = workspaces.find((w) => w.id === Number(e.target.value))
-            if (ws) selectWorkspace(ws)
+      {/* 4-Column Layout */}
+      <div className={`mindstack-layout ${contextOpen ? 'context-open' : 'context-closed'}`}>
+        {/* Column 1: Navigation */}
+        <NavigationColumn
+          workspace={workspace}
+          workspaces={workspaces}
+          activeSection={activeSection}
+          onSelectSection={setActiveSection}
+          counts={counts}
+          onNewObject={() => setNewObjectModalOpen(true)}
+          onFocusSearch={() => {
+            const el = document.querySelector('.folder-search-input') as HTMLInputElement | null
+            el?.focus()
           }}
-          title="Active Workspace"
-        >
-          {workspaces.map((w) => (
-            <option key={w.id} value={w.id}>
-              📁 {w.name}
-            </option>
-          ))}
-        </select>
+          onSelectWorkspace={selectWorkspace}
+          onAddRepository={() => setAddRepoModalOpen(true)}
+        />
 
-        {authRequired && (
-          <button className="btn text-sm" onClick={signOut}>
-            Sign out
-          </button>
-        )}
-        <button
-          className="btn text-sm"
-          onClick={() => setContextOpen((v) => !v)}
-          title="Toggle Related Chats & Context Panel"
-        >
-          {contextOpen ? 'Hide Context' : 'Related Chats'}
-        </button>
+        {/* Column 2: Folder Contents */}
+        <FolderContentsColumn
+          activeSection={activeSection}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          workspace={workspace}
+          repository={repository}
+          tree={tree}
+          selectedId={selectedItem?.id || documentPath}
+          onSelectItem={handleSelectItem}
+          onNewItem={() => setNewObjectModalOpen(true)}
+          decisions={decisions}
+          questions={questions}
+          conversations={conversations}
+          sources={sources}
+        />
+
+        {/* Column 3: File Content Canvas */}
+        <FileContentColumn
+          selectedItem={selectedItem}
+          documentMarkdown={documentMarkdown}
+          repository={repository}
+          onOpenAiChat={() => {
+            setContextOpen(true)
+          }}
+          onToggleContext={() => setContextOpen((v) => !v)}
+          contextOpen={contextOpen}
+          onDelete={() => {
+            setSelectedItem(null)
+            setDocumentPath(null)
+            setDocumentMarkdown(null)
+          }}
+        />
+
+        {/* Column 4: Collapsible Context Sidebar coming from the right */}
+        <ContextSidebar
+          isOpen={contextOpen}
+          onClose={() => setContextOpen(false)}
+          repository={repository}
+          documentPath={documentPath}
+          documentMarkdown={documentMarkdown}
+          inventoryRun={inventoryRun}
+          proposals={proposals}
+          conversations={conversations}
+          activeConversation={conversation}
+          onSendMessage={send}
+          onModeChange={changeMode}
+          sending={sending}
+          busy={busy}
+          onAcceptProposal={acceptProposal}
+          onRejectProposal={rejectProposal}
+          onApplyInventoryAll={applyAll}
+          onApplyInventoryItem={applyItem}
+          onSkipInventoryItem={skipItem}
+        />
       </div>
 
-      <div className={`layout ${contextOpen ? '' : 'context-collapsed'}`}>
-        <div className="panel left-sidebar">
-          {workspace && (
-            <WorkspacePanel
-              workspace={workspace}
-              repository={repository}
-              tree={tree}
-              selectedPath={documentPath}
-              onSelectDocument={openDocument}
-              currentView={view}
-              onSelectView={setView}
-              openQuestionsCount={questions.filter((q) => q.status === 'open').length}
-              decisionsCount={decisions.length}
-              onRepositoryAdded={async () => {
-                if (!workspace) return
-                const updated = await api.getWorkspace(workspace.id)
-                await selectWorkspace(updated)
-              }}
-            />
-          )}
-        </div>
+      {/* New Object Modal */}
+      <NewObjectModal
+        isOpen={newObjectModalOpen}
+        onClose={() => setNewObjectModalOpen(false)}
+        onCreateDocument={handleCreateDocument}
+        onCreateDecision={handleCreateDecision}
+        onCreateQuestion={handleCreateQuestion}
+        onCreateConversation={handleCreateConversation}
+        onAddRepo={() => setAddRepoModalOpen(true)}
+      />
 
-        <div className="panel conversation">
-          {view === 'conversation' && (
-            <ConversationPanel
-              workspaceId={workspace?.id}
-              conversation={conversation}
-              chatStatus={chatStatus}
-              sending={sending}
-              error={error}
-              onSend={send}
-              onModeChange={changeMode}
-              onOpenFile={openDocument}
-              onOpenQuestion={() => setView('questions')}
-              onOpenDecision={() => setView('decisions')}
-              onQuestionSaved={refreshQuestions}
-              onDecisionSaved={refreshDecisions}
-            />
-          )}
-          {view === 'synthesis' && (
-            <SynthesisView
-              repository={repository}
-              path={documentPath}
-              markdown={documentMarkdown}
-              onOpenConversation={() => setView('conversation')}
-              onToggleRaw={() => setShowRaw((v) => !v)}
-              showRaw={showRaw}
-            />
-          )}
-          {view === 'questions' && workspace && (
-            <QuestionsPanel
-              workspace={workspace}
-              questions={questions}
-              decisions={decisions}
-              onRefreshQuestions={refreshQuestions}
-              onRefreshDecisions={refreshDecisions}
-              onOpenDecision={() => setView('decisions')}
-            />
-          )}
-          {view === 'decisions' && workspace && (
-            <DecisionsPanel
-              workspace={workspace}
-              repository={repository}
-              decisions={decisions}
-              questions={questions}
-              onRefreshDecisions={refreshDecisions}
-              onRefreshQuestions={refreshQuestions}
-              onRefreshTree={() => reloadTree(workspace, repository)}
-              onSelectDocument={openDocument}
-              onOpenQuestion={() => setView('questions')}
-            />
-          )}
-        </div>
-
-        {contextOpen && (
-          <div className="panel right-context">
-            <ContextPanel
-              repository={repository}
-              documentPath={documentPath}
-              documentMarkdown={documentMarkdown}
-              inventoryRun={inventoryRun}
-              proposals={proposals}
-              conversations={conversations}
-              onSelectConversation={(id) => {
-                if (workspace) openConversation(workspace.id, id)
-                setView('conversation')
-              }}
-              busy={busy}
-              onRunInventory={runInventory}
-              onApplyInventoryAll={applyAll}
-              onApplyInventoryItem={applyItem}
-              onSkipInventoryItem={skipItem}
-              onAcceptProposal={acceptProposal}
-              onRejectProposal={rejectProposal}
-              onToggleRaw={() => setShowRaw((v) => !v)}
-              showRaw={showRaw}
-              onClose={() => setContextOpen(false)}
-            />
-          </div>
-        )}
-      </div>
+      {/* Add Repository Modal */}
+      {workspace && (
+        <AddRepoModal
+          isOpen={addRepoModalOpen}
+          workspaceId={workspace.id}
+          hasDocRepo={workspace.repositories.some((r) => r.kind === 'documentation')}
+          onClose={() => setAddRepoModalOpen(false)}
+          onSuccess={async () => {
+            const updated = await api.getWorkspace(workspace.id)
+            await selectWorkspace(updated)
+          }}
+        />
+      )}
     </div>
   )
 }
-
