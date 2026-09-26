@@ -36,6 +36,126 @@ class RepositoryOut(BaseModel):
     is_git_repo: bool = False
     current_branch: str | None = None
     head_revision: str | None = None
+    # ---- Source-repository metadata (None for documentation repos) --------
+    source_type: str | None = None
+    source_url: str | None = None
+    status: str | None = None
+    status_message: str | None = None
+    last_synced_at: dt.datetime | None = None
+
+
+# --------------------------------------------------------------------------
+# Repository sources (architecture evidence)
+# --------------------------------------------------------------------------
+
+
+class SourceCreate(BaseModel):
+    """Register a repository source: a local path or a Git repository URL.
+
+    The source type is inferred from the location when not given explicitly.
+    GitHub sources are registered pending synchronization; nothing is cloned
+    until the operator explicitly refreshes.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    location: str = Field(min_length=1, max_length=1000)
+    source_type: str | None = Field(default=None, pattern="^(local|github)$")
+    branch: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+
+
+class SourceSyncOut(BaseModel):
+    repository: RepositoryOut
+    action: str
+    status: str
+    message: str | None = None
+    branch: str | None = None
+    revision: str | None = None
+
+
+class ManifestEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    index: int
+    repo: str
+    path: str
+    branch: str | None = None
+    source_type: str
+    valid: bool
+    error: str | None = None
+    action: str
+    existing_name: str | None = None
+
+
+class ManifestPreviewOut(BaseModel):
+    """What the operator sees before confirming an import. Nothing is applied."""
+
+    total: int
+    valid_count: int
+    invalid_count: int
+    new_count: int
+    duplicate_count: int
+    entries: list[ManifestEntryOut]
+
+
+class ManifestImportOut(BaseModel):
+    imported: list[RepositoryOut] = Field(default_factory=list)
+    duplicates: list[str] = Field(default_factory=list)
+    invalid: list[dict[str, str]] = Field(default_factory=list)
+    manifest_path: str | None = None
+
+
+class ManifestValidateIn(BaseModel):
+    """The raw .sources.yaml content to validate or import."""
+
+    content: str = Field(min_length=1, max_length=512 * 1024)
+
+
+class ManifestImportIn(ManifestValidateIn):
+    # Confirmed by the operator after reviewing the preview.
+    confirm: bool = False
+
+
+class SourceFileOut(BaseModel):
+    path: str
+    size: int
+
+
+class SourceFileListOut(BaseModel):
+    repository_id: int
+    repository: str
+    path: str
+    files: list[SourceFileOut]
+
+
+class SourceReadOut(BaseModel):
+    repository_id: int
+    repository: str
+    path: str
+    content: str
+    start_line: int
+    end_line: int
+    total_lines: int
+
+
+class SourceSearchHitOut(BaseModel):
+    path: str
+    line: int
+    snippet: str
+    score: float = 0.0
+
+
+class SourceSearchOut(BaseModel):
+    repository_id: int
+    repository: str
+    query: str
+    hits: list[SourceSearchHitOut]
+
+
+class SourceStructureOut(BaseModel):
+    repository_id: int
+    repository: str
+    structure: str
 
 
 class WorkspaceCreate(BaseModel):

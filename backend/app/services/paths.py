@@ -68,6 +68,11 @@ def _is_within(candidate: Path, root: Path) -> bool:
     return True
 
 
+def is_within(candidate: Path, root: Path) -> bool:
+    """Whether ``candidate`` resolves to a location inside ``root``."""
+    return _is_within(candidate, root)
+
+
 def assert_authorized_root(
     root: str | Path,
     allowed_roots: list[str],

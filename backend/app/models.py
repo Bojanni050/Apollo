@@ -58,6 +58,8 @@ JSONType = JSON().with_variant(JSONB(), "postgresql")
 #: Allowed values for the small enum-like columns. Kept here so the CHECK
 #: constraints, the schemas and the documentation cannot drift apart.
 REPOSITORY_KINDS = ("documentation", "source")
+SOURCE_TYPES = ("local", "github")
+SOURCE_STATUSES = ("pending", "ready", "error", "missing")
 MESSAGE_ROLES = ("user", "assistant", "system")
 CONVERSATION_MODES = ("explore", "investigate", "apply")
 PROPOSAL_STATUSES = ("pending", "accepted", "rejected")
@@ -134,17 +136,31 @@ class Workspace(TimestampMixin, Base):
 
 
 class Repository(TimestampMixin, Base):
-    """A local Git repository registered with a workspace.
+    """A repository registered with a workspace: documentation or source.
 
-    ``local_path`` points at an existing local checkout; the app never clones on
-    the user's behalf. ``writable`` is only ever true for the documentation
-    repository.
+    ``kind='documentation'`` is the single Markdown repository (writable via
+    the approval-gated proposal flow). ``kind='source'`` is a code repository
+    used as architecture evidence, always read-only.
+
+    Source repositories come in two flavours, unified by ``source_type`` and
+    the services/sources.py abstraction:
+
+    * ``local`` -- an existing local Git checkout the app never clones or
+      copies (``local_path`` is authoritative);
+    * ``github`` -- a remote repository cloned into the managed checkout
+      directory on first sync (``source_url`` is the stable identity;
+      ``local_path`` points at the machine-specific checkout).
+
+    Nothing here stores credentials: GitHub sources are read-oriented and
+    synchronize without authentication.
     """
 
     __tablename__ = "repositories"
     __table_args__ = (
         UniqueConstraint("workspace_id", "name", name="uq_repo_ws_name"),
         _check("kind", REPOSITORY_KINDS, "ck_repositories_kind"),
+        _check("source_type", SOURCE_TYPES, "ck_repositories_source_type"),
+        _check("status", SOURCE_STATUSES, "ck_repositories_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -163,6 +179,22 @@ class Repository(TimestampMixin, Base):
         Boolean, default=False, server_default=text("false"), nullable=False
     )
     description: Mapped[str | None] = mapped_column(Text)
+
+    # ---- Source-repository metadata (nullable: documentation rows have none) --
+    # ``source_type`` distinguishes the RepositorySource specializations
+    # (local Git repository vs GitHub repository).
+    source_type: Mapped[str | None] = mapped_column(
+        String(20), default=None, server_default=None, nullable=True
+    )
+    # The remote identity for GitHub sources (normalized URL). For local
+    # sources the resolved local_path is the identity and this stays NULL.
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Current status: pending (not yet synchronized), ready, error, missing.
+    status: Mapped[str] = mapped_column(
+        String(20), default="ready", server_default="ready", nullable=False
+    )
+    status_message: Mapped[str | None] = mapped_column(Text)
+    last_synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     workspace: Mapped[Workspace] = relationship(back_populates="repositories")
 

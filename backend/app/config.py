@@ -132,6 +132,24 @@ class Settings(BaseSettings):
     # production, where an empty list means no repository can be registered.
     allow_unrestricted_workspace_roots: bool = False
 
+    # ---- Source repositories (architecture evidence) ---------------------
+    # Root under which GitHub repository sources are cloned/pulled. Machine-
+    # specific by design (never portable, never part of .sources.yaml), and
+    # deliberately outside the workspace-root allow-list: these checkouts are
+    # managed by the application, not registered by the operator.
+    source_checkout_root: str = "./gaia_source_checkouts"
+
+    @property
+    def effective_source_checkout_root(self) -> str:
+        """Resolve a relative checkout root against the backend directory, so
+        it does not depend on whatever the current working directory is."""
+        from pathlib import PurePath
+
+        value = self.source_checkout_root or "./gaia_source_checkouts"
+        if PurePath(value).is_absolute():
+            return value
+        return str((BACKEND_DIR / value).resolve())
+
     # ---- LLM provider (OpenAI-compatible) -------------------------------
     llm_base_url: str | None = None
     llm_api_key: str | None = None

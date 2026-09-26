@@ -21,6 +21,13 @@ from app.llm.base import Citation
 from app.models import Decision, OpenQuestion, Repository, Workspace
 from app.services import git
 from app.services.documents import DocumentError, build_tree, list_documents, read_document
+from app.services.inspection import (
+    InspectionError,
+    list_code_files,
+    project_structure,
+    read_source_file,
+    search_code,
+)
 from app.services.paths import PathSecurityError, safe_path
 from app.services.search import search_documents
 
@@ -194,6 +201,110 @@ def tool_structure(ctx: ToolContext, repository: str) -> str:
 
     walk(node, 0)
     return _clip(f"Structure of {repository}:\n" + "\n".join(lines))
+
+
+# --------------------------------------------------------------------------
+# Source-repository tools (code as architecture evidence)
+#
+# Source repositories are treated differently from documentation: they hold
+# code, configuration and schemas. These tools give the assistant targeted
+# retrieval -- never a whole-repository dump into context -- and record
+# citations so architectural findings can point at the exact file.
+# --------------------------------------------------------------------------
+
+
+def _source_repositories(ctx: ToolContext) -> list[Repository]:
+    return [r for r in ctx.repositories if r.kind == "source"]
+
+
+def tool_search_code(
+    ctx: ToolContext, query: str, repository: str = "", limit: int = 10
+) -> str:
+    """Search source code across the workspace's source repositories.
+
+    Use this to find where something is implemented -- a class, function,
+    configuration key or API -- as opposed to what is documented.
+    """
+    candidates = (
+        [r for r in _source_repositories(ctx) if r.name == repository]
+        if repository
+        else _source_repositories(ctx)
+    )
+    if not candidates:
+        names = ", ".join(r.name for r in _source_repositories(ctx)) or "(none)"
+        return f"No source repositories to search. Available: {names}."
+
+    hits: list[str] = []
+    for repo in candidates:
+        try:
+            for hit in search_code(repo.local_path, query, limit=limit):
+                hits.append(f"{repo.name}/{hit.path}:{hit.line} - {hit.snippet}")
+                _record(ctx, repo, hit.path, "verified_implementation")
+        except (InspectionError, PathSecurityError):
+            continue
+    if not hits:
+        return f"No source code matched {query!r}."
+    return _clip("\n".join(hits))
+
+
+def tool_read_source(
+    ctx: ToolContext, repository: str, path: str, start_line: int = 1, end_line: int = 0
+) -> str:
+    """Read a source file from a source repository with numbered lines.
+
+    Binary and oversized files are refused; at most 400 lines are returned per
+    call, so a single result can never flood the context window.
+    """
+    repo = _resolve_repo(ctx, repository)
+    if repo.kind != "source":
+        return f"Error: {repository!r} is not a source repository."
+    try:
+        body = read_source_file(
+            repo.local_path, path, start_line=start_line, end_line=end_line
+        )
+    except (InspectionError, PathSecurityError) as exc:
+        return f"Error: {exc}"
+    _record(ctx, repo, path, "verified_implementation")
+    return _clip(body)
+
+
+def tool_list_source_files(
+    ctx: ToolContext, repository: str, path: str = ".", limit: int = 100
+) -> str:
+    """List text source files under a path, skipping ignored directories."""
+    repo = _resolve_repo(ctx, repository)
+    if repo.kind != "source":
+        return f"Error: {repository!r} is not a source repository."
+    try:
+        entries = list_code_files(
+            repo.local_path, path, limit=max(1, min(int(limit), 400))
+        )
+    except (InspectionError, PathSecurityError) as exc:
+        return f"Error: {exc}"
+    if not entries:
+        return f"No source files found under {path!r}."
+    return _clip(
+        f"Source files in {repository}/{path}:\n"
+        + "\n".join(f"{e.path} ({e.size} bytes)" for e in entries)
+    )
+
+
+def tool_source_structure(ctx: ToolContext, repository: str, depth: int = 3) -> str:
+    """Show a compact project-structure summary of a source repository.
+
+    Depth-limited; use it to orient before listing or reading specific files.
+    """
+    repo = _resolve_repo(ctx, repository)
+    if repo.kind != "source":
+        return f"Error: {repository!r} is not a source repository."
+    try:
+        structure = project_structure(
+            repo.local_path, max_depth=max(1, min(int(depth), 6))
+        )
+    except (InspectionError, PathSecurityError) as exc:
+        return f"Error: {exc}"
+    _record(ctx, repo, ".", "verified_implementation")
+    return _clip(f"Structure of {repository}:\n{structure}")
 
 
 
@@ -644,6 +755,112 @@ def tool_schemas(repository_names: list[str]) -> list[dict[str, Any]]:
         {
             "type": "function",
             "function": {
+                "name": "search_code",
+                "description": (
+                    "Search SOURCE CODE in the workspace's source repositories (code, config, "
+                    "schemas, APIs) for a class, function, identifier or keyword. Use this to "
+                    "find where something is actually implemented, as opposed to what the "
+                    "documentation says. Returns repository, file path and line number; cite them."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Identifier, class, function or keyword to find.",
+                        },
+                        "repository": {
+                            **_repo_property(),
+                            "description": "Restrict the search to one source repository."
+                            + repo_hint,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum results (default 10).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_source",
+                "description": (
+                    "Read a source file from a source repository, optionally a line range. "
+                    "Returns numbered lines. Refuses binary files. Use it to verify what the "
+                    "code actually does before claiming it matches (or contradicts) the documentation."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "repository": _repo_property(),
+                        "path": {
+                            "type": "string",
+                            "description": "Repository-relative path, e.g. src/memory.py",
+                        },
+                        "start_line": {"type": "integer", "description": "1-based first line."},
+                        "end_line": {
+                            "type": "integer",
+                            "description": "1-based last line; 0 means auto (max 400 lines).",
+                        },
+                    },
+                    "required": ["repository", "path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_source_files",
+                "description": (
+                    "List text source files under a path in a source repository, skipping "
+                    "ignored directories (node_modules, build output, etc.). Use it to orient "
+                    "yourself before reading specific files."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "repository": _repo_property(),
+                        "path": {
+                            "type": "string",
+                            "description": "Subdirectory; '.' for the repository root.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum files (default 100).",
+                        },
+                    },
+                    "required": ["repository"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "source_structure",
+                "description": (
+                    "Show a compact, depth-limited project structure of a source repository "
+                    "(directories and text files, ignoring build artifacts). Use it to answer "
+                    '"where does X live?" questions.'
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "repository": _repo_property(),
+                        "depth": {
+                            "type": "integer",
+                            "description": "Maximum depth (default 3).",
+                        },
+                    },
+                    "required": ["repository"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "search_questions",
                 "description": "Search existing open architectural questions in the workspace by query or status (open, answered, resolved).",
                 "parameters": {
@@ -823,6 +1040,10 @@ TOOL_REGISTRY: dict[str, ToolFunction] = {
     "read_code": tool_read_code,
     "list_decisions": tool_list_decisions,
     "structure": tool_structure,
+    "search_code": tool_search_code,
+    "read_source": tool_read_source,
+    "list_source_files": tool_list_source_files,
+    "source_structure": tool_source_structure,
     "search_questions": tool_search_questions,
     "search_decisions": tool_search_decisions,
     "get_question": tool_get_question,
