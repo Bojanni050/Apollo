@@ -19,7 +19,7 @@ set "PYTHON=%ROOT%.venv\Scripts\python.exe"
 if not exist "%PYTHON%" (
     echo.
     echo   No virtualenv found at %PYTHON%
-    echo   Run setup first:  scripts\setup.ps1
+    echo   Run first-run.cmd first: it installs everything and builds the frontend.
     echo.
     pause
     endlocal

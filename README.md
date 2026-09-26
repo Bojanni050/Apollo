@@ -14,6 +14,10 @@ conversations, questions, decisions and analysis results.
 
 ### As a desktop app (Tauri 2)
 
+> **First time on this machine?** Run **`first-run.cmd`** first: it installs
+> everything and builds `frontend\dist`, which the desktop app serves and
+> refuses to start without.
+
 Double-click **`desktop.cmd`**, or:
 
 ```bash
@@ -88,10 +92,12 @@ are frequently taken by other projects on the same machine. Override them with
 
 | Script | What it does |
 | --- | --- |
+| `first-run.cmd` / `first-run.bat` | **First run:** install everything, then build the frontend bundle |
 | `start.cmd` / `start.bat` | **Start everything** (backend + frontend), then open the browser |
 | `stop.cmd` / `stop.bat` | Stop both servers (`-Clean` also deletes `.dev\`) |
-| `scripts\dev.ps1` | The same thing, if you prefer to run it from a terminal |
-| `scripts\setup.ps1` | Install dependencies and create `backend\.env` |
+| `scripts\dev.ps1` | The same thing as `start.cmd`, if you prefer to run it from a terminal |
+| `scripts\first-run.ps1` | The same thing as `first-run.cmd`, from a terminal |
+| `scripts\setup.ps1` | Install dependencies and create `backend\.env` (no frontend build; `first-run` adds it) |
 | `scripts\start-backend.ps1` | Start only the API |
 | `scripts\start-frontend.ps1` | Start only the dev server |
 | `scripts\test.ps1` | Run the backend tests and the frontend build |
