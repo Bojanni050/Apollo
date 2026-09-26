@@ -22,7 +22,6 @@ import { LoginForm } from './components/LoginForm'
 import { NavigationColumn, type NavSection } from './components/NavigationColumn'
 import { NewObjectModal } from './components/NewObjectModal'
 import { SetupWizard } from './components/SetupWizard'
-import { TopChromeBar } from './components/TopChromeBar'
 
 function flattenDocs(node: DocNode | null): DocNode[] {
   if (!node) return []
@@ -423,7 +422,6 @@ export default function App() {
   if (authRequired === null) {
     return (
       <div className="mindstack-app-shell">
-        <div style={{ height: 42, background: '#18181B' }} />
       </div>
     )
   }
@@ -431,7 +429,6 @@ export default function App() {
   if (authRequired && !authenticated) {
     return (
       <div className="mindstack-app-shell">
-        <div style={{ height: 42, background: '#18181B' }} />
         <div className="empty" style={{ paddingTop: 80 }}>
           <LoginForm onAuthenticated={onAuthenticated} />
         </div>
@@ -442,7 +439,6 @@ export default function App() {
   if (workspaces.length === 0) {
     return (
       <div className="mindstack-app-shell">
-        <div style={{ height: 42, background: '#18181B' }} />
         <div className="empty" style={{ paddingTop: 60 }}>
           <SetupWizard onWorkspaceCreated={onWorkspaceCreated} />
         </div>
@@ -452,15 +448,6 @@ export default function App() {
 
   return (
     <div className="mindstack-app-shell">
-      {/* Top Chrome Header Bar */}
-      <TopChromeBar
-        workspaces={workspaces}
-        activeWorkspace={workspace}
-        onSelectWorkspace={selectWorkspace}
-        onToggleContext={() => setContextOpen((v) => !v)}
-        contextOpen={contextOpen}
-      />
-
       {/* 4-Column Layout */}
       <div className={`mindstack-layout ${contextOpen ? 'context-open' : 'context-closed'}`}>
         {/* Column 1: Navigation */}
