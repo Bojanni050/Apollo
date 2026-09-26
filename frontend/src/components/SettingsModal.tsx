@@ -51,6 +51,8 @@ interface LlmSectionProps {
   sameAsChatToggle?: boolean
   sameAsChat?: boolean
   setSameAsChat?: (v: boolean) => void
+  providerBaseUrl?: string
+  providerApiKey?: string
 }
 
 function LlmSection({
@@ -72,6 +74,8 @@ function LlmSection({
   sameAsChatToggle,
   sameAsChat,
   setSameAsChat,
+  providerBaseUrl,
+  providerApiKey,
 }: LlmSectionProps) {
   const [models, setModels] = useState<LlmModelInfo[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -86,7 +90,13 @@ function LlmSection({
     setFetchingModels(true)
     setModelsError(null)
     try {
-      const res = await api.fetchLlmModels(baseUrl.trim() || undefined, apiKey.trim() || undefined)
+      let url = baseUrl.trim()
+      let key = apiKey.trim()
+      if (sameAsChatToggle && sameAsChat) {
+        url = (providerBaseUrl || '').trim()
+        key = (providerApiKey || '').trim()
+      }
+      const res = await api.fetchLlmModels(url || undefined, key || undefined)
       setModels(res.models)
       setModelsError(res.error || null)
       if (res.models.length > 0) {
@@ -108,11 +118,11 @@ function LlmSection({
 
   const selectedModelInfo = models.find((m) => m.id === model)
 
-  if (sameAsChatToggle) {
-    return (
-      <div className="settings-section">
-        <div className="settings-section-title">{title}</div>
-        <p className="settings-hint">{hint}</p>
+  return (
+    <div className="settings-section">
+      <div className="settings-section-title">{title}</div>
+      <p className="settings-hint">{hint}</p>
+      {sameAsChatToggle && (
         <div className="form-group">
           <label className="checkbox" htmlFor={`${sectionId}-same-as-chat`}>
             <input
@@ -121,45 +131,10 @@ function LlmSection({
               checked={!!sameAsChat}
               onChange={(e) => setSameAsChat?.(e.target.checked)}
             />
-            <span>Same as chat model &mdash; reuse the primary provider, key and limits; nothing to fill in</span>
+            <span>Same provider as chat &mdash; reuse its base URL and API key; only the model below can differ</span>
           </label>
         </div>
-        {!sameAsChat && (
-          <LlmSectionFields
-            sectionId={sectionId}
-            baseUrl={baseUrl}
-            setBaseUrl={setBaseUrl}
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-            apiKeyConfigured={apiKeyConfigured}
-            model={model}
-            setModel={setModel}
-            contextTokens={contextTokens}
-            setContextTokens={setContextTokens}
-            maxOutputTokens={maxOutputTokens}
-            setMaxOutputTokens={setMaxOutputTokens}
-            showTokenFields={showTokenFields}
-            optionalTokens={optionalTokens}
-            onFetch={handleFetchModels}
-            fetching={fetchingModels}
-            models={models}
-            modelsError={modelsError}
-            dropdownOpen={dropdownOpen}
-            setDropdownOpen={setDropdownOpen}
-            modelFilter={modelFilter}
-            setModelFilter={setModelFilter}
-            filteredModels={filteredModels}
-            selectedModelInfo={selectedModelInfo}
-          />
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="settings-section">
-      <div className="settings-section-title">{title}</div>
-      <p className="settings-hint">{hint}</p>
+      )}
       <LlmSectionFields
         sectionId={sectionId}
         baseUrl={baseUrl}
@@ -175,6 +150,8 @@ function LlmSection({
         setMaxOutputTokens={setMaxOutputTokens}
         showTokenFields={showTokenFields}
         optionalTokens={optionalTokens}
+        showProviderFields={!sameAsChatToggle || !sameAsChat}
+        sameAsChat={!!sameAsChat}
         onFetch={handleFetchModels}
         fetching={fetchingModels}
         models={models}
@@ -205,6 +182,8 @@ interface LlmSectionFieldsProps {
   setMaxOutputTokens: (v: string) => void
   showTokenFields: boolean
   optionalTokens: boolean
+  showProviderFields: boolean
+  sameAsChat: boolean
   onFetch: () => void
   fetching: boolean
   models: LlmModelInfo[]
@@ -232,6 +211,8 @@ function LlmSectionFields({
   setMaxOutputTokens,
   showTokenFields,
   optionalTokens,
+  showProviderFields,
+  sameAsChat,
   onFetch,
   fetching,
   models,
@@ -247,6 +228,7 @@ function LlmSectionFields({
 
   return (
     <>
+      {showProviderFields && (
       <div className="form-group">
         <label className="form-label">Provider</label>
         <div className="provider-presets">
@@ -264,6 +246,7 @@ function LlmSectionFields({
           <span className="provider-presets-or">or enter a base URL below</span>
         </div>
       </div>
+      )}
       <div className="form-group">
         <label className="form-label" htmlFor={`${sectionId}-base-url`}>Base URL</label>
         <input
@@ -273,6 +256,7 @@ function LlmSectionFields({
           onChange={(e) => setBaseUrl(e.target.value)}
           placeholder="https://api.openai.com/v1  ·  http://127.0.0.1:11434/v1 (Ollama)  ·  http://127.0.0.1:1234/v1 (LM Studio)"
           spellCheck={false}
+          disabled={sameAsChat}
         />
       </div>
       <div className="form-group">
@@ -289,8 +273,9 @@ function LlmSectionFields({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder={apiKeyConfigured ? 'Leave empty to keep the current key' : 'sk-… (empty for local endpoints)'}
+          placeholder={sameAsChat ? 'Reused from the chat model' : apiKeyConfigured ? 'Leave empty to keep the current key' : 'sk-… (empty for local endpoints)'}
           spellCheck={false}
+          disabled={sameAsChat}
         />
       </div>
       <div className="form-group">
@@ -314,53 +299,53 @@ function LlmSectionFields({
             type="button"
             className="btn"
             onClick={onFetch}
-            disabled={fetching || !baseUrl.trim()}
+            disabled={fetching || (!baseUrl.trim() && !sameAsChat)}
             title="Fetch the model list from the provider"
           >
             {fetching ? 'Fetching…' : 'Fetch models'}
           </button>
+          {dropdownOpen && filteredModels.length > 0 && (
+            <div className="model-dropdown">
+              <div className="model-dropdown-filter">
+                <input
+                  className="settings-input"
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  placeholder="Filter models…"
+                  spellCheck={false}
+                  autoFocus
+                />
+              </div>
+              <div className="model-dropdown-list">
+                {filteredModels.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`model-dropdown-item ${m.id === model ? 'selected' : ''}`}
+                    onClick={() => {
+                      setModel(m.id)
+                      setDropdownOpen(false)
+                    }}
+                  >
+                    <span className="model-item-id">{m.id}</span>
+                    <span className="model-item-meta">
+                      <span className="model-item-price" title="USD per 1M tokens, input / output">
+                        {priceLabel(m.input_price_per_m)} / {priceLabel(m.output_price_per_m)}
+                      </span>
+                      <span className="model-item-caps">
+                        {m.capabilities.map((c) => (
+                          <span key={c} className="model-cap" title={CAPABILITY_ICONS[c]?.label || c}>
+                            {CAPABILITY_ICONS[c]?.icon || '•'}
+                          </span>
+                        ))}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-        {dropdownOpen && filteredModels.length > 0 && (
-          <div className="model-dropdown">
-            <div className="model-dropdown-filter">
-              <input
-                className="settings-input"
-                value={modelFilter}
-                onChange={(e) => setModelFilter(e.target.value)}
-                placeholder="Filter models…"
-                spellCheck={false}
-                autoFocus
-              />
-            </div>
-            <div className="model-dropdown-list">
-              {filteredModels.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={`model-dropdown-item ${m.id === model ? 'selected' : ''}`}
-                  onClick={() => {
-                    setModel(m.id)
-                    setDropdownOpen(false)
-                  }}
-                >
-                  <span className="model-item-id">{m.id}</span>
-                  <span className="model-item-meta">
-                    <span className="model-item-price" title="USD per 1M tokens, input / output">
-                      {priceLabel(m.input_price_per_m)} / {priceLabel(m.output_price_per_m)}
-                    </span>
-                    <span className="model-item-caps">
-                      {m.capabilities.map((c) => (
-                        <span key={c} className="model-cap" title={CAPABILITY_ICONS[c]?.label || c}>
-                          {CAPABILITY_ICONS[c]?.icon || '•'}
-                        </span>
-                      ))}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
         {modelsError && <div className="picker-error">{modelsError}</div>}
         {selectedModelInfo && (
           <div className="model-selected-info">
@@ -448,7 +433,7 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
         setBgApiKey('')
         setBgContextTokens(res.background_context_tokens ? String(res.background_context_tokens) : '')
         setBgMaxOutputTokens(res.background_max_output_tokens ? String(res.background_max_output_tokens) : '')
-        setBgSameAsChat(!res.background_model)
+        setBgSameAsChat(!res.background_base_url && !res.background_api_key_configured)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load settings.'))
       .finally(() => setLoading(false))
@@ -472,22 +457,17 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
       const t = parseFloat(temperature)
       if (!Number.isNaN(t) && t !== data?.temperature) payload.temperature = t
       if (bgSameAsChat) {
-        if (data?.background_model) {
-          payload.background_base_url = ''
-          payload.background_model = ''
-          payload.background_api_key = ''
-          payload.background_context_tokens = 0
-          payload.background_max_output_tokens = 0
-        }
+        if (bgBaseUrl.trim() !== (data?.background_base_url || '')) payload.background_base_url = ''
+        if (bgApiKey.trim()) payload.background_api_key = ''
       } else {
         if (bgBaseUrl.trim() !== (data?.background_base_url || '')) payload.background_base_url = bgBaseUrl.trim()
-        if (bgModel.trim() !== (data?.background_model || '')) payload.background_model = bgModel.trim()
         if (bgApiKey.trim()) payload.background_api_key = bgApiKey.trim()
-        const bgCt = parseInt(bgContextTokens, 10)
-        if (!Number.isNaN(bgCt) && bgCt !== (data?.background_context_tokens ?? null)) payload.background_context_tokens = bgCt
-        const bgMot = parseInt(bgMaxOutputTokens, 10)
-        if (!Number.isNaN(bgMot) && bgMot !== (data?.background_max_output_tokens ?? null)) payload.background_max_output_tokens = bgMot
       }
+      if (bgModel.trim() !== (data?.background_model || '')) payload.background_model = bgModel.trim()
+      const bgCt = parseInt(bgContextTokens, 10)
+      if (!Number.isNaN(bgCt) && bgCt !== (data?.background_context_tokens ?? null)) payload.background_context_tokens = bgCt
+      const bgMot = parseInt(bgMaxOutputTokens, 10)
+      if (!Number.isNaN(bgMot) && bgMot !== (data?.background_max_output_tokens ?? null)) payload.background_max_output_tokens = bgMot
 
       const res = await api.updateLlmSettings(payload)
       setData(res)
@@ -545,8 +525,10 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                 sameAsChatToggle
                 sameAsChat={bgSameAsChat}
                 setSameAsChat={setBgSameAsChat}
+                providerBaseUrl={baseUrl}
+                providerApiKey={apiKey}
                 title="Background model (inventory & classification)"
-                hint="Optional. A compact/cheap model (Haiku, 4o-mini, local Qwen 14B) for structural digests and document classification. Leave empty to reuse the primary model for everything."
+                hint="Optional. A compact/cheap model (Haiku, 4o-mini, local Qwen 14B) for structural digests and document classification. Leave the model empty to use the primary model for everything; check 'same provider' to pick a different model from the chat provider without re-entering its URL and key."
                 baseUrl={bgBaseUrl}
                 setBaseUrl={setBgBaseUrl}
                 apiKey={bgApiKey}
