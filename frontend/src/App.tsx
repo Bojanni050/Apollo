@@ -17,6 +17,7 @@ import {
 } from './api/client'
 import { AddRepoModal } from './components/AddRepoModal'
 import { SettingsModal } from './components/SettingsModal'
+import { PulseSettingsModal } from './components/PulseSettingsModal'
 import { ContextSidebar } from './components/ContextSidebar'
 import { FileContentColumn } from './components/FileContentColumn'
 import { FolderContentsColumn, type ItemCard } from './components/FolderContentsColumn'
@@ -64,13 +65,13 @@ export default function App() {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [pulseRun, setPulseRun] = useState<PulseRun | null>(null)
   const [pulseRunning, setPulseRunning] = useState(false)
-  const [pulseMode, setPulseMode] = useState<'suggest' | 'apply'>('suggest')
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
   const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
   const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pulseSettingsOpen, setPulseSettingsOpen] = useState(false)
 
   // Async Status
   const [sending, setSending] = useState(false)
@@ -138,7 +139,7 @@ export default function App() {
       }
 
       try {
-        const [status, convs, props, runs, qs, decs, pulseRuns, pulseSettings] = await Promise.all([
+        const [status, convs, props, runs, qs, decs, pulseRuns] = await Promise.all([
           api.chatStatus(ws.id).catch(() => null),
           api.listConversations(ws.id).catch(() => []),
           api.listProposals(ws.id).catch(() => []),
@@ -146,7 +147,6 @@ export default function App() {
           api.listQuestions(ws.id).catch(() => []),
           api.listDecisions(ws.id).catch(() => []),
           api.listPulseRuns(ws.id).catch(() => []),
-          api.getPulseSettings(ws.id).catch(() => null),
         ])
         setChatStatus(status)
         setConversations(convs)
@@ -155,7 +155,6 @@ export default function App() {
         setDecisions(decs)
         if (runs.length > 0) setInventoryRun(runs[0])
         if (pulseRuns.length > 0) setPulseRun(pulseRuns[0])
-        if (pulseSettings) setPulseMode(pulseSettings.mode === 'apply' ? 'apply' : 'suggest')
         if (convs.length > 0) await openConversation(ws.id, convs[0].id)
         else await newConversation(ws.id)
       } catch (e) {
@@ -365,7 +364,7 @@ export default function App() {
     }
   }
 
-  // AI Pulse actions
+  // Delphi Pulse actions
   const refreshPulseRun = async (workspaceId: number, runId: number) => {
     setPulseRun(await api.getPulseRun(workspaceId, runId))
   }
@@ -384,15 +383,6 @@ export default function App() {
         setPulseRunning(false)
       }
     })()
-
-  const changePulseMode = (mode: 'suggest' | 'apply') => {
-    if (!workspace) return
-    setPulseMode(mode)
-    api.updatePulseSettings(workspace.id, mode).catch((e) => {
-      setPulseMode(mode === 'apply' ? 'suggest' : 'apply')
-      report(e)
-    })
-  }
 
   const applyPulseAll = () =>
     pulseRun &&
@@ -556,8 +546,7 @@ export default function App() {
           pulseItems={pulseRun?.items || []}
           pulseRunning={pulseRunning}
           onRunPulse={runPulse}
-          pulseMode={pulseMode}
-          onPulseModeChange={changePulseMode}
+          onOpenPulseSettings={() => setPulseSettingsOpen(true)}
         />
 
         {/* Column 3: File Content Canvas */}
@@ -629,6 +618,14 @@ export default function App() {
         />
       )}
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {workspace && (
+        <PulseSettingsModal
+          isOpen={pulseSettingsOpen}
+          workspaceId={workspace.id}
+          onClose={() => setPulseSettingsOpen(false)}
+          onSaved={() => selectWorkspace(workspace)}
+        />
+      )}
     </div>
   )
 }

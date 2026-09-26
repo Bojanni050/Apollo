@@ -113,7 +113,15 @@ async def lifespan(app: FastAPI):
             "disabled" if not settings.auth_enabled else "enabled",
         )
     init_db()
-    yield
+    # Delphi Pulse background scheduler: runs scheduled scans for workspaces
+    # that opted in. Daemon thread, stopped on shutdown.
+    from app.services import pulse_scheduler
+
+    pulse_scheduler.start()
+    try:
+        yield
+    finally:
+        pulse_scheduler.stop()
 
 
 def create_app(config: Settings | None = None) -> FastAPI:

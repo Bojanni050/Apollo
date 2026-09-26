@@ -503,6 +503,24 @@ export interface PulseRun {
   items: PulseItem[]
 }
 
+export interface PulseSettings {
+  mode: 'suggest' | 'apply' | string
+  schedule_enabled: boolean
+  schedule_kind: 'interval' | 'weekly' | string
+  interval_hours: number
+  weekly_day: number
+  weekly_hour: number
+}
+
+export interface PulseSettingsUpdatePayload {
+  mode: 'suggest' | 'apply'
+  schedule_enabled: boolean
+  schedule_kind: 'interval' | 'weekly'
+  interval_hours: number
+  weekly_day: number
+  weekly_hour: number
+}
+
 export interface GitStatus {
   repository_id: number
   repository: string
@@ -639,13 +657,13 @@ export const api = {
       `/workspaces/${workspaceId}/inventory/runs/${runId}/items/${itemId}/skip`,
       { method: 'POST' },
     ),
-  // -- AI Pulse --------------------------------------------------------------
+  // -- Delphi Pulse -----------------------------------------------------------
   getPulseSettings: (workspaceId: number) =>
-    request<{ mode: string }>(`/workspaces/${workspaceId}/pulse/settings`),
-  updatePulseSettings: (workspaceId: number, mode: 'suggest' | 'apply') =>
-    request<{ mode: string }>(`/workspaces/${workspaceId}/pulse/settings`, {
+    request<PulseSettings>(`/workspaces/${workspaceId}/pulse/settings`),
+  updatePulseSettings: (workspaceId: number, payload: PulseSettingsUpdatePayload) =>
+    request<PulseSettings>(`/workspaces/${workspaceId}/pulse/settings`, {
       method: 'PUT',
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify(payload),
     }),
   createPulseRun: (workspaceId: number) =>
     request<PulseRun>(`/workspaces/${workspaceId}/pulse/runs`, {

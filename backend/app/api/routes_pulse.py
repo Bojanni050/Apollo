@@ -50,10 +50,18 @@ def _get_run(db: Session, workspace_id: int, run_id: int) -> PulseRun:
 
 
 def _get_settings(db: Session, workspace_id: int) -> WorkspacePulseSettings:
-    """The workspace's Pulse settings row, created on first use."""
+    """The workspace's Delphi Pulse settings row, created on first use."""
     row = db.get(WorkspacePulseSettings, workspace_id)
     if row is None:
-        row = WorkspacePulseSettings(workspace_id=workspace_id, mode="suggest")
+        row = WorkspacePulseSettings(
+            workspace_id=workspace_id,
+            mode="suggest",
+            schedule_enabled=False,
+            schedule_kind="interval",
+            interval_hours=1,
+            weekly_day=0,
+            weekly_hour=0,
+        )
         db.add(row)
         db.flush()
     return row
@@ -67,7 +75,7 @@ def _get_settings(db: Session, workspace_id: int) -> WorkspacePulseSettings:
 @router.get("/pulse/settings", response_model=PulseSettingsOut)
 def get_pulse_settings(workspace_id: int, db: Session = Depends(get_db)) -> PulseSettingsOut:
     get_workspace(db, workspace_id)
-    return PulseSettingsOut(mode=_get_settings(db, workspace_id).mode)
+    return PulseSettingsOut.model_validate(_get_settings(db, workspace_id))
 
 
 @router.put("/pulse/settings", response_model=PulseSettingsOut)
@@ -76,12 +84,23 @@ def update_pulse_settings(
     payload: PulseSettingsUpdate,
     db: Session = Depends(get_db),
 ) -> PulseSettingsOut:
-    """Choose between suggestions-to-approve and auto-apply for this workspace."""
+    """Update the mode and/or the automatic scan schedule.
+
+    Pydantic already bounds the values (hours 1-24, weekday 0-6, hour 0-23);
+    this endpoint only persists them. The scheduler picks the new values up
+    on its next check, typically within a minute.
+    """
     get_workspace(db, workspace_id)
     row = _get_settings(db, workspace_id)
     row.mode = payload.mode
+    row.schedule_enabled = payload.schedule_enabled
+    row.schedule_kind = payload.schedule_kind
+    row.interval_hours = payload.interval_hours
+    row.weekly_day = payload.weekly_day
+    row.weekly_hour = payload.weekly_hour
     db.commit()
-    return PulseSettingsOut(mode=row.mode)
+    db.refresh(row)
+    return PulseSettingsOut.model_validate(row)
 
 
 # --------------------------------------------------------------------------

@@ -33,7 +33,7 @@ export function FileContentColumn({
 
   const demoBody = `While Steph Ango advocates for 'file-over-app' to ensure long-term ownership, the 'object-based' nature of Capacities introduces a dependency on complex metadata that raw files often struggle to replicate. This creates a friction point between the desire for digital permanence and the need for high-context organization.
 
-— Woven from AI Pulse on Jul 5, 2026
+— Woven from Delphi Pulse on Jul 5, 2026
 
 ### Sources
 - **Steph Ango** (person) — Founder of Obsidian

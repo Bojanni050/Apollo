@@ -583,9 +583,23 @@ class PulseItem(Base):
 
 
 class WorkspacePulseSettings(TimestampMixin, Base):
-    """Per-workspace Pulse configuration: suggest or auto-apply."""
+    """Per-workspace Delphi Pulse configuration.
+
+    ``mode`` chooses between suggestions-to-approve and auto-apply. The
+    ``schedule_*`` / ``interval_hours`` / ``weekly_*`` columns define when the
+    background scheduler runs a scan for this workspace: every N hours
+    (1-24), or once a week on a chosen weekday at a chosen hour. ``last_run_at``
+    is when the scheduler last ran (or attempted) a scan, so the schedule
+    survives a restart without re-running immediately.
+    """
 
     __tablename__ = "workspace_pulse_settings"
+    __table_args__ = (
+        _check("mode", PULSE_MODES, "ck_workspace_pulse_settings_mode"),
+        _check(
+            "schedule_kind", ("interval", "weekly"), "ck_workspace_pulse_settings_kind"
+        ),
+    )
 
     workspace_id: Mapped[int] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
@@ -594,8 +608,29 @@ class WorkspacePulseSettings(TimestampMixin, Base):
     mode: Mapped[str] = mapped_column(
         String(20), default="suggest", server_default="suggest", nullable=False
     )
-    # Whether connections should also link *back* from the target document
-    # when applied. Simple and predictable for now: always true.
+    # Whether the background scheduler runs scans for this workspace.
+    schedule_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    # "interval" (every N hours) or "weekly" (weekday + hour).
+    schedule_kind: Mapped[str] = mapped_column(
+        String(20), default="interval", server_default="interval", nullable=False
+    )
+    # 1-24 hours; only meaningful for schedule_kind='interval'.
+    interval_hours: Mapped[int] = mapped_column(
+        nullable=False, default=1, server_default=text("1")
+    )
+    # 0=Monday .. 6=Sunday; only meaningful for schedule_kind='weekly'.
+    weekly_day: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default=text("0")
+    )
+    # 0-23; only meaningful for schedule_kind='weekly'.
+    weekly_hour: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default=text("0")
+    )
+    # When the scheduler last ran a scan, so restarts do not re-run a slot.
+    last_run_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+
     workspace: Mapped[Workspace] = relationship()
 
 

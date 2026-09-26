@@ -34,8 +34,7 @@ interface Props {
   pulseItems: PulseItem[]
   pulseRunning?: boolean
   onRunPulse?: () => void
-  pulseMode?: 'suggest' | 'apply'
-  onPulseModeChange?: (mode: 'suggest' | 'apply') => void
+  onOpenPulseSettings?: () => void
 }
 
 function flattenDocs(node: DocNode | null): DocNode[] {
@@ -69,8 +68,7 @@ export function FolderContentsColumn({
   pulseItems,
   pulseRunning = false,
   onRunPulse,
-  pulseMode,
-  onPulseModeChange,
+  onOpenPulseSettings,
 }: Props) {
   // Convert current items into standard ItemCard format
   const items = useMemo<ItemCard[]>(() => {
@@ -195,7 +193,7 @@ export function FolderContentsColumn({
       case 'repos':
         return 'Repositories'
       case 'pulse':
-        return 'Pulse-woven'
+        return 'Delphi Pulse'
       default:
         return 'Objects'
     }
@@ -214,24 +212,16 @@ export function FolderContentsColumn({
 
         {activeSection === 'pulse' ? (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {onPulseModeChange && (
-              <label
-                style={{
-                  display: 'flex',
-                  gap: 4,
-                  alignItems: 'center',
-                  fontSize: 11,
-                  opacity: 0.8,
-                  cursor: 'pointer',
-                }}
+            {onOpenPulseSettings && (
+              <button
+                type="button"
+                className="btn"
+                style={{ fontSize: 11, padding: '2px 8px' }}
+                onClick={onOpenPulseSettings}
+                title="Delphi Pulse settings: mode and automatic scanning"
               >
-                <input
-                  type="checkbox"
-                  checked={pulseMode === 'apply'}
-                  onChange={(e) => onPulseModeChange(e.target.checked ? 'apply' : 'suggest')}
-                />
-                auto-apply
-              </label>
+                ⚙
+              </button>
             )}
             <button
               type="button"

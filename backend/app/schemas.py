@@ -511,13 +511,25 @@ class PulseDecideOut(BaseModel):
 
 
 class PulseSettingsOut(BaseModel):
-    """The workspace's Pulse mode: suggestions to approve, or auto-apply."""
+    """The workspace's Delphi Pulse configuration: mode and schedule."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     mode: str  # suggest | apply
+    schedule_enabled: bool = False
+    schedule_kind: str = "interval"  # interval | weekly
+    interval_hours: int = 1
+    weekly_day: int = 0
+    weekly_hour: int = 0
 
 
 class PulseSettingsUpdate(BaseModel):
     mode: str = Field(pattern="^(suggest|apply)$")
+    schedule_enabled: bool = False
+    schedule_kind: str = Field(default="interval", pattern="^(interval|weekly)$")
+    interval_hours: int = Field(default=1, ge=1, le=24)
+    weekly_day: int = Field(default=0, ge=0, le=6)
+    weekly_hour: int = Field(default=0, ge=0, le=23)
 
 
 # --------------------------------------------------------------------------

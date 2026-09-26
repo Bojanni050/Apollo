@@ -1,4 +1,4 @@
-"""Tests for AI Pulse.
+"""Tests for Delphi Pulse.
 
 The central properties:
 
@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.llm.base import LLMResponse
+from app.models import WorkspacePulseSettings
 from app.services.pulse import (
     _hash_document,
     _parse_response,
@@ -248,19 +249,66 @@ def test_pulse_settings_roundtrip(client: TestClient, workspace: dict) -> None:
     ws = workspace["id"]
     default = client.get(f"/api/workspaces/{ws}/pulse/settings")
     assert default.status_code == 200
-    assert default.json()["mode"] == "suggest"
+    body = default.json()
+    assert body["mode"] == "suggest"
+    assert body["schedule_enabled"] is False
+    assert body["schedule_kind"] == "interval"
+    assert body["interval_hours"] == 1
 
-    changed = client.put(f"/api/workspaces/{ws}/pulse/settings", json={"mode": "apply"})
+    changed = client.put(
+        f"/api/workspaces/{ws}/pulse/settings",
+        json={
+            "mode": "apply",
+            "schedule_enabled": True,
+            "schedule_kind": "interval",
+            "interval_hours": 6,
+        },
+    )
     assert changed.status_code == 200
     assert changed.json()["mode"] == "apply"
+    assert changed.json()["schedule_enabled"] is True
+    assert changed.json()["interval_hours"] == 6
 
     reread = client.get(f"/api/workspaces/{ws}/pulse/settings")
-    assert reread.json()["mode"] == "apply"
+    assert reread.json()["interval_hours"] == 6
+
+    weekly = client.put(
+        f"/api/workspaces/{ws}/pulse/settings",
+        json={
+            "mode": "suggest",
+            "schedule_enabled": True,
+            "schedule_kind": "weekly",
+            "weekly_day": 4,
+            "weekly_hour": 9,
+        },
+    )
+    assert weekly.status_code == 200
+    assert weekly.json()["schedule_kind"] == "weekly"
+    assert weekly.json()["weekly_day"] == 4
+    assert weekly.json()["weekly_hour"] == 9
 
 
 def test_pulse_settings_rejects_unknown_mode(client: TestClient, workspace: dict) -> None:
     ws = workspace["id"]
     response = client.put(f"/api/workspaces/{ws}/pulse/settings", json={"mode": "auto"})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"mode": "suggest", "interval_hours": 0},
+        {"mode": "suggest", "interval_hours": 25},
+        {"mode": "suggest", "schedule_kind": "daily"},
+        {"mode": "suggest", "schedule_kind": "weekly", "weekly_day": 7},
+        {"mode": "suggest", "schedule_kind": "weekly", "weekly_hour": 24},
+    ],
+)
+def test_pulse_settings_rejects_out_of_range_schedule(
+    client: TestClient, workspace: dict, payload: dict
+) -> None:
+    ws = workspace["id"]
+    response = client.put(f"/api/workspaces/{ws}/pulse/settings", json=payload)
     assert response.status_code == 422
 
 
@@ -343,3 +391,30 @@ def test_apply_mode_setting_drives_run(
     assert run["items"][0]["decision"] == "applied"
     content = (doc_repo / "notes.md").read_text(encoding="utf-8")
     assert "pulse-tags:" in content
+
+
+# --------------------------------------------------------------------------
+# Scheduler
+# --------------------------------------------------------------------------
+
+
+def test_scheduler_due_logic() -> None:
+    """The pure slot logic, exercised directly (see test_pulse_scheduler.py
+    for the same cases; kept here as a fast smoke check)."""
+    import datetime as dt
+
+    from app.services.pulse_scheduler import due
+
+    now = dt.datetime(2026, 10, 5, 9, 30, tzinfo=dt.timezone.utc)  # Monday
+    s = WorkspacePulseSettings(
+        workspace_id=1,
+        mode="suggest",
+        schedule_enabled=True,
+        schedule_kind="interval",
+        interval_hours=6,
+    )
+    assert due(s, now)
+    s.last_run_at = now - dt.timedelta(hours=2)
+    assert not due(s, now)
+    s.last_run_at = now - dt.timedelta(hours=7)
+    assert due(s, now)

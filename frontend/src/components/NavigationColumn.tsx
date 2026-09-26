@@ -218,7 +218,7 @@ export function NavigationColumn({
             >
               <span className="nav-item-left">
                 <span className="nav-item-glyph">💡</span>
-                <span>Pulse-woven</span>
+                <span>Delphi Pulse</span>
               </span>
               <span className="nav-item-count">{counts.pulseWoven || 1}</span>
             </button>
@@ -235,7 +235,7 @@ export function NavigationColumn({
         >
           <span className="ai-pulse-left">
             <span className="ai-pulse-glyph">✦</span>
-            <span>AI Pulse</span>
+            <span>Delphi Pulse</span>
           </span>
           <span className="ai-pulse-badge">*new</span>
         </button>
