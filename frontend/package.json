@@ -16,6 +16,7 @@
     "smoke:settings": "node scripts/smoke-settings-save.mjs",
     "smoke:settings-ui": "node scripts/smoke-settings-dialog.mjs",
     "smoke:pulse": "node scripts/smoke-pulse-parts.mjs",
+    "shot:pulse-accepted": "node scripts/shot-pulse-accepted.mjs",
     "smoke:desktop": "node scripts/smoke-desktop.mjs"
   },
   "dependencies": {

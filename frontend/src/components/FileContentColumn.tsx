@@ -235,26 +235,35 @@ export function FileContentColumn({
                           </span>
                         ))}
                       </div>
-                      {!pulseTagsDone && (
-                        <div className="pulse-review-actions">
-                          <button
-                            type="button"
-                            className="btn small primary"
-                            onClick={() => onApplyPulsePart(pulseItem.id, ['tags'])}
-                            disabled={busy}
-                          >
-                            Accept tags
-                          </button>
-                          <button
-                            type="button"
-                            className="btn small"
-                            onClick={() => onSkipPulseItem(pulseItem.id)}
-                            disabled={busy}
-                          >
-                            Decline
-                          </button>
-                        </div>
-                      )}
+                      {/* Once a half is in, the button is replaced by a quiet
+                          record of the click rather than removed. Keeping it in
+                          place means the reader can see what happened without
+                          re-reading; a disabled button would still invite a
+                          second click that the server answers with a 409. */}
+                      <div className="pulse-review-actions">
+                        {pulseTagsDone ? (
+                          <span className="pulse-accepted">Tags accepted</span>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="btn small primary"
+                              onClick={() => onApplyPulsePart(pulseItem.id, ['tags'])}
+                              disabled={busy}
+                            >
+                              Accept tags
+                            </button>
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => onSkipPulseItem(pulseItem.id)}
+                              disabled={busy}
+                            >
+                              Decline
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
@@ -283,53 +292,81 @@ export function FileContentColumn({
                           </li>
                         ))}
                       </ul>
-                      {!pulseConnsDone && (
-                        <div className="pulse-review-actions">
-                          <button
-                            type="button"
-                            className="btn small primary"
-                            onClick={() => onApplyPulsePart(pulseItem.id, ['connections'])}
-                            disabled={busy}
-                          >
-                            Accept connections
-                          </button>
-                          <button
-                            type="button"
-                            className="btn small"
-                            onClick={() => onSkipPulseItem(pulseItem.id)}
-                            disabled={busy}
-                          >
-                            Decline
-                          </button>
-                        </div>
-                      )}
+                      <div className="pulse-review-actions">
+                        {pulseConnsDone ? (
+                          <span className="pulse-accepted">
+                            Connections accepted
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="btn small primary"
+                              onClick={() => onApplyPulsePart(pulseItem.id, ['connections'])}
+                              disabled={busy}
+                            >
+                              Accept connections
+                            </button>
+                            <button
+                              type="button"
+                              className="btn small"
+                              onClick={() => onSkipPulseItem(pulseItem.id)}
+                              disabled={busy}
+                            >
+                              Decline
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
 
-                {/* Both halves still open: the one-click route. */}
-                {pulseItem.decision === 'pending' &&
-                  !pulseTagsDone &&
-                  !pulseConnsDone &&
+                {/* The one-click route. Shown whenever the item is not closed,
+                    so that after accepting it turns gold in place instead of
+                    disappearing under the reader's cursor. */}
+                {pulseItem.decision !== 'skipped' &&
                   (pulseItem.tags.length > 0 || pulseItem.connections.length > 0) && (
                     <div className="pulse-review-actions both">
-                      <button
-                        type="button"
-                        className="btn small"
-                        onClick={() => onApplyPulsePart(pulseItem.id, ['tags', 'connections'])}
-                        disabled={busy}
-                      >
-                        Accept both
-                      </button>
+                      {pulseTagsDone && pulseConnsDone ? (
+                        <span className="pulse-accepted">
+                          All suggestions accepted
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn small"
+                          onClick={() => onApplyPulsePart(pulseItem.id, ['tags', 'connections'])}
+                          disabled={busy}
+                        >
+                          Accept both
+                        </button>
+                      )}
                     </div>
                   )}
               </div>
 
+              {/* A closed item. Wording depends on how far it got: a suggestion
+                  with no connections at all is finished once its tags are in, so
+                  calling that "still pending" was wrong, and declining the second
+                  half after accepting the first must not claim nothing was
+                  written. */}
               {pulseItem.decision !== 'pending' && (
                 <p className="pulse-review-closed">
-                  {pulseItem.decision === 'applied'
-                    ? 'This suggestion was applied to the document.'
-                    : 'This suggestion was declined. The file was left untouched.'}
+                  {pulseItem.decision === 'applied' ? (
+                    'This suggestion was applied to the document.'
+                  ) : (
+                    <>
+                      {pulseTagsDone || pulseConnsDone ? (
+                        <>Declined the rest. </>
+                      ) : (
+                        <>Declined. </>
+                      )}
+                      {pulseTagsDone || pulseConnsDone
+                        ? 'The accepted part is already in the document; nothing further was written.'
+                        : 'The file was left untouched.'}
+                    </>
+                  )}
                 </p>
               )}
             </section>

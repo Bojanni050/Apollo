@@ -72,6 +72,13 @@
   --pill-bg: #F4F4F5;
   --pill-fg: #52525B;
 
+  /* Delphi Pulse: a settled suggestion. Gold says "this was taken in" without
+     shouting, and is a different colour from --ok (green, used for a plain
+     success badge) so a faded accept does not read as a second green badge. */
+  --pulse-gold-fg: #8A6D2F;
+  --pulse-gold-bg: #FBF3DF;
+  --pulse-gold-border: #E4D2A4;
+
   /* Control borders (inputs, selects) sit darker than --border so a form is
      legible without a strong focus ring. */
   --border-strong: #D4D4D8;
@@ -189,6 +196,14 @@
 
   --pill-bg: #1E1C16;
   --pill-fg: #B3AEA0;
+
+  /* Calm Mode is warm and dark, so the settled-suggestion gold has to be LIGHTER
+     than the surface, not darker: a #8A6D2F on a near-black panel is unreadable.
+     This is the same warm gold as --warn, tuned for use as a border and a text
+     colour on a dark background. */
+  --pulse-gold-fg: #DCBE88;
+  --pulse-gold-bg: #2A2317;
+  --pulse-gold-border: #4A3D24;
 
   --text-inverse: #E9E7E0;  /* ink-100, NOT #FFF: pure white on a dark
                                surface is the harshest pairing there is */
@@ -1171,11 +1186,6 @@ input:focus, textarea:focus, select:focus {
   color: var(--text-muted);
 }
 
-.pulse-review-group-state.done {
-  color: var(--ok);
-  border-color: var(--ok);
-}
-
 .pulse-review-none {
   margin: 0;
   font-size: 12px;
@@ -1259,6 +1269,94 @@ input:focus, textarea:focus, select:focus {
 .pulse-review-actions.both {
   border-top: 1px solid var(--border);
   padding-top: 12px;
+}
+
+/* A half that has been taken in.
+   The button does not vanish: it stays exactly where the reader just clicked,
+   loses its button affordance and takes a quiet gold, so the panel shows what
+   was accepted without the reader having to remember it. It is a <span>, not a
+   disabled <button>, because a disabled control still looks pressable and
+   still takes focus -- "already done" is a fact, not an unavailable option.
+
+   The colour is theme variables rather than a literal, because the light value
+   is unreadable on Calm Mode's near-black surface and vice versa. */
+.pulse-accepted {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  color: var(--pulse-gold-fg);
+  background: var(--pulse-gold-bg);
+  border: 1px solid var(--pulse-gold-border);
+  user-select: none;
+}
+
+/* A tick rather than a bare word, so the state is recognisable without having to
+   read the label. */
+.pulse-accepted::before {
+  content: "\2713";
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* The Pulse run block in the context sidebar. It counts and navigates; the
+   decision itself is made in the reading pane. */
+.pulse-run-summary {
+  margin-top: 20px;
+}
+
+.pulse-run-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 8px;
+}
+
+.pulse-run-count strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pulse-run-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-nav);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.pulse-run-item:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-file);
+}
+
+.pulse-run-item-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.pulse-run-item-tags {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* The plain "accepted" pill in a group header predates the gold button and stays
+   green: it is a status label, not the remnant of a click. */
+.pulse-review-group-state.done {
+  color: var(--ok);
+  border-color: var(--ok);
 }
 
 .pulse-review-closed {

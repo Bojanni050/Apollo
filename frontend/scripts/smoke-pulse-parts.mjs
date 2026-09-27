@@ -19,29 +19,53 @@ page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
 await page.goto(URL, { waitUntil: 'networkidle' })
 await page.waitForTimeout(2000)
 
-// --- The sidebar no longer offers Apply on a decided item ------------------
-// The buttons used to stay clickable and a second click only produced a 409.
-const sidebar = await page.evaluate(() => {
-  const items = [...document.querySelectorAll('.context-inventory-item')]
-  return items.map((el) => {
-    const status = el.querySelector('.item-status')?.textContent?.trim() ?? ''
-    return {
-      status,
-      buttons: [...el.querySelectorAll('button')].map((b) => b.textContent.trim()),
-    }
-  })
-})
-console.log('sidebar pulse items:', sidebar)
-for (const item of sidebar) {
-  const decided = /^(applied|skipped)$/i.test(item.status)
-  if (decided && item.buttons.includes('Apply')) {
-    throw new Error(
-      `a decided pulse item still shows an Apply button (status "${item.status}")`,
-    )
+// --- One vocabulary, and the sidebar no longer decides ----------------------
+// The context sidebar used to carry its own Apply/Skip buttons for every
+// suggestion, so the same decision existed in two places under two names. It now
+// only counts and navigates, and the reading pane decides with "Accept".
+//
+// Checked by name across the whole surface rather than per component: a leftover
+// "Apply" here is exactly the inconsistency the change was for, and it would not
+// show up in any single component's own test.
+const vocabulary = await page.evaluate(() => {
+  const body = document.body.innerText
+  return {
+    applyAll: /apply all suggestions/i.test(body),
+    sidebarItems: document.querySelectorAll('.context-inventory-item').length,
+    runSummary: document.querySelectorAll('.pulse-run-summary').length,
+    runItems: document.querySelectorAll('.pulse-run-item').length,
   }
+})
+console.log('pulse vocabulary:', vocabulary)
+if (vocabulary.applyAll) {
+  throw new Error('the old "Apply All Suggestions" wording is still on screen')
+}
+if (vocabulary.runSummary > 0 && vocabulary.sidebarItems > 0) {
+  throw new Error(
+    'the sidebar still renders per-item pulse blocks next to the new run summary',
+  )
 }
 
 // --- The reading pane renders the review panel ----------------------------
+// A workspace can be named on the command line. The default run refuses to
+// write (the documents in it are untracked, which the guarded write path
+// rejects on purpose), and the fade cannot be observed against a write that
+// never happens -- so a workspace with a committed document is worth passing.
+const workspaceName = process.env.SMOKE_WORKSPACE
+if (workspaceName) {
+  await page.locator('.nav-user-info').first().click()
+  await page.waitForTimeout(400)
+  const target = page.locator('.popup-menu-item', { hasText: workspaceName }).first()
+  if (await target.count()) {
+    await target.click()
+    await page.waitForTimeout(1800)
+    console.log('switched workspace to:', workspaceName)
+  } else {
+    console.log(`note: workspace "${workspaceName}" not found; staying put`)
+    await page.keyboard.press('Escape')
+  }
+}
+
 const pulseNav = page.locator('.nav-item', { hasText: /Delphi Pulse/i }).first()
 if (!(await pulseNav.count())) {
   console.log('note: no Delphi Pulse entry in the navigation, skipping the pane check')
@@ -113,6 +137,59 @@ if (!(await pulseNav.count())) {
       const divider = await page.locator('.pulse-document-divider').count()
       if (divider !== 1) {
         throw new Error('the divider between the panel and the document is missing')
+      }
+
+      // --- An accepted half fades to gold instead of vanishing -------------
+      // The button used to disappear the moment it was clicked, which left no
+      // trace of the click and put the next button under the cursor. Now it
+      // stays put as a non-interactive record.
+      //
+      // This really writes to the repository, so it can only pass against a
+      // document the guarded write path will accept. A fixture document that is
+      // not committed is refused with a 409 on purpose -- the original would not
+      // be preserved through Git -- and that is reported as a skip rather than
+      // hidden, because "no gold record" then has a known cause instead of
+      // looking like a broken button.
+      const tagBtn = page
+        .locator('.pulse-review-actions button', { hasText: /^\s*accept tags\s*$/i })
+        .first()
+      if (await tagBtn.count()) {
+        const goldBefore = await page.locator('.pulse-accepted').count()
+        await tagBtn.click()
+        await page.waitForTimeout(1200)
+
+        const goldAfter = await page.locator('.pulse-accepted').count()
+        console.log('gold records before / after accept:', goldBefore, goldAfter)
+        if (goldAfter <= goldBefore) {
+          // A refusal leaves the panel untouched, which is the one outcome that
+          // is not a UI defect. Anything else that adds no gold record is.
+          const alert = await page
+            .locator('[role="alert"], .error, .banner-error')
+            .first()
+            .textContent()
+            .catch(() => null)
+          console.log('accept did not settle; on-screen message:', alert)
+          if (!/untracked|preserved through git|commit/i.test(alert ?? '')) {
+            throw new Error(
+              'accepting tags left no gold "accepted" record where the button was',
+            )
+          }
+          console.log('note: the write was refused (document not committed); fade not exercised')
+        } else {
+          // The record is a span, not a disabled button: a disabled control still
+          // looks pressable and would invite a second click that answers 409.
+          const stillClickable = await page.evaluate(() =>
+            [...document.querySelectorAll('.pulse-accepted')].some((el) =>
+              el.matches('button, a, [role="button"]'),
+            ),
+          )
+          if (stillClickable) {
+            throw new Error('the accepted record is still an interactive control')
+          }
+          await page.screenshot({ path: 'screenshots/pulse-accepted.png' })
+        }
+      } else {
+        console.log('note: no pending tags to accept, the fade was not exercised')
       }
       // The panel must sit above the document, not replace it.
       const order = await page.evaluate(() => {

@@ -33,9 +33,9 @@ interface Props {
   onApplyInventoryItem: (id: number) => void
   onSkipInventoryItem: (id: number) => void
   pulseRun: PulseRun | null
-  onApplyPulseAll: () => void
-  onApplyPulseItem: (id: number) => void
-  onSkipPulseItem: (id: number) => void
+  onAcceptPulseAll: () => void
+  /** Open the document a suggestion is about, so the reader can judge it there. */
+  onOpenPulseItem: (filePath: string) => void
 }
 
 type Tab = 'related' | 'chat' | 'proposals'
@@ -61,9 +61,8 @@ export function ContextSidebar({
   onApplyInventoryItem,
   onSkipInventoryItem,
   pulseRun,
-  onApplyPulseAll,
-  onApplyPulseItem,
-  onSkipPulseItem,
+  onAcceptPulseAll,
+  onOpenPulseItem,
 }: Props) {
   const [tab, setTab] = useState<Tab>('related')
   const [chatInput, setChatInput] = useState('')
@@ -319,81 +318,70 @@ export function ContextSidebar({
                 ))}
               </div>
             )}
-            {pulseRun && (
-              <div style={{ marginTop: 20 }}>
-                <div className="context-section-label">AI PULSE RUN #{pulseRun.id}</div>
-                {pulseRun.summary && (
-                  <div className="item-status" style={{ margin: '6px 0 8px' }}>
-                    {pulseRun.summary}
+            {pulseRun && (() => {
+              /* The per-suggestion decision lives in the reading pane, above the
+                 document it is about. This block used to offer its own Apply and
+                 Skip per line, which meant two places to decide the same thing
+                 under two different names ("Apply" here, "Accept" there), and a
+                 half-accepted item that this list could only show as "pending".
+                 So it no longer decides: it counts, and it navigates. */
+              const pending = pulseRun.items.filter((it) => it.decision === 'pending')
+              const settled = pulseRun.items.length - pending.length
+              return (
+                <div className="pulse-run-summary">
+                  <div className="context-section-label">
+                    AI PULSE RUN #{pulseRun.id}
                   </div>
-                )}
-                {pulseRun.mode === 'suggest' &&
-                  pulseRun.items.some((it) => it.decision === 'pending') && (
-                    <div style={{ display: 'flex', gap: 6, margin: '8px 0 12px' }}>
-                      <button
-                        type="button"
-                        className="proposal-btn accept"
-                        onClick={onApplyPulseAll}
-                        disabled={busy}
-                      >
-                        Apply All Suggestions
-                      </button>
+                  {pulseRun.summary && (
+                    <div className="item-status" style={{ margin: '6px 0 8px' }}>
+                      {pulseRun.summary}
                     </div>
                   )}
-                {pulseRun.items.map((it) => {
-                  const done = it.decision === 'applied'
-                  const gone = it.decision === 'skipped'
-                  return (
-                    <div key={it.id} className="context-inventory-item">
-                      <div className="item-name">{it.file_path}</div>
-                      {it.tags.length > 0 && (
-                        <div className="item-status">
-                          tags: {it.tags.join(', ')}
-                        </div>
-                      )}
-                      {it.connections.map((c, idx) => (
-                        <div key={idx} className="item-status">
-                          {c.relation} → {c.path}
-                          {c.why ? ` (${c.why})` : ''}
-                        </div>
-                      ))}
-                      {/* No buttons once decided. They used to stay clickable
-                          and the only outcome of a second click was a 409, so
-                          the buttons implied a choice that was no longer
-                          available. */}
-                      {it.decision === 'pending' && (
-                        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                          <button
-                            type="button"
-                            className="btn text-sm"
-                            style={{ fontSize: 11, padding: '2px 6px' }}
-                            onClick={() => onApplyPulseItem(it.id)}
-                            disabled={busy}
-                          >
-                            Apply
-                          </button>
-                          <button
-                            type="button"
-                            className="btn text-sm"
-                            style={{ fontSize: 11, padding: '2px 6px' }}
-                            onClick={() => onSkipPulseItem(it.id)}
-                            disabled={busy}
-                          >
-                            Skip
-                          </button>
-                        </div>
-                      )}
-                      {done && (
-                        <div className="item-status">Applied — the file was written.</div>
-                      )}
-                      {gone && (
-                        <div className="item-status">Skipped — the file was left untouched.</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+                  <div className="pulse-run-count">
+                    {pending.length === 0 ? (
+                      <>All {pulseRun.items.length} settled.</>
+                    ) : (
+                      <>
+                        <strong>{pending.length}</strong> to review
+                        {settled > 0 && <> · {settled} settled</>}
+                      </>
+                    )}
+                  </div>
+                  {pending.length > 0 && (
+                    <button
+                      type="button"
+                      className="proposal-btn accept"
+                      onClick={onAcceptPulseAll}
+                      disabled={busy}
+                    >
+                      Accept all remaining
+                    </button>
+                  )}
+                  {pulseRun.items
+                    .filter((it) => it.decision === 'pending')
+                    .map((it) => (
+                      <button
+                        key={it.id}
+                        type="button"
+                        className="pulse-run-item"
+                        onClick={() => onOpenPulseItem(it.file_path)}
+                        title="Open this document to review the suggestion"
+                      >
+                        <span className="pulse-run-item-name">{it.file_path}</span>
+                        {it.tags.length > 0 && (
+                          <span className="pulse-run-item-tags">
+                            {it.tags.length} tag{it.tags.length === 1 ? '' : 's'}
+                            {it.connections.length > 0 &&
+                              ` · ${it.connections.length} connection${
+                                it.connections.length === 1 ? '' : 's'
+                              }`}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>

@@ -49,17 +49,84 @@ else {
 Write-Host ""
 
 # --- 2. Rust toolchain --------------------------------------------------------
-# `tauri build` compiles the Rust shell; without cargo it fails with a wall
-# of linker errors or a plain "'cargo' is not recognized". Better to say what
+# `tauri build` compiles the Rust shell; without a working cargo it fails with a
+# wall of linker errors or a plain "'cargo' is not recognized". Better to say what
 # is missing and how to get it.
-if (-not (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
+#
+# The check has to PROVE cargo runs, not merely that the file exists. A machine
+# can have a perfectly good Rust install that an application control policy (here
+# Device Guard) refuses to execute. `Get-Command` resolves the path happily and
+# reports success, so a presence-only check passes and the very next line dies
+# with a raw Device Guard message that says nothing about what to do next.
+#
+# Two failures, two different remedies, so they are told apart:
+#   * no cargo on PATH at all  -> install Rust;
+#   * cargo present but blocked -> ask IT to allow it, installing more of the
+#     same toolchain will not help.
+$cargo = Get-Command "cargo" -ErrorAction SilentlyContinue
+if (-not $cargo) {
     Stop-WithError "Rust is not installed, so the desktop app cannot be compiled." -Hint @(
         "Install it from https://rustup.rs/ (MSVC host toolchain),",
         "plus the 'Desktop development with C++' workload from Visual Studio",
         "Build Tools. Then re-open the terminal and run this again."
     )
 }
-Write-Ok "Rust $((& cargo --version)) found."
+
+# Run it and see what happens, and read the failure from cmd rather than from
+# PowerShell. Two reasons:
+#
+#   * $ErrorActionPreference is 'Stop' here, so a blocked executable arrives as a
+#     terminating error whose message is PowerShell's own wording -- which is
+#     localised ("... geblokkeerd door een beleid voor toepassingsbeheer"). cmd
+#     reports the same condition in the OS's own words, so the text can be
+#     matched on substance instead of on one language.
+#   * that error message also carries the source line and a stack trace, which
+#     would end up quoted verbatim in the hint and bury the advice.
+$blockedBy = $null
+$cargoVersion = $null
+try {
+    $output = & cmd /c "`"$($cargo.Source)`" --version 2>&1"
+    $cargoExit = $LASTEXITCODE
+    $output = ($output | Out-String).Trim()
+    # Success is a line like "cargo 1.82.0"; anything else is a failure to run.
+    if ($cargoExit -eq 0 -and $output -match "cargo\s+\d") {
+        $cargoVersion = $output
+    }
+    else {
+        $blockedBy = if ($output) { $output } else { "cargo --version exited with code $cargoExit and printed nothing." }
+    }
+}
+catch {
+    $blockedBy = $_.Exception.Message
+}
+if (-not $cargoVersion) {
+    # Matched on substance, not wording: the OS message is localised, so the
+    # Dutch and English forms of the same condition are both listed.
+    $isPolicy = ($blockedBy -match "Device Guard|blocked by your organization|AppLocker|Application Control|toepassingsbeheer|geblokkeerd")
+    if ($isPolicy) {
+        Stop-WithError "Rust is installed, but Windows is blocking this machine from running it." -Hint @(
+            "cargo is present at $($cargo.Source) and on PATH, but",
+            "application control refuses to execute it:",
+            "  $blockedBy",
+            "",
+            "This is a policy on the machine, not a broken install, and it also",
+            "blocks rustc -- so the desktop app cannot be compiled here as it is.",
+            "Ask IT to allow the Rust toolchain (C:\Users\$env:USERNAME\.cargo\bin),",
+            "or run the release build on a machine without that restriction.",
+            "",
+            "Everything that does not need Rust -- the backend, the frontend",
+            "bundle, the dev server -- keeps working."
+        )
+    }
+    Stop-WithError "Rust is installed but cargo could not be run." -Hint @(
+        "cargo is present at $($cargo.Source) but failed:",
+        "  $blockedBy",
+        "",
+        "Check that the file is not blocked (Properties -> Unblock) and that it",
+        "still runs: cargo --version"
+    )
+}
+Write-Ok "Rust $cargoVersion found."
 
 # --- 3. Build ------------------------------------------------------------------
 $npm = Get-NpmPath

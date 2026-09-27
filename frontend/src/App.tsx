@@ -467,13 +467,16 @@ export default function App() {
       await refreshPulseRun(workspace.id, pulseRun.id)
     })
 
-  const applyPulseItem = (itemId: number) =>
-    pulseRun &&
-    workspace &&
-    withTreeRefresh(async () => {
-      await api.applyPulseItem(workspace.id, pulseRun.id, itemId)
-      await refreshPulseRun(workspace.id, pulseRun.id)
-    })
+  /* Opening a document from the Pulse run list in the context sidebar. The
+     list used to decide on the spot, which meant the same suggestion could be
+     accepted from two places under two different names. Now it only navigates,
+     and the reading pane above the document is where the choice is made. */
+  const openPulseItem = useCallback(
+    async (filePath: string) => {
+      await openDocument(filePath)
+    },
+    [openDocument],
+  )
 
   const applyPulsePart = (itemId: number, parts: PulseItemPart[]) =>
     pulseRun &&
@@ -703,9 +706,8 @@ export default function App() {
           onApplyInventoryItem={applyItem}
           onSkipInventoryItem={skipItem}
           pulseRun={pulseRun}
-          onApplyPulseAll={applyPulseAll}
-          onApplyPulseItem={applyPulseItem}
-          onSkipPulseItem={skipPulseItem}
+          onAcceptPulseAll={applyPulseAll}
+          onOpenPulseItem={openPulseItem}
         />
       </div>
 
