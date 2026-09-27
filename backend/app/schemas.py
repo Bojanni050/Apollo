@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -462,7 +462,6 @@ class PulseConnection(BaseModel):
 
 class PulseItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
     id: int
     file_path: str
     summary: str | None = None
@@ -470,6 +469,9 @@ class PulseItemOut(BaseModel):
     connections: list = Field(default_factory=list)
     confidence: float | None = None
     decision: str  # pending | applied | skipped
+    # Which halves are already in the document, so the client does not have to
+    # keep its own copy of a decision the server has to know about anyway.
+    applied_parts: list[Literal["tags", "connections"]] = Field(default_factory=list)
 
 
 class PulseRunOut(BaseModel):
@@ -494,6 +496,18 @@ class PulseRunRequest(BaseModel):
 
 class PulseApplyRequest(BaseModel):
     item_ids: list[int] = Field(default_factory=list)
+
+
+class PulsePartRequest(BaseModel):
+    """Which halves of a suggestion to write.
+
+    Tags and connections are separable because they are separable in judgement:
+    the tags are a fair description of a document, while the connections are
+    inferences that deserve their own review. An empty list means "both", so
+    the default request shape is unchanged.
+    """
+
+    parts: list[Literal["tags", "connections"]] = Field(default_factory=list)
 
 
 class PulseApplyOut(BaseModel):

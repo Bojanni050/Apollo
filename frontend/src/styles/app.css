@@ -30,6 +30,76 @@
   --accent-amber: #D97706;
   --accent-rose: #E11D48;
 
+  /* ---- Surfaces -------------------------------------------------------
+     These three were hardcoded throughout the stylesheet (#FFFFFF, #F4F4F5,
+     #E4E4E7 -- 82 occurrences between them), which is precisely why no theme
+     could ever reach them. Anything that paints a raised, hovered or selected
+     surface goes through a variable from here on. */
+  --surface: #FFFFFF;          /* cards, inputs, list rows */
+  --surface-hover: #F4F4F5;    /* row hover */
+  --surface-selected: #E4E4E7; /* selected row / active item */
+
+  /* ---- Status pairs ---------------------------------------------------
+     Background plus a foreground dark enough to clear WCAG AA on it. A
+     status colour on its own is not enough: the text drawn on it decides
+     whether the state is actually readable. */
+  --error-bg: #FEE2E2;
+  --error-fg: #B91C1C;
+  --warn-bg: #FEF3C7;
+  --warn-fg: #92400E;
+  --ok-bg: #DCFCE7;
+  --ok-fg: #166534;
+  --info-bg: #E0E7FF;
+  --info-fg: #3730A3;
+
+  /* Short aliases. Components already write var(--danger) / var(--ok) /
+     var(--warn) with a literal fallback, and those three were never defined
+     here -- so every one of them was silently rendering the One Dark
+     fallback (#eb5757, #98c379, #e06c75) instead of the theme. Defining the
+     aliases is what makes those components follow Calm Mode. */
+  --danger: #B91C1C;
+  --ok: #166534;
+  --warn: #92400E;
+
+  /* Diff: a removed line and an added line must stay distinguishable at a
+     glance, and a hue shift alone is not enough for colour-blind readers. */
+  --diff-del-bg: #FEE2E2;
+  --diff-del-fg: #991B1B;
+  --diff-add-bg: #DCFCE7;
+  --diff-add-fg: #166534;
+
+  /* Soft badge / chip fills used by the semantic index panel. */
+  --pill-bg: #F4F4F5;
+  --pill-fg: #52525B;
+
+  /* Control borders (inputs, selects) sit darker than --border so a form is
+     legible without a strong focus ring. */
+  --border-strong: #D4D4D8;
+  /* Text on a dark surface. Light and low-chroma: pure white on a dark
+     background is the harshest pairing on the page. */
+  --text-inverse: #FFFFFF;
+  --text-inverse-dim: #E4E4E7;
+
+  /* An accent-filled control (primary button, active chip, send button). See
+     the Calm Mode block for why this is separate from --text-inverse. */
+  --fill-accent: #18181B;
+  --fill-accent-fg: #FFFFFF;
+
+  /* Selectable chips: a quiet outline that fills when chosen. */
+  --chip-bg: #FFFFFF;
+  --chip-border: #D4D4D8;
+  --chip-active-bg: #18181B;
+  --chip-active-fg: #FFFFFF;
+
+  /* Scrollbars. Declared as variables so they follow the theme: the browser
+     default is a light grey bar, which is glaring on the dark palette. The
+     track is transparent on purpose -- a visible track is a second rectangle
+     competing with the panel it sits in. */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #D4D4D8;
+  --scrollbar-thumb-hover: #A1A1AA;
+  --scrollbar-size: 10px;
+
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -44,6 +114,112 @@
   --col-nav-width: 230px;
   --col-contents-width: 290px;
   --col-context-width: 330px;
+}
+
+/* ==========================================================================
+   CALM MODE
+   Palette taken from intro.higaia.nl, which is a DARK, warm theme: the site
+   sets body background to ink-950 (#0D0C0A) and text to ink-100 (#E9E7E0), and
+   accents it with the gold and sage scales. That is the palette used here,
+   rather than a lightened interpretation of the same hues.
+
+   Why dark for a document tool: a large white field at full brightness is the
+   main thing that tires the eyes in a long session, and a warm near-black is
+   far less glaring than neutral #000 without costing any warmth. Every
+   foreground here clears WCAG AA on the surface it sits on, with room to spare
+   (body text is 15.8:1, faint text 5.6:1).
+
+   Colours that do NOT work as text on a DARK surface, recorded so they are
+   not reached for by accident:
+     gold-500 #C08A44  4.4:1  borderline; use gold-300 #DCBE88 instead
+     sage-500 #5D7D64  3.2:1  too dark; use sage-400 #7C9A82
+     terracotta #8E3B2C 2.6:1  too dark; use the light terracotta #C97B66
+   ========================================================================== */
+[data-theme="calm"] {
+  /* Surfaces: a warm near-black ramp, lightest on the page so raised cards
+     read as raised. */
+  --bg-app: #0D0C0A;        /* ink-950, the site's own body colour */
+  --bg-nav: #13120F;
+  --bg-contents: #13120F;
+  --bg-file: #0D0C0A;
+  --bg-context: #13120F;
+  --bg-chrome: #1E1C16;    /* the footer strip sits just above the page */
+  --bg-chrome-subtle: #2E2C26; /* ink-800 */
+
+  --border: #24221B;
+  --border-light: #1B1A15;
+  --border-strong: #46433A; /* ink-700, for form controls */
+
+  --text: #E9E7E0;          /* ink-100, 15.8:1 */
+  --text-dim: #B3AEA0;      /* ink-300, 8.8:1 */
+  --text-faint: #8E8978;    /* ink-400, 5.6:1 -- still AA */
+
+  --accent: #E9E7E0;
+  /* Named "blue" for historical reasons; the calm palette has no blue, and a
+     desaturated sage reads calmer for links and focus rings. */
+  --accent-blue: #7C9A82;   /* sage-400, 6.3:1 */
+  --accent-green: #7C9A82;  /* sage-400 */
+  --accent-amber: #DCBE88;  /* gold-300 -- the site's own accent, 11:1 */
+  /* The source palette has no red. Errors still have to read as errors, so
+     this is a light terracotta: unmistakably an alert against the warm dark,
+     but without the glare of the default #E11D48. */
+  --accent-rose: #C97B66;
+
+  --surface: #16150F;       /* cards, inputs, list rows */
+  --surface-hover: #1E1C16;
+  --surface-selected: #2A2721;
+
+  --error-bg: #2A1712;
+  --error-fg: #E39A83;
+  --warn-bg: #2A2312;
+  --warn-fg: #DCBE88;       /* gold-300 */
+  --ok-bg: #17221A;
+  --ok-fg: #A3BBA8;         /* sage-300 */
+  --info-bg: #16221F;
+  --info-fg: #7C9A82;
+
+  --diff-del-bg: #2A1712;
+  --diff-del-fg: #E39A83;
+  --diff-add-bg: #17221A;
+  --diff-add-fg: #A3BBA8;
+
+  --danger: #E39A83;
+  --ok: #A3BBA8;
+  --warn: #DCBE88;
+
+  --pill-bg: #1E1C16;
+  --pill-fg: #B3AEA0;
+
+  --text-inverse: #E9E7E0;  /* ink-100, NOT #FFF: pure white on a dark
+                               surface is the harshest pairing there is */
+  --text-inverse-dim: #B3AEA0; /* ink-300 */
+
+  /* An accent-filled control (primary button, active chip, send button). Kept
+     apart from --text-inverse because these are LIGHT fills in Calm Mode, so
+     their text is dark -- the opposite of the chrome strip. Conflating the two
+     would make one of them unreadable in any given theme. */
+  --fill-accent: #DCBE88;    /* gold-300, the site's own accent */
+  --fill-accent-fg: #1A1815;
+
+  --chip-bg: #16150F;
+  --chip-border: #46433A;
+  --chip-active-bg: #DCBE88; /* gold-300, the site's accent */
+  --chip-active-fg: #1A1815;
+
+  /* The light-grey default scrollbar is the most jarring thing left on a dark
+     page. Chosen for contrast, not by eye: #2E2C26 is darker but only reaches
+     1.40:1 against the ink-950 background, which reads as a faint smudge rather
+     than a bar you can find. This measures 2.97:1 on --bg-app and 2.85:1 on
+     the slightly lighter --bg-nav, so it stays clearly visible while remaining a
+     dark warm grey rather than a light chrome element. */
+  --scrollbar-thumb: #605D55;
+  --scrollbar-thumb-hover: #807C72; /* lifted, still well below the text colour */
+
+  /* Shadows barely register on a dark surface, so they are kept very soft and
+     tinted with the warm ink hue rather than neutral black. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 * { box-sizing: border-box; }
@@ -81,7 +257,7 @@ button:disabled {
 input, textarea, select {
   font: inherit;
   color: var(--text);
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
@@ -118,10 +294,71 @@ input:focus, textarea:focus, select:focus {
   width: 100%;
   overflow: hidden;
   transition: grid-template-columns 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Containing block for the absolutely positioned .col-resizer handles. Without
+     this they would become grid items and shift the four columns. */
+  position: relative;
 }
 
 .mindstack-layout.context-closed {
   grid-template-columns: var(--col-nav-width) var(--col-contents-width) 1fr 0px;
+}
+
+/* ==========================================================================
+   Column resizers
+   The dividers between the two list columns and the document. Absolute rather
+   than grid items so they sit ON the column borders without taking part in the
+   track sizing.
+   ========================================================================== */
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  /* The 1px divider sits dead centre; the hit area is 9px wide so the border is
+     easy to grab without covering content in either column. */
+  transform: translateX(-50%);
+  z-index: 5;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none; /* let the drag reach us instead of scrolling the page */
+}
+
+/* The visual bar. Transparent at rest, because the columns already draw a 1px
+   border there; the accent only appears on hover or while dragging so a resting
+   layout shows no extra chrome. */
+.col-resizer-grip {
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.col-resizer:hover .col-resizer-grip,
+.col-resizer:focus-visible .col-resizer-grip,
+.is-col-resizing .col-resizer-grip {
+  background: var(--accent);
+  width: 2px;
+}
+
+.col-resizer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* While a drag is in progress: no text selection, no transition lag. The
+   0.25s ease is right for the context panel opening, but it would make the
+   column trail the pointer during a drag. */
+.is-col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.is-col-resizing .mindstack-layout,
+.is-col-resizing .mindstack-layout.context-closed {
+  transition: none;
 }
 
 /* ==========================================================================
@@ -184,7 +421,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-action-btn:hover {
-  background: #F4F4F5;
+  background: var(--surface-hover);
 }
 
 .nav-action-left {
@@ -243,17 +480,17 @@ input:focus, textarea:focus, select:focus {
   padding: 5px 8px;
   border-radius: var(--radius-sm);
   font-size: 12.5px;
-  color: #3F3F46;
+  color: var(--text);
   transition: all 0.12s ease;
 }
 
 .nav-item:hover {
-  background: #F4F4F5;
+  background: var(--surface-hover);
   color: var(--text);
 }
 
 .nav-item.active {
-  background: #F4F4F5;
+  background: var(--surface-hover);
   color: var(--text);
   font-weight: 600;
 }
@@ -306,7 +543,7 @@ input:focus, textarea:focus, select:focus {
   color: var(--text);
   transition: background 0.12s ease;
 }
-.nav-ai-pulse-btn:hover { background: #F4F4F5; }
+.nav-ai-pulse-btn:hover { background: var(--surface-hover); }
 
 .ai-pulse-left {
   display: flex;
@@ -343,14 +580,14 @@ input:focus, textarea:focus, select:focus {
   flex: 1;
   min-width: 0;
 }
-.nav-user-info:hover { background: #F4F4F5; }
+.nav-user-info:hover { background: var(--surface-hover); }
 
 .nav-user-avatar {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #E4E4E7;
-  color: #71717A;
+  background: var(--surface-selected);
+  color: var(--text-dim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -390,7 +627,7 @@ input:focus, textarea:focus, select:focus {
   bottom: 100%;
   left: 0;
   right: 0;
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
@@ -418,8 +655,8 @@ input:focus, textarea:focus, select:focus {
   color: var(--text);
   text-align: left;
 }
-.popup-menu-item:hover { background: #F4F4F5; }
-.popup-menu-item.active { font-weight: 600; background: #F4F4F5; }
+.popup-menu-item:hover { background: var(--surface-hover); }
+.popup-menu-item.active { font-weight: 600; background: var(--surface-hover); }
 
 .popup-divider {
   height: 1px;
@@ -448,8 +685,8 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer;
 }
 
-.popup-menu-icon:hover { background: #F4F4F5; color: var(--text); }
-.popup-menu-icon.danger:hover { background: #FEF2F2; color: #DC2626; }
+.popup-menu-icon:hover { background: var(--surface-hover); color: var(--text); }
+.popup-menu-icon.danger:hover { background: var(--error-bg); color: var(--error-fg); }
 
 .btn-row {
   display: flex;
@@ -458,12 +695,12 @@ input:focus, textarea:focus, select:focus {
 }
 
 .btn.danger {
-  background: #FFFFFF;
-  color: #B91C1C;
-  border-color: #DC2626;
+  background: var(--surface);
+  color: var(--error-fg);
+  border-color: var(--error-fg);
 }
 
-.btn.danger:hover { background: #FEF2F2; }
+.btn.danger:hover { background: var(--error-bg); }
 
 .context-related-empty {
   padding: 18px 12px;
@@ -526,8 +763,8 @@ input:focus, textarea:focus, select:focus {
 }
 
 .folder-contents-new-btn {
-  background: var(--border-dark);
-  color: #FFFFFF;
+  background: var(--fill-accent);
+  color: var(--fill-accent-fg);
   padding: 3px 12px;
   border-radius: var(--radius-pill);
   font-size: 12px;
@@ -557,7 +794,7 @@ input:focus, textarea:focus, select:focus {
 .folder-search-input {
   padding: 5px 26px 5px 28px;
   font-size: 12px;
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   height: 28px;
@@ -592,18 +829,18 @@ input:focus, textarea:focus, select:focus {
 .folder-empty-desc { font-size: 11.5px; color: var(--text-dim); max-width: 200px; }
 .folder-empty-create-btn {
   margin-top: 6px;
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   font-size: 11.5px;
   font-weight: 500;
 }
-.folder-empty-create-btn:hover { background: #F4F4F5; }
+.folder-empty-create-btn:hover { background: var(--surface-hover); }
 
 /* Clean Object Card matching the screenshot */
 .object-card {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 12px 14px;
@@ -616,13 +853,13 @@ input:focus, textarea:focus, select:focus {
 }
 
 .object-card:hover {
-  border-color: #D4D4D8;
+  border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
 
 .object-card.selected {
-  border-color: #A1A1AA;
-  background: #FFFFFF;
+  border-color: var(--text-faint);
+  background: var(--surface);
   box-shadow: 0 0 0 1px #A1A1AA, var(--shadow-sm);
 }
 
@@ -669,8 +906,8 @@ input:focus, textarea:focus, select:focus {
 
 .object-card-pill {
   font-size: 10px;
-  background: #F4F4F5;
-  color: #52525B;
+  background: var(--surface-hover);
+  color: var(--text-dim);
   padding: 1px 6px;
   border-radius: var(--radius-xs);
   line-height: 1.4;
@@ -717,7 +954,7 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer;
   transition: background 0.12s ease;
 }
-.file-collection-dropdown:hover { background: #F4F4F5; color: var(--text); }
+.file-collection-dropdown:hover { background: var(--surface-hover); color: var(--text); }
 .file-collection-glyph { font-size: 13px; }
 .file-collection-chevron { font-size: 10px; color: var(--text-faint); }
 
@@ -737,12 +974,12 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   font-weight: 500;
   color: var(--text);
-  background: #FFFFFF;
+  background: var(--surface);
   transition: all 0.12s ease;
 }
 .file-ai-enhance-btn:hover {
-  background: #F4F4F5;
-  border-color: #D4D4D8;
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 .ai-enhance-icon { font-size: 12px; }
 
@@ -756,7 +993,7 @@ input:focus, textarea:focus, select:focus {
   color: var(--text-dim);
   transition: background 0.12s ease;
 }
-.file-icon-btn:hover { background: #F4F4F5; color: var(--text); }
+.file-icon-btn:hover { background: var(--surface-hover); color: var(--text); }
 
 .file-context-btn {
   display: inline-flex;
@@ -768,12 +1005,12 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
-  background: #FFFFFF;
+  background: var(--surface);
 }
 .file-context-btn.active {
   color: var(--text);
   border-color: var(--border-dark);
-  background: #F4F4F5;
+  background: var(--surface-hover);
 }
 
 /* Document Canvas */
@@ -827,24 +1064,215 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #F4F4F5;
+  background: var(--surface-hover);
   border: 1px solid transparent;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
   font-size: 11.5px;
   font-weight: 500;
-  color: #3F3F46;
+  color: var(--text);
   transition: all 0.12s ease;
 }
 .linked-source-chip:hover {
-  background: #E4E4E7;
+  background: var(--surface-selected);
   color: var(--text);
 }
 .linked-source-chip.ok {
-  background: #DCFCE7;
-  color: #166534;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
 }
 .chip-icon { font-size: 11px; }
+
+/* ==========================================================================
+   Pulse review panel
+   Shown in the reading pane above the document it describes, so a suggestion
+   can be judged against the text it is about. Colours come from the theme
+   variables so it follows Calm Mode like everything else.
+   ========================================================================== */
+
+.pulse-review {
+  background: var(--bg-nav);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0 0 4px;
+  /* Calm and inviting rather than an alarming callout: this is a suggestion
+     the reader is considering, not an error. */
+  border-left: 3px solid var(--accent);
+}
+
+.pulse-review-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.pulse-review-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.pulse-review-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.pulse-review-confidence {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.pulse-review-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.pulse-review-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pulse-review-group {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.pulse-review-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pulse-review-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pulse-review-group-state {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.pulse-review-group-state.done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.pulse-review-none {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.pulse-review-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.pulse-review-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-file);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.pulse-review-conns {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pulse-review-conn {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-file);
+  border: 1px solid var(--border);
+}
+
+.pulse-conn-relation {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The relations carry different weight, so they are not all the same colour.
+   `contradicts` is the one worth noticing. */
+.pulse-conn-relation.contradicts { color: var(--danger); border-color: var(--danger); }
+.pulse-conn-relation.supports { color: var(--ok); border-color: var(--ok); }
+.pulse-conn-relation.extends { color: var(--accent); border-color: var(--accent); }
+
+.pulse-conn-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.pulse-conn-why {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.pulse-review-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pulse-review-actions.both {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.pulse-review-closed {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Divider between the review panel and the document itself. */
+.pulse-document-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 20px 0;
+}
 
 /* Big elegant document title matching screenshot */
 .file-document-title {
@@ -853,7 +1281,7 @@ input:focus, textarea:focus, select:focus {
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.15;
-  color: #18181B;
+  color: var(--text);
 }
 
 .file-tags-bar {
@@ -868,11 +1296,11 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #F4F4F5;
+  background: var(--surface-hover);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   font-size: 11.5px;
-  color: #52525B;
+  color: var(--text-dim);
   font-weight: 500;
 }
 
@@ -894,7 +1322,7 @@ input:focus, textarea:focus, select:focus {
 .file-document-body {
   font-size: 15.5px;
   line-height: 1.8;
-  color: #27272A;
+  color: var(--text-inverse-dim);
 }
 
 .file-prose p {
@@ -902,7 +1330,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .file-prose h1, .file-prose h2, .file-prose h3 {
-  color: #18181B;
+  color: var(--text);
   letter-spacing: -0.015em;
   margin-top: 32px;
   margin-bottom: 12px;
@@ -930,7 +1358,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .file-prose pre {
-  background: #F4F4F5;
+  background: var(--surface-hover);
   border-radius: var(--radius-md);
   padding: 14px 16px;
   font-family: var(--font-mono);
@@ -942,7 +1370,7 @@ input:focus, textarea:focus, select:focus {
 .file-prose code {
   font-family: var(--font-mono);
   font-size: 12.5px;
-  background: #F4F4F5;
+  background: var(--surface-hover);
   padding: 2px 5px;
   border-radius: 4px;
 }
@@ -952,7 +1380,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 12.5px;
   line-height: 1.6;
   white-space: pre-wrap;
-  background: #FAFAFA;
+  background: var(--surface);
   padding: 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -965,7 +1393,7 @@ input:focus, textarea:focus, select:focus {
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-chrome);
-  color: #FFFFFF;
+  color: var(--text-inverse);
   padding: 6px 14px;
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-float);
@@ -985,17 +1413,17 @@ input:focus, textarea:focus, select:focus {
   gap: 5px;
   font-size: 12px;
   font-weight: 500;
-  color: #E4E4E7;
+  color: var(--text-inverse-dim);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   transition: color 0.12s ease;
 }
-.bottom-pill-btn:hover { color: #FFFFFF; }
+.bottom-pill-btn:hover { color: var(--text-inverse); }
 
 .bottom-pill-divider {
   width: 1px;
   height: 14px;
-  background: #3F3F46;
+  background: var(--text);
 }
 
 .file-floating-bottom-bar:hover,
@@ -1010,7 +1438,7 @@ input:focus, textarea:focus, select:focus {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-md);
@@ -1090,7 +1518,7 @@ input:focus, textarea:focus, select:focus {
 
 .context-tab-mini {
   font-size: 11px;
-  background: #F4F4F5;
+  background: var(--surface-hover);
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   color: var(--text-dim);
@@ -1107,7 +1535,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   color: var(--text-faint);
 }
-.context-close-btn:hover { background: #F4F4F5; color: var(--text); }
+.context-close-btn:hover { background: var(--surface-hover); color: var(--text); }
 
 .context-nav-tabs {
   display: flex;
@@ -1125,9 +1553,9 @@ input:focus, textarea:focus, select:focus {
   background: transparent;
   transition: all 0.12s ease;
 }
-.context-tab-chip:hover { background: #F4F4F5; color: var(--text); }
+.context-tab-chip:hover { background: var(--surface-hover); color: var(--text); }
 .context-tab-chip.active {
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
@@ -1153,7 +1581,7 @@ input:focus, textarea:focus, select:focus {
 
 /* Related Object Cards matching screenshot Column 4 */
 .context-object-card {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 12px 14px;
@@ -1183,9 +1611,9 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-xs);
   letter-spacing: 0.04em;
 }
-.context-card-badge.note { background: #F4F4F5; color: #52525B; }
-.context-card-badge.person { background: #FEF3C7; color: #92400E; }
-.context-card-badge.spec { background: #E0E7FF; color: #3730A3; }
+.context-card-badge.note { background: var(--surface-hover); color: var(--text-dim); }
+.context-card-badge.person { background: var(--warn-bg); color: var(--warn-fg); }
+.context-card-badge.spec { background: var(--info-bg); color: var(--info-fg); }
 
 .context-card-body {
   margin: 0;
@@ -1215,12 +1643,12 @@ input:focus, textarea:focus, select:focus {
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   font-size: 10.5px;
-  background: #F4F4F5;
+  background: var(--surface-hover);
   color: var(--text-dim);
 }
 .context-mode-chip.active {
-  background: var(--border-dark);
-  color: #FFFFFF;
+  background: var(--fill-accent);
+  color: var(--fill-accent-fg);
 }
 
 .context-messages-list {
@@ -1247,7 +1675,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
 }
 .context-msg.assistant .msg-content {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   padding: 8px 12px;
   border-radius: var(--radius-md);
@@ -1255,7 +1683,7 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.5;
 }
 .context-msg.user .msg-content {
-  background: #F4F4F5;
+  background: var(--surface-hover);
   padding: 8px 12px;
   border-radius: var(--radius-md);
   color: var(--text);
@@ -1280,7 +1708,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-pill);
   font-size: 12px;
   border: 1px solid var(--border);
-  background: #FFFFFF;
+  background: var(--surface);
 }
 
 .context-chat-send-btn {
@@ -1289,8 +1717,8 @@ input:focus, textarea:focus, select:focus {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--border-dark);
-  color: #FFFFFF;
+  background: var(--fill-accent);
+  color: var(--fill-accent-fg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1299,7 +1727,7 @@ input:focus, textarea:focus, select:focus {
 
 /* Proposals in Context Sidebar */
 .context-proposal-card {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 10px 12px;
@@ -1317,8 +1745,8 @@ input:focus, textarea:focus, select:focus {
   font-size: 11px;
   font-weight: 500;
 }
-.proposal-btn.accept { background: #DCFCE7; color: #166534; }
-.proposal-btn.reject { background: #FEE2E2; color: #991B1B; }
+.proposal-btn.accept { background: var(--ok-bg); color: var(--ok-fg); }
+.proposal-btn.reject { background: var(--error-bg); color: var(--error-fg); }
 
 .context-empty-hint {
   font-size: 11.5px;
@@ -1327,7 +1755,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .context-inventory-item {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px;
@@ -1342,17 +1770,25 @@ input:focus, textarea:focus, select:focus {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(18, 18, 20, 0.45);
-  backdrop-filter: blur(4px);
+  /* Dimmed enough to push the app back, blurred enough that the dialog is
+     unambiguously in front. The 4px/0.45 pair left the surrounding columns
+     legible enough to compete with the dialog for attention. */
+  background: rgba(18, 18, 20, 0.58);
+  backdrop-filter: blur(10px) saturate(0.9);
+  /* Older WebViews know backdrop-filter but not saturate; drop the whole
+     declaration rather than losing the blur with it. */
+  -webkit-backdrop-filter: blur(10px) saturate(0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  /* Tighter than the default 20px so a wide dialog like Settings can use the
+     width; the smaller dialogs are unaffected by the extra room. */
+  padding: 12px;
 }
 
 .modal-dialog {
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
@@ -1370,7 +1806,7 @@ input:focus, textarea:focus, select:focus {
 .modal-header {
   padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border);
-  background: #FAFAFB;
+  background: var(--bg-contents);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1391,12 +1827,12 @@ input:focus, textarea:focus, select:focus {
   border: 1px solid var(--border);
   font-size: 12.5px;
   font-weight: 500;
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text);
   transition: all 0.12s ease;
 }
-.btn:hover { background: #F4F4F5; }
-.btn.primary { background: var(--border-dark); color: #FFFFFF; border-color: var(--border-dark); }
+.btn:hover { background: var(--surface-hover); }
+.btn.primary { background: var(--fill-accent); color: var(--fill-accent-fg); border-color: var(--fill-accent); }
 .btn.primary:hover { opacity: 0.9; }
 .btn.text-sm { font-size: 11.5px; padding: 4px 8px; }
 
@@ -1407,26 +1843,102 @@ input:focus, textarea:focus, select:focus {
   font-weight: 500;
   color: var(--text-dim);
   border: 1px solid var(--border);
-  background: #FFFFFF;
+  background: var(--surface);
   transition: all 0.12s ease;
 }
-.filter-chip:hover { background: #F4F4F5; color: var(--text); }
-.filter-chip.active { background: var(--border-dark); color: #FFFFFF; border-color: var(--border-dark); }
+.filter-chip:hover { background: var(--surface-hover); color: var(--text); }
+.filter-chip.active { background: var(--fill-accent); color: var(--fill-accent-fg); border-color: var(--fill-accent); }
 
 .picker-path-row { display: flex; gap: 8px; align-items: center; }
 .picker-path-form { display: flex; gap: 6px; flex: 1; }
 .picker-path-input { flex: 1; font-family: var(--font-mono); font-size: 12px; }
 .picker-breadcrumbs { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .breadcrumb-btn { font-size: 12px; color: var(--accent-blue); }
-.modal-footer { padding: 12px 18px; border-top: 1px solid var(--border); background: #FAFAFB; display: flex; align-items: center; justify-content: space-between; }
+.modal-footer { padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg-contents); display: flex; align-items: center; justify-content: space-between; }
 .picker-selected-path { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Settings modal */
-.settings-modal { width: 520px; max-height: 86vh; }
+/* The settings dialog is the one modal with a lot in it -- two model
+   providers, the embedding manager, Pulse, the danger zone -- so it is wide and
+   laid out in columns rather than stacked.
+
+   Stacked it needed 1775px of content against 684px of room, so it always
+   scrolled. Three columns turn that into a 455px and a 184px row, which fits:
+   the two LLM providers and Pulse are the tall items, so they share the first
+   row and the short ones sit underneath. The dividers go with the single-column
+   rhythm they were drawn for; the grid gap does that job here. */
+.settings-modal {
+  /* As wide as the window allows: the columns are the thing that removes the
+     scrolling, and every pixel of extra width is a line of wrapping text not
+     taken. The backdrop's own padding is what bounds this. */
+  width: min(1400px, 100%);
+  max-height: 96vh;
+}
+
+/* The header and footer are chrome around the settings; every pixel they take
+   is a pixel the sections do not get. Tightened only for this dialog, which is
+   the one that needs the room. */
+.settings-modal .modal-header {
+  padding: 12px 26px 10px;
+}
+
+.settings-modal .modal-footer {
+  padding: 10px 26px;
+}
 
 .settings-body {
   padding: 16px 20px;
   overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 24px;
+  align-items: start;
+}
+
+/* In the one-column fallback the sections need the margin for rhythm, because
+   the dividers are the only thing between them. In three columns the grid gap
+   already does that job, and the margin was costing a full extra 44px -- two
+   rows of 22px that bought nothing. */
+.settings-modal .settings-section {
+  margin-bottom: 0;
+}
+
+/* Pulse is the third-tallest section; in DOM order it lands in the second row
+   and makes that row as tall as the first. Pulling it forward balances them.
+   The order is set here rather than by moving JSX so the source order stays
+   the logical reading order. */
+.settings-section--pulse { order: -1; }
+
+.settings-modal .settings-divider { display: none; }
+
+/* Below this the columns get too narrow for a provider chip row, which would
+   wrap and undo the height saving. */
+@media (max-width: 1120px) {
+  .settings-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* One column: there is no room to save height, so the single-column rhythm and
+   its dividers come back and the dialog scrolls as before. */
+@media (max-width: 780px) {
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    display: block;
+  }
+  .settings-modal .settings-divider { display: block; }
+  .settings-modal .settings-section { margin-bottom: 22px; }
+  .settings-section--pulse { order: 0; }
+}
+
+/* Vertical rhythm between sections in the one-column fallback. The dividers
+   separate them, but the whitespace is what stops it reading as one wall. */
+.settings-section {
+  margin-bottom: 22px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
 }
 
 .settings-section-title {
@@ -1435,14 +1947,40 @@ input:focus, textarea:focus, select:focus {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-faint);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .settings-hint {
   font-size: 11.5px;
   color: var(--text-dim);
-  margin: 0 0 14px;
-  line-height: 1.5;
+  margin: 0 0 16px;
+  line-height: 1.55;
+}
+
+/* The Pulse schedule row: a label and its controls on one line, with the
+   label kept at its natural width so the controls line up under each other
+   whether it is an interval or a weekday. */
+.pulse-schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.pulse-schedule-row .form-label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.pulse-schedule-at {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.settings-input-narrow {
+  width: auto;
+  min-width: 92px;
 }
 
 .settings-input {
@@ -1452,18 +1990,25 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-sm);
   font-size: 12.5px;
   font-family: inherit;
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text);
 }
 
+/* The two token fields sit side by side. They wrap on a narrow dialog, and a
+   label broken across lines reads as two things, so they are allowed to stack
+   instead when there is not enough room. */
 .settings-row {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.settings-row .form-group { flex: 1; min-width: 0; }
+.settings-row .form-group { flex: 1 1 180px; min-width: 0; }
 
-.settings-section { margin-bottom: 4px; }
+.settings-row .form-label { white-space: nowrap; }
+
+/* A duplicate of the .settings-section rule further up, which was silently
+   overriding the spacing there with 4px. Kept as one rule now. */
 
 .settings-divider {
   height: 1px;
@@ -1485,7 +2030,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--text-dim);
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   padding: 4px 10px;
@@ -1493,11 +2038,11 @@ input:focus, textarea:focus, select:focus {
   transition: all 0.12s ease;
 }
 
-.provider-preset:hover { background: #F4F4F5; color: var(--text); }
+.provider-preset:hover { background: var(--surface-hover); color: var(--text); }
 
 .provider-preset.active {
-  background: var(--border-dark);
-  color: #FFFFFF;
+  background: var(--fill-accent);
+  color: var(--fill-accent-fg);
   border-color: var(--border-dark);
 }
 
@@ -1511,6 +2056,11 @@ input:focus, textarea:focus, select:focus {
   text-transform: none;
   color: var(--text-faint);
 }
+
+/* The whole point of moving Temperature inside the chat section: outside it the
+   field was a grid cell of its own, and a seventh cell in three columns forces
+   a third row. Kept to the width of a token field so it still lines up. */
+.settings-temperature-group .settings-temperature { max-width: 100%; }
 
 .settings-temperature { max-width: 120px; }
 
@@ -1529,7 +2079,7 @@ input:focus, textarea:focus, select:focus {
   left: 0;
   right: 0;
   z-index: 60;
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-float);
@@ -1551,7 +2101,7 @@ input:focus, textarea:focus, select:focus {
   width: 100%;
   text-align: left;
   padding: 10px 12px;
-  background: #FFFFFF;
+  background: var(--surface);
   border: none;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
@@ -1559,8 +2109,8 @@ input:focus, textarea:focus, select:focus {
 }
 
 .model-dropdown-item:last-child { border-bottom: none; }
-.model-dropdown-item:hover { background: #F4F4F5; }
-.model-dropdown-item.selected { background: #E4E4E7; font-weight: 600; }
+.model-dropdown-item:hover { background: var(--surface-hover); }
+.model-dropdown-item.selected { background: var(--surface-selected); font-weight: 600; }
 
 /* Narrow left column: In / Out price per 1M tokens */
 .model-item-side {
@@ -1628,7 +2178,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 10.5px;
   font-weight: 500;
   color: var(--text-dim);
-  background: #FFFFFF;
+  background: var(--surface);
   white-space: nowrap;
 }
 
@@ -1658,8 +2208,8 @@ input:focus, textarea:focus, select:focus {
   margin-top: 10px;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  background: #DCFCE7;
-  color: #15803D;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
   font-size: 12px;
 }
 
@@ -1673,13 +2223,13 @@ input:focus, textarea:focus, select:focus {
   flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text-dim);
   cursor: pointer;
   transition: all 0.12s ease;
 }
 
-.nav-settings-btn:hover { background: #F4F4F5; color: var(--text); }
+.nav-settings-btn:hover { background: var(--surface-hover); color: var(--text); }
 
 /* Folder picker: a two-pane browser inside the modal. The body is a flex row
    that fills the space between the fixed header and footer; only the folder
@@ -1729,9 +2279,9 @@ input:focus, textarea:focus, select:focus {
   text-overflow: ellipsis;
 }
 
-.picker-nav-item:hover { background: #F4F4F5; }
+.picker-nav-item:hover { background: var(--surface-hover); }
 .picker-nav-item.active {
-  background: #E4E4E7;
+  background: var(--surface-selected);
   font-weight: 600;
 }
 
@@ -1769,8 +2319,8 @@ input:focus, textarea:focus, select:focus {
   font-size: 12.5px;
 }
 
-.picker-folder-item:hover { background: #F4F4F5; }
-.picker-folder-item.selected { background: #E4E4E7; }
+.picker-folder-item:hover { background: var(--surface-hover); }
+.picker-folder-item.selected { background: var(--surface-selected); }
 
 .folder-icon { flex-shrink: 0; }
 
@@ -1788,7 +2338,7 @@ input:focus, textarea:focus, select:focus {
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
-  background: #FFFFFF;
+  background: var(--surface);
   color: var(--text-dim);
   cursor: pointer;
   opacity: 0;
@@ -1799,8 +2349,8 @@ input:focus, textarea:focus, select:focus {
 .picker-folder-item.selected .picker-open-btn { opacity: 1; }
 
 .picker-open-btn:hover {
-  background: var(--border-dark);
-  color: #FFFFFF;
+  background: var(--fill-accent);
+  color: var(--fill-accent-fg);
   border-color: var(--border-dark);
 }
 
@@ -1808,8 +2358,8 @@ input:focus, textarea:focus, select:focus {
   margin: 8px 12px 0;
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  background: #FEE2E2;
-  color: #B91C1C;
+  background: var(--error-bg);
+  color: var(--error-fg);
   font-size: 12px;
 }
 
@@ -1832,7 +2382,7 @@ input:focus, textarea:focus, select:focus {
 .setup {
   max-width: 500px;
   margin: 0 auto;
-  background: #FFFFFF;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 32px;
@@ -1854,11 +2404,127 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer;
   font-size: 12.5px;
 }
-.tree-row:hover { background: #F4F4F5; }
-.tree-row.selected { background: #E4E4E7; font-weight: 600; }
+.tree-row:hover { background: var(--surface-hover); }
+.tree-row.selected { background: var(--surface-selected); font-weight: 600; }
 .tree-caret { width: 14px; font-size: 10px; color: var(--text-faint); }
 .tree-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Diff viewer colors */
-.diff-del { color: #DC2626; background: #FEE2E2; }
-.diff-add { color: #16A34A; background: #DCFCE7; }
+.diff-del { color: var(--diff-del-fg); background: var(--diff-del-bg); }
+
+/* Embedding model manager (local runtime downloads) */
+.embed-models { margin-top: 4px; }
+
+/* ==========================================================================
+   Scrollbars
+   Applied through the universal selector on purpose. The app has a dozen
+   separate scroll containers (the two columns, the context sidebar, file prose,
+   every modal), and scoping this to a list means the next pane somebody adds
+   silently gets the browser default -- which is a light grey bar, and the most
+   jarring thing on the dark palette. Firefox takes scrollbar-width /
+   scrollbar-color; Chromium and the Tauri WebView take the pseudo-elements.
+   ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+*::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+*::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  /* The border + content-box trick insets the thumb so it reads as a bar
+     floating in the track rather than filling it edge to edge. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+*::-webkit-scrollbar-thumb:active { background: var(--scrollbar-thumb-hover); }
+
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+  /* Selectable chips: a quiet outline that fills when chosen. Shared by the
+     runtime picker and the Appearance toggle -- they are the same control, so
+     they are styled the same and both carry a `.active` modifier. */
+.embed-runtime-chip,
+.theme-chip {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.embed-runtime-chip:hover,
+.theme-chip:hover { background: var(--surface-hover); }
+.embed-runtime-chip.active,
+.theme-chip.active {
+  background: var(--chip-active-bg);
+  color: var(--chip-active-fg);
+  border-color: var(--chip-active-bg);
+}
+/* The secondary label on a filled chip has to follow the chip's own text
+   colour, not a fixed white: the fill is gold in Calm Mode, where white text
+   on it would be barely readable. */
+.embed-runtime-chip.active .faint,
+.theme-chip.active .faint { color: var(--chip-active-fg); opacity: 0.75; }
+.embed-model-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.embed-model-main { flex: 1; min-width: 0; }
+.embed-model-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.embed-model-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-width: 96px;
+  justify-content: flex-end;
+}
+.embed-progress-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.embed-progress-fill {
+  height: 100%;
+  background: var(--accent-blue, #2563eb);
+  transition: width 0.25s ease;
+}
+/* Ollama reports no byte counts while it fetches the manifest and verifies
+   the checksum. A sliding segment says "working, amount unknown" without
+   pretending to know a percentage. */
+.embed-progress-fill.indeterminate {
+  width: 35%;
+  animation: embed-progress-slide 1.2s ease-in-out infinite;
+}
+@keyframes embed-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .embed-progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
+}
+
+.diff-add { color: var(--diff-add-fg); background: var(--diff-add-bg); }

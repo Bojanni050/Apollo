@@ -22,6 +22,7 @@ from app.schemas import (
     PulseApplyRequest,
     PulseDecideOut,
     PulseItemOut,
+    PulsePartRequest,
     PulseRunOut,
     PulseRunRequest,
     PulseSettingsOut,
@@ -209,22 +210,38 @@ def apply_pulse_run(
     "/pulse/runs/{run_id}/items/{item_id}/apply", response_model=PulseDecideOut
 )
 def apply_pulse_item_route(
-    workspace_id: int, run_id: int, item_id: int, db: Session = Depends(get_db)
+    workspace_id: int,
+    run_id: int,
+    item_id: int,
+    payload: PulsePartRequest | None = None,
+    db: Session = Depends(get_db),
 ) -> PulseDecideOut:
-    """Approve a single suggestion: tags and connections written to disk."""
+    """Approve a single suggestion.
+
+    By default both the tags and the connections are written to disk. Pass
+    ``{"parts": ["tags"]}`` to write only the tags and leave any existing
+    connections untouched, which is the common case: the tags are usually a
+    fair description while the inferred connections are the part worth
+    thinking about.
+    """
     run = _get_run(db, workspace_id, run_id)
     item = next((i for i in run.items if i.id == item_id), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pulse item not found.")
-    if item.decision != "pending":
+    parts = tuple(payload.parts) if payload and payload.parts else ("tags", "connections")
+    # A partial write leaves the item pending on purpose, so it is not accepted
+    # outright -- but re-deciding the half already written is harmless (it is
+    # the same bytes) and must not be refused, or the second half becomes
+    # impossible to apply.
+    if item.decision == "skipped":
         raise HTTPException(
-            status.HTTP_409_CONFLICT, f"This item is already {item.decision}."
+            status.HTTP_409_CONFLICT, "This item was skipped and cannot be applied."
         )
 
     repo = get_documentation_repository(db, workspace_id)
     root = resolve_repo_root(repo)
     try:
-        applied_path = apply_pulse_item(root, item)
+        applied_path = apply_pulse_item(root, item, parts)
     except PulseError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     db.commit()

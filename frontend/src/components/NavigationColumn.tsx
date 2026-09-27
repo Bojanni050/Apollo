@@ -222,7 +222,7 @@ export function NavigationColumn({
                 <span className="nav-item-glyph">💡</span>
                 <span>Delphi Pulse</span>
               </span>
-              <span className="nav-item-count">{counts.pulseWoven || 1}</span>
+              <span className="nav-item-count">{counts.pulseWoven}</span>
             </button>
           </div>
         </div>

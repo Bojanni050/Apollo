@@ -1,10 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type LlmModelInfo, type LlmSettings } from '../api/client'
+import { api, type LlmModelInfo, type LlmSettings, type PulseSettings } from '../api/client'
+import { EmbeddingModelsPanel } from './EmbeddingModelsPanel'
+import { useTheme } from '../theme'
+import { useModalDismiss } from '../useModalDismiss'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
   onSaved?: () => void
+  /**
+   * Fired after the database has been wiped.
+   *
+   * Separate from `onSaved` because the two mean opposite things for the rest
+   * of the app: saving settings changes nothing but the model behind the API,
+   * while a reset destroys the data the workspace is showing and forces a full
+   * reload. Sharing one callback made a routine save behave like a data loss.
+   */
+  onDatabaseReset?: () => void
+  /**
+   * The workspace whose Delphi Pulse settings are being edited.
+   *
+   * Nullable because this dialog is also reachable before a workspace exists,
+   * and the Pulse section is per-workspace. Without one the section is hidden
+   * rather than shown disabled: there is nothing to configure.
+   */
+  workspaceId?: number | null
+  /** Fired after the Pulse settings are written, so the caller can refresh. */
+  onSavedPulse?: () => void
 }
 
 const CAPABILITY_ICONS: Record<string, { icon: string; label: string }> = {
@@ -12,6 +34,9 @@ const CAPABILITY_ICONS: Record<string, { icon: string; label: string }> = {
   tools: { icon: '🔧', label: 'Tool use / function calling' },
   reasoning: { icon: '🧠', label: 'Reasoning' },
 }
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
 interface ProviderPreset {
   id: string
@@ -54,6 +79,8 @@ interface LlmSectionProps {
   setSameAsChat?: (v: boolean) => void
   providerBaseUrl?: string
   providerApiKey?: string
+  /** Fields that belong to this model, rendered at the bottom of its section. */
+  children?: React.ReactNode
 }
 
 function LlmSection({
@@ -77,6 +104,7 @@ function LlmSection({
   setSameAsChat,
   providerBaseUrl,
   providerApiKey,
+  children,
 }: LlmSectionProps) {
   const [models, setModels] = useState<LlmModelInfo[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -164,6 +192,10 @@ function LlmSection({
         filteredModels={filteredModels}
         selectedModelInfo={selectedModelInfo}
       />
+      {/* Extra fields belonging to this model, rendered inside its section.
+          A field belonging to the chat model used to sit outside every section,
+          which made it a separate grid cell and cost the layout a whole row. */}
+      {children}
     </div>
   )
 }
@@ -410,7 +442,15 @@ function LlmSectionFields({
   )
 }
 
-export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
+export function SettingsModal({
+  isOpen,
+  onClose,
+  onSaved,
+  onDatabaseReset,
+  workspaceId = null,
+  onSavedPulse,
+}: Props) {
+  const [theme, setTheme] = useTheme()
   const [data, setData] = useState<LlmSettings | null>(null)
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
@@ -432,6 +472,31 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetDone, setResetDone] = useState<number | null>(null)
+
+  // Delphi Pulse. Held as one object so the payload can be sent back whole and
+  // a field the backend rejects does not leave the others half-applied.
+  const [pulse, setPulse] = useState<PulseSettings | null>(null)
+  const [pulseError, setPulseError] = useState<string | null>(null)
+
+  // Escape is the only keyboard way out now that a backdrop click no longer
+  // dismisses; without it there would be no keyboard dismissal at all.
+  useModalDismiss(isOpen, onClose)
+
+  useEffect(() => {
+    if (!isOpen || !workspaceId) {
+      setPulse(null)
+      return
+    }
+    setPulseError(null)
+    api
+      .getPulseSettings(workspaceId)
+      .then(setPulse)
+      .catch((err) =>
+        setPulseError(
+          err instanceof Error ? err.message : 'Could not load Pulse settings.',
+        ),
+      )
+  }, [isOpen, workspaceId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -498,6 +563,29 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
       setBgApiKey('')
       setSaved(true)
       onSaved?.()
+
+      // Pulse is per-workspace, so it saves separately. A failure here is
+      // reported on its own and does not undo the model settings above, which
+      // are already written.
+      if (workspaceId && pulse) {
+        try {
+          setPulse(
+            await api.updatePulseSettings(workspaceId, {
+              mode: pulse.mode === 'apply' ? 'apply' : 'suggest',
+              schedule_enabled: pulse.schedule_enabled,
+              schedule_kind: pulse.schedule_kind === 'weekly' ? 'weekly' : 'interval',
+              interval_hours: pulse.interval_hours,
+              weekly_day: pulse.weekly_day,
+              weekly_hour: pulse.weekly_hour,
+            }),
+          )
+          onSavedPulse?.()
+        } catch (err) {
+          setPulseError(
+            err instanceof Error ? err.message : 'Saving Pulse settings failed.',
+          )
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Saving failed.')
     } finally {
@@ -506,13 +594,10 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-dialog settings-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-      >
+    // No onClick on the backdrop: a stray click outside must not discard the
+    // settings being edited. Cancel and Escape are the two ways out.
+    <div className="modal-backdrop">
+      <div className="modal-dialog settings-modal" role="dialog" aria-modal="true">
         <div className="modal-header">
           <div className="modal-title-row">
             <h3>Settings</h3>
@@ -528,7 +613,7 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
             <>
               <LlmSection
                 title="Chat model (primary)"
-                hint="The strong model for the interactive architecture chat, ADR consistency checks and diff proposals. Changes are saved to backend/.env and apply immediately."
+                hint="The strong model for chat, ADR checks and diff proposals. Saved to backend\.env and active immediately."
                 baseUrl={baseUrl}
                 setBaseUrl={setBaseUrl}
                 apiKey={apiKey}
@@ -542,7 +627,20 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                 setMaxOutputTokens={setMaxOutputTokens}
                 showTokenFields
                 optionalTokens={false}
-              />
+              >
+                <div className="form-group settings-temperature-group">
+                  <label className="form-label" htmlFor="llm-temperature">
+                    Temperature
+                  </label>
+                  <input
+                    id="llm-temperature"
+                    className="settings-input settings-temperature"
+                    value={temperature}
+                    onChange={(e) => setTemperature(e.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
+              </LlmSection>
               <div className="settings-divider" />
               <LlmSection
                 sameAsChatToggle
@@ -551,7 +649,7 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                 providerBaseUrl={baseUrl}
                 providerApiKey={apiKey}
                 title="Background model (inventory & classification)"
-                hint="Optional. A compact/cheap model (Haiku, 4o-mini, local Qwen 14B) for structural digests and document classification. Leave the model empty to use the primary model for everything; check 'same provider' to pick a different model from the chat provider without re-entering its URL and key."
+                hint="A cheap model (Haiku, 4o-mini, local Qwen) for document classification. Leave empty to reuse the chat model."
                 baseUrl={bgBaseUrl}
                 setBaseUrl={setBgBaseUrl}
                 apiKey={bgApiKey}
@@ -566,16 +664,185 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                 showTokenFields
                 optionalTokens
               />
-              <div className="form-group">
-                <label className="form-label" htmlFor="llm-temperature">Temperature</label>
-                <input
-                  id="llm-temperature"
-                  className="settings-input settings-temperature"
-                  value={temperature}
-                  onChange={(e) => setTemperature(e.target.value)}
-                  inputMode="decimal"
-                />
+              <div className="settings-divider" />
+              <div className="settings-section">
+                <div className="settings-section-title">Appearance</div>
+                <p className="settings-hint">
+                  Calm Mode repaints the app in the dark, warm palette used on the Gaia site:
+                  a warm near-black page instead of pure white, soft cream text, and gold
+                  accents. Less glare over a long session; body text still clears WCAG AA.
+                </p>
+                <div className="chip-row">
+                  <button
+                    type="button"
+                    className={`theme-chip ${theme === 'default' ? 'active' : ''}`}
+                    onClick={() => setTheme('default')}
+                    aria-pressed={theme === 'default'}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    className={`theme-chip ${theme === 'calm' ? 'active' : ''}`}
+                    onClick={() => setTheme('calm')}
+                    aria-pressed={theme === 'calm'}
+                  >
+                    Calm
+                  </button>
+                </div>
               </div>
+              <div className="settings-divider" />
+              <div className="settings-section">
+                <div className="settings-section-title">Semantic index</div>
+                <p className="settings-hint">
+                  Semantic search needs an embedding model; the chat model above does not
+                  provide one. Without it the app falls back to a hash embedder, which finds
+                  shared words but no synonyms.
+                </p>
+                <EmbeddingModelsPanel />
+              </div>
+              {workspaceId && (
+                <>
+                  <div className="settings-divider" />
+                  <div className="settings-section settings-section--pulse">
+                    <div className="settings-section-title">Delphi Pulse</div>
+                    <p className="settings-hint">
+                      A scan proposes tags and connections for your documents. Suggestions wait
+                      for your approval; auto-apply writes them into the documents
+                      automatically. Turn on automatic scanning to have it run on its own.
+                    </p>
+
+                    {pulseError && <div className="picker-error">{pulseError}</div>}
+
+                    {!pulse ? (
+                      <div className="picker-empty">Loading Pulse settings…</div>
+                    ) : (
+                      <>
+                        <div className="form-group">
+                          <label className="form-label">Scan result</label>
+                          <div className="btn-row">
+                            <button
+                              type="button"
+                              className={`btn ${pulse.mode === 'suggest' ? 'primary' : ''}`}
+                              onClick={() => setPulse({ ...pulse, mode: 'suggest' })}
+                              aria-pressed={pulse.mode === 'suggest'}
+                            >
+                              Suggestions
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn ${pulse.mode === 'apply' ? 'primary' : ''}`}
+                              onClick={() => setPulse({ ...pulse, mode: 'apply' })}
+                              aria-pressed={pulse.mode === 'apply'}
+                            >
+                              Auto-apply
+                            </button>
+                          </div>
+                          <div className="settings-hint">
+                            {pulse.mode === 'apply'
+                              ? 'Scans write tags and connections into your documents without asking.'
+                              : 'Scans only record suggestions. You approve each one in the Delphi Pulse view.'}
+                          </div>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-label">
+                            <input
+                              type="checkbox"
+                              checked={pulse.schedule_enabled}
+                              onChange={(e) =>
+                                setPulse({ ...pulse, schedule_enabled: e.target.checked })
+                              }
+                            />{' '}
+                            Scan automatically
+                          </label>
+                          <div className="settings-hint">
+                            Leave this off to run a scan only when you press Run Pulse.
+                          </div>
+                        </div>
+
+                        {pulse.schedule_enabled && (
+                          <div className="form-group">
+                            <label className="form-label">Repeat</label>
+                            <div className="btn-row">
+                              <button
+                                type="button"
+                                className={`btn ${pulse.schedule_kind === 'interval' ? 'primary' : ''}`}
+                                onClick={() => setPulse({ ...pulse, schedule_kind: 'interval' })}
+                                aria-pressed={pulse.schedule_kind === 'interval'}
+                              >
+                                Every N hours
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn ${pulse.schedule_kind === 'weekly' ? 'primary' : ''}`}
+                                onClick={() => setPulse({ ...pulse, schedule_kind: 'weekly' })}
+                                aria-pressed={pulse.schedule_kind === 'weekly'}
+                              >
+                                Weekly
+                              </button>
+                            </div>
+
+                            <div className="pulse-schedule-row">
+                              <label className="form-label" htmlFor="pulse-interval">
+                                Every
+                              </label>
+                              {pulse.schedule_kind === 'interval' ? (
+                                <select
+                                  id="pulse-interval"
+                                  className="settings-input"
+                                  value={pulse.interval_hours}
+                                  onChange={(e) =>
+                                    setPulse({ ...pulse, interval_hours: Number(e.target.value) })
+                                  }
+                                >
+                                  {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                                    <option key={h} value={h}>
+                                      {h} {h === 1 ? 'hour' : 'hours'}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <>
+                                  <select
+                                    id="pulse-interval"
+                                    className="settings-input"
+                                    value={pulse.weekly_day}
+                                    onChange={(e) =>
+                                      setPulse({ ...pulse, weekly_day: Number(e.target.value) })
+                                    }
+                                  >
+                                    {WEEKDAYS.map((d, i) => (
+                                      <option key={d} value={i}>
+                                        {d}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span className="pulse-schedule-at">at</span>
+                                  <select
+                                    className="settings-input settings-input-narrow"
+                                    aria-label="Time of day"
+                                    value={pulse.weekly_hour}
+                                    onChange={(e) =>
+                                      setPulse({ ...pulse, weekly_hour: Number(e.target.value) })
+                                    }
+                                  >
+                                    {HOURS.map((h) => (
+                                      <option key={h} value={h}>
+                                        {String(h).padStart(2, '0')}:00
+                                      </option>
+                                    ))}
+                                  </select>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
               <div className="settings-divider" />
               <div className="settings-section">
                 <div className="settings-section-title">Danger zone</div>
@@ -619,7 +886,10 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
                             try {
                               const res = await api.resetDatabase()
                               setResetDone(res.deleted_workspaces)
-                              onSaved?.()
+                              // Not onSaved: the data behind the current view is
+                              // gone, so the caller has to tear the workspace
+                              // down rather than refresh it.
+                              onDatabaseReset?.()
                             } catch (err) {
                               setResetError(err instanceof Error ? err.message : 'Reset failed.')
                             } finally {
@@ -645,7 +915,7 @@ export function SettingsModal({ isOpen, onClose, onSaved }: Props) {
           <div />
           <div className="btn-row">
             <button className="btn" type="button" onClick={onClose}>
-              Close
+              Cancel
             </button>
             <button
               className="btn primary"

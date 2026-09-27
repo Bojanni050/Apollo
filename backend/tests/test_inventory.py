@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.llm.base import LLMResponse
 from app.services.inventory import Classification, InventoryResult, _parse_response, run_inventory
+from tests.conftest import llm_is_configured as _llm_is_configured
 from tests.test_chat_agent import ScriptedProvider
 
 
@@ -210,6 +211,15 @@ def test_inventory_requires_the_documentation_repository(
     assert response.status_code == 400
 
 
+# Same situation as test_pulse_endpoints_require_llm_configuration: this asserts
+# the refusal when no LLM is configured, so a working .env inverts it. It is
+# worse than a plain failure, because the configured endpoint is then actually
+# called over the network and the test blocks on the response -- which is what
+# made the full suite look like it hung.
+@pytest.mark.skipif(
+    _llm_is_configured(),
+    reason="an LLM is configured in this environment, so the no-provider refusal cannot be exercised",
+)
 def test_inventory_needs_an_llm(client: TestClient, workspace: dict) -> None:
     response = client.post(f"/api/workspaces/{workspace['id']}/inventory/runs", json={})
     assert response.status_code == 503

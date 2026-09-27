@@ -578,6 +578,15 @@ class PulseItem(Base):
     decision: Mapped[str] = mapped_column(
         String(20), default="pending", server_default="pending", nullable=False
     )
+    # Which halves of the suggestion are already written to the document:
+    # ["tags"] | ["connections"] | ["tags", "connections"].
+    #
+    # A separate column rather than a second `decision` value, because the two
+    # halves are separable -- the tags are usually a fair description while the
+    # inferred connections are worth reviewing on their own. It has to survive a
+    # reload: without it a half-accepted item would look untouched in the UI and
+    # offer choices that are already on disk.
+    applied_parts: Mapped[list | None] = mapped_column(JSONType, default=list)
 
     run: Mapped[PulseRun] = relationship(back_populates="items")
 

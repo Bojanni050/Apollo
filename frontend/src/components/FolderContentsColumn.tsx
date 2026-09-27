@@ -30,7 +30,9 @@ interface Props {
   decisions: Decision[]
   questions: OpenQuestion[]
   conversations: Conversation[]
-  sources: Repository[]
+  // Every repository the workspace holds, of any kind. The 'repos' section is
+  // driven by this list, so it must match counts.repos in the navigation.
+  repositories: Repository[]
   pulseItems: PulseItem[]
   pulseRunning?: boolean
   onRunPulse?: () => void
@@ -64,7 +66,7 @@ export function FolderContentsColumn({
   decisions,
   questions,
   conversations,
-  sources,
+  repositories,
   pulseItems,
   pulseRunning = false,
   onRunPulse,
@@ -111,7 +113,7 @@ export function FolderContentsColumn({
     }
 
     if (activeSection === 'repos') {
-      return sources.map((r) => ({
+      return repositories.map((r) => ({
         id: `repo-${r.id}`,
         title: r.name,
         snippet: r.local_path + (r.current_branch ? ` (${r.current_branch})` : ''),
@@ -161,7 +163,7 @@ export function FolderContentsColumn({
         rawNode: node,
       }
     })
-  }, [tree, activeSection, decisions, questions, conversations, sources, pulseItems])
+  }, [tree, activeSection, decisions, questions, conversations, repositories, pulseItems])
 
   // Filter based on search query
   const filteredItems = useMemo(() => {

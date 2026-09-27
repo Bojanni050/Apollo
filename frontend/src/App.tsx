@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ApiError,
   api,
@@ -11,18 +11,19 @@ import {
   type Mode,
   type OpenQuestion,
   type Proposal,
+  type PulseItemPart,
   type PulseRun,
   type Repository,
   type Workspace,
 } from './api/client'
 import { AddRepoModal } from './components/AddRepoModal'
 import { SettingsModal } from './components/SettingsModal'
-import { PulseSettingsModal } from './components/PulseSettingsModal'
 import { ContextSidebar } from './components/ContextSidebar'
 import { FileContentColumn } from './components/FileContentColumn'
 import { FolderContentsColumn, type ItemCard } from './components/FolderContentsColumn'
 import { LoginForm } from './components/LoginForm'
 import { NavigationColumn, type NavSection } from './components/NavigationColumn'
+import { ColumnResizer, useColumnResizers } from './columnResize'
 import { NewObjectModal } from './components/NewObjectModal'
 import { SetupWizard } from './components/SetupWizard'
 
@@ -60,6 +61,10 @@ export default function App() {
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [conversation, setConversation] = useState<ConversationDetail | null>(null)
+  // The mode picked in the chat panel while no conversation exists yet. It is
+  // applied to the conversation that the first message creates, so the user can
+  // choose a mode before typing rather than being locked to 'explore'.
+  const [pendingMode, setPendingMode] = useState<Mode>('explore')
   const [_chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
   const [inventoryRun, setInventoryRun] = useState<InventoryRun | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -71,12 +76,21 @@ export default function App() {
   const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
   const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [pulseSettingsOpen, setPulseSettingsOpen] = useState(false)
 
   // Async Status
   const [sending, setSending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [_error, setError] = useState<string | null>(null)
+
+  // Layout
+  // Draggable column widths for the two list columns. Capped together at half
+  // the screen so the document column can never be squeezed to nothing.
+  const {
+    widths: columnWidths,
+    startDrag: startColumnDrag,
+    nudge: nudgeColumn,
+    reset: resetColumnWidths,
+  } = useColumnResizers()
 
   // Auth Status
   const [authRequired, setAuthRequired] = useState<boolean | null>(null)
@@ -156,7 +170,9 @@ export default function App() {
         if (runs.length > 0) setInventoryRun(runs[0])
         if (pulseRuns.length > 0) setPulseRun(pulseRuns[0])
         if (convs.length > 0) await openConversation(ws.id, convs[0].id)
-        else await newConversation(ws.id)
+        // No conversation is created just by looking at a workspace. The chat
+        // creates one on the first message, so an unused workspace stays clean.
+        else setConversation(null)
       } catch (e) {
         report(e)
       }
@@ -316,7 +332,7 @@ export default function App() {
     if (!workspace) return
     let activeConvId = conversation?.id
     if (!activeConvId) {
-      const created = await api.createConversation(workspace.id, 'explore')
+      const created = await api.createConversation(workspace.id, pendingMode)
       setConversations((prev) => [created, ...prev])
       setConversation({ ...created, messages: [] })
       activeConvId = created.id
@@ -334,7 +350,13 @@ export default function App() {
   }
 
   const changeMode = async (mode: Mode) => {
-    if (!workspace || !conversation) return
+    if (!workspace) return
+    // Before the first message there is no conversation to patch yet, so the
+    // choice is held and applied by send() when it creates one.
+    if (!conversation) {
+      setPendingMode(mode)
+      return
+    }
     setConversation({ ...conversation, mode })
     try {
       await api.setMode(workspace.id, conversation.id, mode)
@@ -342,6 +364,23 @@ export default function App() {
       report(e)
     }
   }
+
+  /**
+   * The Pulse suggestion belonging to the document in the reading pane, if any.
+   *
+   * The list cards carry `pulse-<id>` as their id, so the link back to the
+   * suggestion is made through the selected item rather than by tracking a
+   * second piece of state. Null unless the Pulse section is the one being
+   * browsed, which keeps the review panel out of every other view.
+   */
+  const selectedPulseItem = useMemo(() => {
+    if (activeSection !== 'pulse' || !pulseRun || !selectedItem) return null
+    const id = selectedItem.id
+    if (!id.startsWith('pulse-')) return null
+    const pulseId = Number(id.slice('pulse-'.length))
+    if (!Number.isFinite(pulseId)) return null
+    return pulseRun.items.find((i) => i.id === pulseId) ?? null
+  }, [activeSection, pulseRun, selectedItem])
 
   // Inventory & Proposals Actions
   const withTreeRefresh = async (action: () => Promise<void>) => {
@@ -436,6 +475,16 @@ export default function App() {
       await refreshPulseRun(workspace.id, pulseRun.id)
     })
 
+  const applyPulsePart = (itemId: number, parts: PulseItemPart[]) =>
+    pulseRun &&
+    workspace &&
+    withTreeRefresh(async () => {
+      // The server records which halves are written, so there is nothing to
+      // track here: reloading the run is the single source of truth.
+      await api.applyPulseItem(workspace.id, pulseRun.id, itemId, parts)
+      await refreshPulseRun(workspace.id, pulseRun.id)
+    })
+
   const skipPulseItem = (itemId: number) =>
     pulseRun &&
     workspace &&
@@ -495,14 +544,15 @@ export default function App() {
 
   // Calculate object counts for Column 1
   const flatDocs = useMemo(() => flattenDocs(tree), [tree])
-  const sources = useMemo(
-    () => workspace?.repositories.filter((r) => r.kind === 'source') || [],
-    [workspace],
-  )
+  // The folder picked while creating a workspace is registered as
+  // 'documentation', so every kind belongs here. Filtering this down to
+  // 'source' made the nav count (which counts all repositories) disagree
+  // with the list, showing a badge of 1 above an empty column.
+  const repositories = useMemo(() => workspace?.repositories || [], [workspace])
 
   const counts = useMemo(
     () => ({
-      all: Math.max(flatDocs.length, 4),
+      all: flatDocs.length,
       docs: flatDocs.length,
       repos: workspace?.repositories.length || 0,
       decisions: decisions.length,
@@ -546,7 +596,15 @@ export default function App() {
   return (
     <div className="mindstack-app-shell">
       {/* 4-Column Layout */}
-      <div className={`mindstack-layout ${contextOpen ? 'context-open' : 'context-closed'}`}>
+      <div
+        className={`mindstack-layout ${contextOpen ? 'context-open' : 'context-closed'}`}
+        style={
+          {
+            '--col-nav-width': `${columnWidths.nav}px`,
+            '--col-contents-width': `${columnWidths.contents}px`,
+          } as React.CSSProperties
+        }
+      >
         {/* Column 1: Navigation */}
         <NavigationColumn
           workspace={workspace}
@@ -565,6 +623,14 @@ export default function App() {
           onDeleteWorkspace={onDeleteWorkspace}
         />
 
+        <ColumnResizer
+          side="nav"
+          width={columnWidths.nav}
+          onPointerDown={startColumnDrag('nav')}
+          onNudge={(delta) => nudgeColumn('nav', delta)}
+          onReset={resetColumnWidths}
+        />
+
         {/* Column 2: Folder Contents */}
         <FolderContentsColumn
           activeSection={activeSection}
@@ -579,11 +645,19 @@ export default function App() {
           decisions={decisions}
           questions={questions}
           conversations={conversations}
-          sources={sources}
+          repositories={repositories}
           pulseItems={pulseRun?.items || []}
           pulseRunning={pulseRunning}
           onRunPulse={runPulse}
-          onOpenPulseSettings={() => setPulseSettingsOpen(true)}
+          onOpenPulseSettings={() => setSettingsOpen(true)}
+        />
+
+        <ColumnResizer
+          side="contents"
+          width={columnWidths.nav + columnWidths.contents}
+          onPointerDown={startColumnDrag('contents')}
+          onNudge={(delta) => nudgeColumn('contents', delta)}
+          onReset={resetColumnWidths}
         />
 
         {/* Column 3: File Content Canvas */}
@@ -591,6 +665,10 @@ export default function App() {
           selectedItem={selectedItem}
           documentMarkdown={documentMarkdown}
           repository={repository}
+          pulseItem={selectedPulseItem}
+          busy={busy}
+          onApplyPulsePart={applyPulsePart}
+          onSkipPulseItem={skipPulseItem}
           onOpenAiChat={() => {
             setContextOpen(true)
           }}
@@ -614,6 +692,7 @@ export default function App() {
           proposals={proposals}
           conversations={conversations}
           activeConversation={conversation}
+          pendingMode={pendingMode}
           onSendMessage={send}
           onModeChange={changeMode}
           sending={sending}
@@ -657,7 +736,37 @@ export default function App() {
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        workspaceId={workspace?.id ?? null}
+        onSavedPulse={async () => {
+          // Only the latest run is affected, and only its configuration. The
+          // document being read is untouched, so the workspace is not reloaded.
+          if (!workspace) return
+          try {
+            setPulseRun(
+              await api
+                .listPulseRuns(workspace.id)
+                .then((r) => r[0] ?? null)
+                .catch(() => null),
+            )
+          } catch (e) {
+            report(e)
+          }
+        }}
         onSaved={async () => {
+          // Only the model behind the API changed. Re-selecting the workspace
+          // here used to clear the open document, the selected list item and
+          // the loaded runs, so saving a setting threw away the reader's place
+          // and sent them back to "No document selected". Refresh the one thing
+          // that actually depends on the new configuration instead.
+          if (!workspace) return
+          try {
+            setChatStatus(await api.chatStatus(workspace.id).catch(() => null))
+          } catch (e) {
+            report(e)
+          }
+        }}
+        onDatabaseReset={async () => {
+          // The data really is gone, so this is the full teardown.
           const remaining = await api.listWorkspaces()
           setWorkspaces(remaining)
           if (remaining.length > 0) {
@@ -679,14 +788,6 @@ export default function App() {
           }
         }}
       />
-      {workspace && (
-        <PulseSettingsModal
-          isOpen={pulseSettingsOpen}
-          workspaceId={workspace.id}
-          onClose={() => setPulseSettingsOpen(false)}
-          onSaved={() => selectWorkspace(workspace)}
-        />
-      )}
     </div>
   )
 }

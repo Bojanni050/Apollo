@@ -10,6 +10,12 @@
     "typecheck": "tsc --noEmit",
     "smoke:decisions": "node scripts/smoke-decisions.mjs",
     "smoke:setup": "node scripts/smoke-setup.mjs",
+    "smoke:models": "node scripts/smoke-models.mjs",
+    "smoke:theme": "node scripts/smoke-theme.mjs",
+    "smoke:columns": "node scripts/smoke-columns.mjs",
+    "smoke:settings": "node scripts/smoke-settings-save.mjs",
+    "smoke:settings-ui": "node scripts/smoke-settings-dialog.mjs",
+    "smoke:pulse": "node scripts/smoke-pulse-parts.mjs",
     "smoke:desktop": "node scripts/smoke-desktop.mjs"
   },
   "dependencies": {

@@ -130,6 +130,55 @@ export interface IndexStatus {
   reindex_reasons: string[]
 }
 
+export interface EmbeddingModel {
+  name: string
+  label: string
+  role: string | null
+  dimension: number | null
+  note: string | null
+  runtime: string
+  /** The name this runtime resolves the model by; null when it cannot serve it. */
+  identifier: string | null
+  downloadable: boolean
+  installed: boolean
+  in_use: boolean
+  /** True for a vendor build, false for a community conversion. */
+  official: boolean | null
+  source: string | null
+}
+
+export interface LocalRuntime {
+  id: string
+  label: string
+  available: boolean
+  message: string | null
+  address: string
+  active: boolean
+}
+
+export interface EmbeddingModelsResult {
+  runtime: string
+  runtime_label: string
+  runtime_available: boolean
+  runtime_message: string | null
+  runtime_address: string
+  runtimes: LocalRuntime[]
+  models: EmbeddingModel[]
+}
+
+export interface ModelPullStatus {
+  model: string
+  runtime: string
+  status: 'idle' | 'starting' | 'downloading' | 'completed' | 'failed'
+  message: string | null
+  total_bytes: number | null
+  completed_bytes: number | null
+  percent: number | null
+  started_at: string | null
+  finished_at: string | null
+  reindex_recommended: boolean
+}
+
 export interface SemanticSearchHit {
   kind: 'code' | 'document'
   repository_id: number
@@ -487,6 +536,13 @@ export interface PulseConnection {
   why: string
 }
 
+/**
+ * Which halves of a Pulse suggestion to write. Tags and connections are
+ * separable: the tags usually describe a document fairly, while the inferred
+ * connections are the part worth reviewing on its own.
+ */
+export type PulseItemPart = 'tags' | 'connections'
+
 export interface PulseItem {
   id: number
   file_path: string
@@ -495,6 +551,13 @@ export interface PulseItem {
   connections: PulseConnection[]
   confidence: number | null
   decision: 'pending' | 'applied' | 'skipped'
+  /**
+   * Which halves the reader has already accepted.
+   *
+   * Server-side, so a half-accepted item still shows the right choices after a
+   * reload. Empty means nothing has been written yet.
+   */
+  applied_parts?: PulseItemPart[]
 }
 
 export interface PulseRun {
@@ -685,10 +748,19 @@ export const api = {
       `/workspaces/${workspaceId}/pulse/runs/${runId}/apply`,
       { method: 'POST', body: JSON.stringify({ item_ids: itemIds }) },
     ),
-  applyPulseItem: (workspaceId: number, runId: number, itemId: number) =>
+  applyPulseItem: (
+    workspaceId: number,
+    runId: number,
+    itemId: number,
+    parts?: PulseItemPart[],
+  ) =>
     request<{ item: PulseItem; applied_path: string | null }>(
       `/workspaces/${workspaceId}/pulse/runs/${runId}/items/${itemId}/apply`,
-      { method: 'POST' },
+      // Omitted entirely when no parts are given, so the backend keeps its
+      // "both halves" default and the request shape stays as it was.
+      parts && parts.length
+        ? { method: 'POST', body: JSON.stringify({ parts }) }
+        : { method: 'POST' },
     ),
   skipPulseItem: (workspaceId: number, runId: number, itemId: number) =>
     request<{ item: PulseItem }>(
@@ -882,6 +954,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ base_url: baseUrl || undefined, api_key: apiKey || undefined }),
     }),
+
+  // -- embedding models (local runtimes) -----------------------------------
+  getEmbeddingModels: (runtime?: string) =>
+    request<EmbeddingModelsResult>(
+      `/system/embedding-models${runtime ? `?runtime=${encodeURIComponent(runtime)}` : ''}`,
+    ),
+  pullEmbeddingModel: (model: string, runtime: string) =>
+    request<ModelPullStatus>('/system/embedding-models/pull', {
+      method: 'POST',
+      body: JSON.stringify({ model, runtime }),
+    }),
+  getModelPullStatus: (model: string, runtime: string) =>
+    request<ModelPullStatus>(
+      `/system/embedding-models/pull?model=${encodeURIComponent(model)}&runtime=${encodeURIComponent(runtime)}`,
+    ),
 
   // -- repository sources (architecture evidence) ------------------------
   listSources: (workspaceId: number) =>

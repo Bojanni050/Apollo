@@ -75,12 +75,18 @@ class EmbeddingResult:
 
 @dataclass(frozen=True)
 class _ModelSpec:
-    """A known embedding model: its API identifier and native dimension.
+    """A known embedding model's native dimension.
 
-    The API identifier is what a remote endpoint expects; the configured name
-    (e.g. ``jina-code-embeddings-1.5b``) is the stable identity recorded with
-    every vector. Unknown models are still allowed -- they simply require the
-    provider response to define their dimension.
+    The identifier sent on the wire is NOT taken from here: it depends on which
+    endpoint is configured, so it is resolved through
+    :func:`api_model_name` (and ``EMBEDDING_MODEL_CATALOG``) instead. What this
+    holds is the dimension, which is a property of the model itself and is
+    recorded next to every stored vector.
+
+    The configured name (e.g. ``jina-code-embeddings-1.5b``) remains the stable
+    identity in the database regardless of which identifier was used to fetch
+    it. Unknown models are still allowed -- they simply require the provider
+    response to define their dimension.
     """
 
     api_id: str
@@ -89,9 +95,155 @@ class _ModelSpec:
 
 #: Jina Code Embeddings 1.5B: source code; supports natural-language ->
 #: code retrieval. 768 output dimensions.
-CODE_MODEL_SPEC = _ModelSpec(api_id="jina-embeddings-v3", dimension=768)
+#:
+#: ``api_id`` is deliberately the same string as the configured model name.
+#: It used to say "jina-embeddings-v3", which is a *different* model that
+#: returns 1024-d vectors. Every stored row claims 768, so the first real
+#: index run raised EmbeddingDimensionError on the very first vector. Naming
+#: the model we actually configured keeps the recorded dimension truthful.
+CODE_MODEL_SPEC = _ModelSpec(api_id="jina-code-embeddings-1.5b", dimension=768)
 #: BAAI/bge-m3 for Markdown, ADRs and architecture documentation: 1024 dims.
+#: The Ollama tag is "bge-m3"; see EMBEDDING_MODEL_CATALOG for why the
+#: HuggingFace namespace is not what a local runtime will resolve.
 DOCUMENT_MODEL_SPEC = _ModelSpec(api_id="BAAI/bge-m3", dimension=1024)
+
+
+#: The models this application knows how to offer and address, keyed by the
+#: configured model name.
+#:
+#: Two runtimes are supported, and they are not interchangeable:
+#:
+#: ``identifiers``
+#:     The name to put on the wire for each runtime. ``None`` means that runtime
+#:     cannot serve the model at all. ``BAAI/bge-m3`` is the HuggingFace
+#:     repository name; a local Ollama runtime knows it as the tag ``bge-m3``
+#:     and will not resolve the namespaced form at all -- sending the wrong one
+#:     yields a 404 that reads like "model not found" with no hint that the name
+#:     is simply wrong for that endpoint.
+#:
+#: ``downloads``
+#:     How to fetch the weights for each runtime, where the runtime has any way
+#:     to fetch them at all.
+#:
+#: The asymmetry below is real and verified against the HuggingFace API, not an
+#: assumption: the code model has an OFFICIAL GGUF, and the documentation model
+#: does not. So neither runtime can serve both models, and pretending otherwise
+#: would mean offering a download that produces a model whose behaviour nobody
+#: has checked.
+#:
+#: ``sizes`` are deliberately absent. A wrong size is worse than no size: it is
+#: a number the operator trusts when deciding whether to wait. Sizes are
+#: resolved from the actual download instead (see services/model_manager.py).
+EMBEDDING_MODEL_CATALOG: dict[str, dict[str, Any]] = {
+    "jina-code-embeddings-1.5b": {
+        "label": "Jina Code Embeddings 1.5B",
+        "role": "code",
+        "dimension": 768,
+        "note": "Source code and natural-language -> code retrieval.",
+        "identifiers": {
+            # No Ollama tag exists for this model: on Ollama it must be used
+            # through the hosted Jina API instead of being downloaded.
+            "ollama": None,
+            # llama-server is normally started with a single -m, so the id it
+            # reports is the file it was pointed at.
+            "llamacpp": "jina-code-embeddings-1.5b-Q8_0.gguf",
+        },
+        "downloads": {
+            "llamacpp": {
+                "repo": "jinaai/jina-code-embeddings-1.5b-GGUF",
+                "filename": "jina-code-embeddings-1.5b-Q8_0.gguf",
+                # Published by Jina themselves, and the GGUF metadata reports
+                # architecture "qwen2" -- a plain decoder llama.cpp supports.
+                "official": True,
+                "note": "Official Jina GGUF (Q8_0).",
+            },
+        },
+    },
+    "BAAI/bge-m3": {
+        "label": "BAAI bge-m3",
+        "role": "document",
+        "dimension": 1024,
+        "note": "Multilingual documentation, Markdown and ADRs.",
+        "identifiers": {
+            "ollama": "bge-m3",
+            # Usable, because the community GGUF below is a real file
+            # llama-server can be pointed at. Its provenance is reported
+            # separately as official=False, so the caveat travels with it
+            # instead of being hidden by pretending the model is unavailable.
+            "llamacpp": "bge-m3-Q8_0.gguf",
+        },
+        "downloads": {
+            "ollama": {"tag": "bge-m3", "official": True},
+            "llamacpp": {
+                "repo": "gpustack/bge-m3-GGUF",
+                "filename": "bge-m3-Q8_0.gguf",
+                # A community conversion of an XLMRoberta encoder. Marked
+                # unofficial so the UI can say so rather than presenting it as
+                # interchangeable with the official weights.
+                "official": False,
+                "note": "Community GGUF conversion, not published by BAAI.",
+            },
+        },
+    },
+}
+
+
+def _is_ollama_endpoint(base_url: str | None) -> bool:
+    """Whether ``base_url`` points at an Ollama-compatible runtime.
+
+    Ollama's OpenAI-compatible layer lives under /v1 on the same host as its
+    native API. Recognising it is what lets one logical model be addressed by
+    the name that runtime knows.
+    """
+    if not base_url:
+        return False
+    return "11434" in base_url or "ollama" in base_url.lower()
+
+
+def _is_llamacpp_endpoint(base_url: str | None) -> bool:
+    """Whether ``base_url`` points at a llama.cpp ``llama-server``.
+
+    Deliberately checked only AFTER an Ollama match, and deliberately not a
+    bare "is it on localhost" test: Ollama also listens on localhost, and that
+    test would claim Ollama's port for llama.cpp and send a llama-server model
+    name to a daemon that has never heard of it. What is left is an explicit
+    port/name match; an unusual port is simply not auto-detected, and the
+    operator can set the name explicitly instead.
+    """
+    if not base_url:
+        return False
+    lowered = base_url.lower()
+    return "llama" in lowered or ":8080" in lowered
+
+
+def api_model_name(model: str, base_url: str | None = None) -> str:
+    """The identifier to send to ``base_url`` for the logical model ``model``.
+
+    Resolves against the runtime the endpoint belongs to, so the same
+    configured model reaches a hosted API, an Ollama daemon and a llama-server
+    under the identifier each of them actually knows. Falls back to the
+    configured name for a model outside the catalog: an unknown model is
+    allowed (the operator may run something we have never heard of), it just
+    gets no name translation.
+    """
+    entry = EMBEDDING_MODEL_CATALOG.get(model)
+    if entry is None:
+        return model
+    identifiers = entry.get("identifiers") or {}
+    # Ollama first: its port is distinctive, and llama.cpp's detection is the
+    # looser of the two, so the specific test has to win.
+    if _is_ollama_endpoint(base_url):
+        tag = identifiers.get("ollama")
+        if tag:
+            return tag
+    elif _is_llamacpp_endpoint(base_url):
+        local = identifiers.get("llamacpp")
+        if local:
+            return local
+    # A hosted endpoint uses the name its vendor documents, which is the
+    # catalog's own name for these two models.
+    return model
+
 
 #: Configured model name -> spec, for dimension lookup. Filled lazily from
 #: settings so the mapping follows configuration rather than hardcoding a
@@ -172,8 +324,10 @@ class RemoteEmbeddingProvider:
         return await asyncio.to_thread(self._embed_all, texts)
 
     def _embed_all(self, texts: list[str]) -> list[list[float]]:
-        spec = _model_spec(self._model)
-        api_model = spec.api_id if spec else self._model
+        # The wire name is resolved against the configured endpoint, so the
+        # same configured model reaches a hosted API and a local Ollama
+        # runtime under the identifier each of them actually knows.
+        api_model = api_model_name(self._model, self.base_url)
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = texts[start : start + self.batch_size]

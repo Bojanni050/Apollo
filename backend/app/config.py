@@ -160,6 +160,33 @@ class Settings(BaseSettings):
     # used, so the application works with no paid external API.
     embedding_api_base_url: str | None = None
     embedding_api_key: str | None = None
+    # Which local runtime manages embedding models: "ollama" (the daemon's own
+    # pull API) or "llamacpp" (a models directory the app fills itself; there is
+    # no pull API in llama.cpp). This decides where downloads go and which
+    # identifier the model gets on the wire. It does NOT decide where embeddings
+    # are served: that stays EMBEDDING_API_BASE_URL, because either runtime can
+    # also be pointed at a hosted endpoint.
+    embedding_runtime: str = Field(default="ollama", pattern="^(ollama|llamacpp)$")
+    # Where llama.cpp weights are stored, and where EMBEDDING_API_BASE_URL
+    # points when the operator is running llama-server locally. Resolved against
+    # the backend directory when relative, like source_checkout_root.
+    llamacpp_models_dir: str = "./models"
+    llamacpp_base_url: str = "http://127.0.0.1:8080/v1"
+
+    @property
+    def effective_llamacpp_models_dir(self) -> str:
+        """Absolute path to the llama.cpp models directory.
+
+        Resolved against the backend directory so it does not depend on the
+        process working directory, which differs between the dev server, the
+        packaged desktop app and a service install.
+        """
+        from pathlib import PurePath
+
+        value = self.llamacpp_models_dir or "./models"
+        if PurePath(value).is_absolute():
+            return value
+        return str((BACKEND_DIR / value).resolve())
 
     @property
     def effective_source_checkout_root(self) -> str:

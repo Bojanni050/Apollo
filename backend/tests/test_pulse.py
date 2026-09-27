@@ -22,12 +22,14 @@ from fastapi.testclient import TestClient
 from app.llm.base import LLMResponse
 from app.models import WorkspacePulseSettings
 from app.services.pulse import (
+    PulseError,
     _hash_document,
     _parse_response,
     apply_pulse_item,
     run_pulse,
     with_pulse_front_matter,
 )
+from tests.conftest import llm_is_configured as _llm_is_configured
 from tests.test_chat_agent import ScriptedProvider
 
 
@@ -123,6 +125,79 @@ def test_apply_requires_something_to_write() -> None:
     item = PulseItem(run_id=1, file_path="a.md", tags=[], connections=[])
     with pytest.raises(Exception):
         apply_pulse_item("/does-not-matter", item)
+
+
+def test_tags_only_write_leaves_connections_untouched() -> None:
+    """Accepting the tags must not write, and must not erase, the connections.
+
+    A reader often finds the tags fair and the inferred connections wrong, so
+    the two are separable. Passing None for connections means "leave that key
+    exactly as it was" -- writing an empty list here would silently drop a
+    connection the author had already accepted.
+    """
+    base = "---\npulse-connections: [{\"path\": \"beta.md\"}]\n---\n\n# Alpha\n\nBody\n"
+    out = with_pulse_front_matter(base, ["keep", "this"], None)
+    assert 'pulse-tags: ["keep", "this"]' in out
+    assert "pulse-connections:" in out
+    assert "beta.md" in out, "the existing connection was destroyed by a tags-only write"
+    assert out.endswith("Body\n")
+
+
+def test_connections_only_write_leaves_tags_untouched() -> None:
+    base = "---\npulse-tags: [\"original\"]\n---\n\n# Alpha\n\nBody\n"
+    conns = [{"path": "beta.md", "relation": "relates-to", "why": "shared model"}]
+    out = with_pulse_front_matter(base, None, conns)
+    assert 'pulse-tags: ["original"]' in out
+    assert "pulse-connections:" in out
+    assert "beta.md" in out
+
+
+def test_applying_only_tags_marks_the_item_still_pending(doc_repo: Path) -> None:
+    """A partial write must not claim the whole suggestion was accepted.
+
+    Marking it applied would remove the remaining choice: the connections could
+    no longer be accepted afterwards, and the reader would have no way back.
+
+    Uses the real git-backed fixture rather than a bare temp directory, because
+    the guarded write path refuses to overwrite an untracked document -- a
+    document with no commit behind it could not be restored.
+    """
+    from app.models import PulseItem
+
+    item = PulseItem(
+        run_id=1,
+        file_path="README.md",
+        tags=["one"],
+        connections=[{"path": "README.md", "relation": "relates-to", "why": "x"}],
+    )
+    apply_pulse_item(str(doc_repo), item, ("tags",))
+    assert item.decision == "pending"
+
+    written = (doc_repo / "README.md").read_text(encoding="utf-8")
+    assert "pulse-tags:" in written
+    assert "pulse-connections:" not in written, "a tags-only write wrote the connections too"
+    assert "Documentation root" in written, "the document body was damaged"
+
+    # The remaining half can still be decided, and then it counts as accepted.
+    apply_pulse_item(str(doc_repo), item, ("connections",))
+    assert item.decision == "applied"
+    assert "pulse-connections:" in (doc_repo / "README.md").read_text(encoding="utf-8")
+
+
+def test_applying_both_marks_the_item_applied(doc_repo: Path) -> None:
+    from app.models import PulseItem
+
+    item = PulseItem(run_id=1, file_path="README.md", tags=["one"], connections=[])
+    apply_pulse_item(str(doc_repo), item)
+    assert item.decision == "applied"
+
+
+def test_unknown_part_is_refused() -> None:
+    from app.models import PulseItem
+
+    item = PulseItem(run_id=1, file_path="a.md", tags=["x"], connections=[])
+    with pytest.raises(PulseError):
+        apply_pulse_item("/does-not-matter", item, ("nonsense",))
 
 
 # --------------------------------------------------------------------------
@@ -239,6 +314,18 @@ def test_run_is_incremental(doc_repo: Path) -> None:
 # --------------------------------------------------------------------------
 
 
+# This test asserts what happens with NO provider configured. A developer .env
+# with a working model inverts its premise: the run succeeds and returns 200, so
+# the test fails for a reason that has nothing to do with the code under test.
+#
+# Skipping it unconditionally would also switch it off in CI and on a fresh
+# checkout, which is exactly where it is worth having. The condition is therefore
+# the environment, not the test: no provider here, run it and check the refusal;
+# a provider here, there is nothing to assert.
+@pytest.mark.skipif(
+    _llm_is_configured(),
+    reason="an LLM is configured in this environment, so the no-provider refusal cannot be exercised",
+)
 def test_pulse_endpoints_require_llm_configuration(client: TestClient, workspace: dict) -> None:
     """Without an LLM configured the run is refused, not crashed."""
     response = client.post(f"/api/workspaces/{workspace['id']}/pulse/runs", json={})

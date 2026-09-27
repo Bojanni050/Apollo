@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -56,6 +56,71 @@ class DatabaseResetRequest(BaseModel):
 
 class DatabaseResetResponse(BaseModel):
     deleted_workspaces: int
+
+
+class EmbeddingModelOut(BaseModel):
+    """One recommended embedding model as a given runtime can serve it."""
+
+    name: str
+    label: str
+    role: str | None = None
+    dimension: int | None = None
+    note: str | None = None
+    runtime: str
+    #: The name this runtime resolves the model by, or None when it cannot
+    #: serve it at all.
+    identifier: str | None = None
+    #: False when this runtime has no way to fetch the model.
+    downloadable: bool = False
+    installed: bool = False
+    #: True when this is one of the two models currently configured.
+    in_use: bool = False
+    #: True for a vendor-published build, False for a community conversion.
+    #: None when the runtime has no download for this model.
+    official: bool | None = None
+    #: Provenance, shown so an unofficial build is never passed off as the
+    #: official weights.
+    source: str | None = None
+
+
+class LocalRuntimeOut(BaseModel):
+    id: str
+    label: str
+    available: bool
+    message: str | None = None
+    address: str
+    active: bool
+
+
+class EmbeddingModelsResponse(BaseModel):
+    runtime: str
+    runtime_label: str
+    runtime_available: bool
+    runtime_message: str | None = None
+    runtime_address: str
+    runtimes: list[LocalRuntimeOut]
+    models: list[EmbeddingModelOut]
+
+
+class ModelPullRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    runtime: str = Field(default="ollama", pattern="^(ollama|llamacpp)$")
+
+
+class ModelPullStatusOut(BaseModel):
+    model: str
+    runtime: str
+    status: str
+    message: str | None = None
+    total_bytes: int | None = None
+    completed_bytes: int | None = None
+    percent: float | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    #: True once a completed download means an index built with the previous
+    #: provider's vectors is stale. The UI offers a re-index rather than
+    #: letting the operator believe the change took effect on its own.
+    reindex_recommended: bool = False
 
 
 
@@ -507,6 +572,83 @@ def pick_native_folder() -> NativePickResponse:
         return NativePickResponse(cancelled=True, error="Folder picker timed out.")
     except Exception as exc:
         return NativePickResponse(error=f"Could not open native folder dialog: {exc}")
+
+
+@router.get("/embedding-models", response_model=EmbeddingModelsResponse)
+def list_embedding_models(
+    runtime: str | None = Query(
+        None, description="Runtime id; defaults to the configured EMBEDDING_RUNTIME."
+    ),
+) -> EmbeddingModelsResponse:
+    """The recommended models as one runtime can serve and fetch them.
+
+    Reports runtime reachability up front so the UI can explain an empty or
+    disabled list of downloads with the actual reason, instead of leaving the
+    operator wondering whether the feature is broken. Every known runtime is
+    returned, so the UI can offer the switch without a second request.
+    """
+    from app.services import model_manager
+
+    try:
+        selected = model_manager.get_runtime(runtime) if runtime else model_manager.active_runtime()
+    except model_manager.ModelManagerError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    available, message = selected.probe()
+    return EmbeddingModelsResponse(
+        runtime=selected.id,
+        runtime_label=selected.label,
+        runtime_available=available,
+        runtime_message=message,
+        runtime_address=selected.address(),
+        runtimes=[LocalRuntimeOut(**r) for r in model_manager.describe_runtimes()],
+        models=[
+            EmbeddingModelOut(**entry)
+            for entry in model_manager.catalog_for_runtime(selected.id)
+        ],
+    )
+
+
+@router.get("/embedding-models/pull", response_model=ModelPullStatusOut)
+def embedding_model_pull_status(
+    model: str = Query(..., min_length=1),
+    runtime: str = Query("ollama", pattern="^(ollama|llamacpp)$"),
+) -> ModelPullStatusOut:
+    """Progress of a model download, for polling."""
+    from app.services import model_manager
+
+    return _pull_status_out(model_manager.get_pull_status(runtime, model))
+
+
+@router.post("/embedding-models/pull", response_model=ModelPullStatusOut)
+def pull_embedding_model(payload: ModelPullRequest) -> ModelPullStatusOut:
+    """Start downloading a recommended embedding model to a local runtime.
+
+    Returns immediately with the live status; the download itself runs in a
+    background thread and is polled through the GET above. Deliberately does
+    not write any configuration: activating the model is a separate, explicit
+    operator decision because it invalidates the existing vector index.
+    """
+    from app.services import model_manager
+
+    try:
+        progress = model_manager.start_pull(payload.runtime, payload.model)
+    except model_manager.ModelManagerError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return _pull_status_out(progress)
+
+
+def _pull_status_out(progress) -> ModelPullStatusOut:
+    """Shape a pull's progress for the API, flagging the follow-up action.
+
+    A completed download does not by itself change anything: the vectors
+    already stored were produced by the previous provider, so they stay stale
+    until EMBEDDING_API_BASE_URL points at the runtime and a re-index runs.
+    Surfacing that here keeps the operator from assuming the switch is done.
+    """
+    data = progress.as_dict()
+    data["reindex_recommended"] = progress.status == "completed"
+    return ModelPullStatusOut(**data)
 
 
 @router.post("/database/reset", response_model=DatabaseResetResponse)

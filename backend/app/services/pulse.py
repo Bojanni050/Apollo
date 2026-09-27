@@ -32,7 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -101,22 +101,35 @@ def _hash_document(content: str) -> str:
     return hashlib.sha256(relevant.strip().encode("utf-8", errors="replace")).hexdigest()
 
 
-def with_pulse_front_matter(content: str, tags: list, connections: list) -> str:
+def with_pulse_front_matter(
+    content: str,
+    tags: list | None,
+    connections: list | None,
+) -> str:
     """Return `content` with Pulse keys written into its YAML front matter.
 
     Existing front matter is preserved; only the ``pulse-*`` keys are
     replaced. A document without front matter gets one. The author's prose is
     never touched, which is why front matter was chosen over inline text.
+
+    ``tags`` and ``connections`` are independent and either may be None, which
+    means "leave this key exactly as the author had it". That is what makes it
+    possible to accept the tags and decline the connections, or the reverse:
+    passing a list writes it, passing None leaves the existing line alone.
+    Passing an empty list clears the key on purpose.
     """
-    tag_line = f"{FRONT_MATTER_TAGS}: {json.dumps(tags, ensure_ascii=False)}"
-    conn_line = (
-        f"{FRONT_MATTER_CONNECTIONS}: {json.dumps(connections, ensure_ascii=False)}"
-    )
     lines = content.splitlines()
+    existing_tags = None
+    existing_conns = None
     if lines and lines[0].strip() == "---":
         end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
         if end is None:
             raise PulseError("The document starts with '---' but has no closing fence.")
+        for line in lines[1:end]:
+            if line.startswith(f"{FRONT_MATTER_TAGS}:"):
+                existing_tags = line.split(":", 1)[1].strip()
+            elif line.startswith(f"{FRONT_MATTER_CONNECTIONS}:"):
+                existing_conns = line.split(":", 1)[1].strip()
         kept = [
             line
             for line in lines[1:end]
@@ -131,32 +144,74 @@ def with_pulse_front_matter(content: str, tags: list, connections: list) -> str:
         body = "\n".join(body_lines)
         if content.endswith("\n"):
             body += "\n"
-        block = kept + [tag_line, conn_line]
+        # A key left as None keeps whatever the author (or an earlier run) had,
+        # so accepting the tags alone cannot silently wipe the connections.
+        tag_value = json.dumps(tags, ensure_ascii=False) if tags is not None else existing_tags
+        conn_value = (
+            json.dumps(connections, ensure_ascii=False)
+            if connections is not None
+            else existing_conns
+        )
+        tag_line = f"{FRONT_MATTER_TAGS}: {tag_value}" if tag_value is not None else None
+        conn_line = f"{FRONT_MATTER_CONNECTIONS}: {conn_value}" if conn_value is not None else None
+        block = kept + [line for line in (tag_line, conn_line) if line is not None]
         return "---\n" + "\n".join(block) + "\n---\n\n" + body
-    return f"---\n{tag_line}\n{conn_line}\n---\n\n{content}"
 
+    # No front matter to preserve, so both keys are written when given.
+    lines_out = []
+    if tags is not None:
+        lines_out.append(f"{FRONT_MATTER_TAGS}: {json.dumps(tags, ensure_ascii=False)}")
+    if connections is not None:
+        lines_out.append(
+            f"{FRONT_MATTER_CONNECTIONS}: {json.dumps(connections, ensure_ascii=False)}"
+        )
+    if not lines_out:
+        raise PulseError("Nothing to write: no tags or connections were selected.")
+    return "---\n" + "\n".join(lines_out) + "\n---\n\n" + content
 
-def apply_pulse_item(root: str, item: PulseItem) -> str:
-    """Write one suggestion into its document. Returns the applied path.
+def apply_pulse_item(
+    root: str,
+    item: PulseItem,
+    parts: Sequence[str] = ("tags", "connections"),
+) -> str:
+    """Write a suggestion into its document. Returns the applied path.
 
     Goes through plan_edit + apply_change -- the same guarded write path as
     every other write -- so path safety and the atomic write are not bypassed
     here.
+
+    ``parts`` selects which halves of the suggestion to write. A reader often
+    likes the tags and not the inferred connections, so the two are separable:
+    passing ``("tags",)`` writes the tags and leaves any existing connections
+    untouched, and vice versa. The item is only marked ``applied`` when both
+    halves are in ``parts``; a partial write stays ``pending`` so the remainder
+    can still be decided.
     """
-    if not item.tags and not item.connections:
+    unknown = set(parts) - {"tags", "connections"}
+    if unknown:
+        raise PulseError(f"Unknown suggestion part(s): {', '.join(sorted(unknown))}.")
+    selected_tags = list(item.tags) if "tags" in parts else None
+    selected_conns = list(item.connections) if "connections" in parts else None
+    if not any((selected_tags, selected_conns)):
         item.decision = "skipped"
         raise PulseError("Nothing to apply: this suggestion has no tags or connections.")
     try:
         content = read_document(root, item.file_path)
     except (OSError, PathSecurityError) as exc:
         raise PulseError(f"Cannot read {item.file_path}: {exc}") from exc
-    updated = with_pulse_front_matter(content, item.tags or [], item.connections or [])
+    updated = with_pulse_front_matter(content, selected_tags, selected_conns)
     try:
         change = plan_edit(root, item.file_path, updated)
         applied = apply_change(root, change)
     except Exception as exc:  # ProposalError and friends; surface verbatim
         raise PulseError(str(exc)) from exc
-    item.decision = "applied"
+    # Both halves are now on disk, so track that rather than trusting this
+    # call's `parts` alone: accepting the tags and then the connections is two
+    # partial calls that together complete the suggestion. The earlier halves
+    # live in the file, not on the item, so they are carried across here.
+    written = set(getattr(item, "applied_parts", None) or ()) | set(parts)
+    item.applied_parts = sorted(written)
+    item.decision = "applied" if written >= {"tags", "connections"} else "pending"
     return applied
 
 

@@ -20,6 +20,9 @@ interface Props {
   proposals: Proposal[]
   conversations: Conversation[]
   activeConversation: ConversationDetail | null
+  // The active mode when no conversation exists yet: the chat creates one on
+  // the first message, and the mode chosen in the meantime is carried over.
+  pendingMode: Mode
   onSendMessage: (text: string) => Promise<void>
   onModeChange: (mode: Mode) => Promise<void>
   sending: boolean
@@ -47,6 +50,7 @@ export function ContextSidebar({
   proposals,
   conversations: _conversations,
   activeConversation,
+  pendingMode,
   onSendMessage,
   onModeChange,
   sending,
@@ -186,7 +190,7 @@ export function ContextSidebar({
                 <button
                   key={m}
                   type="button"
-                  className={`context-mode-chip ${activeConversation?.mode === m ? 'active' : ''}`}
+                  className={`context-mode-chip ${(activeConversation?.mode ?? pendingMode) === m ? 'active' : ''}`}
                   onClick={() => onModeChange(m)}
                 >
                   {m}
@@ -196,7 +200,7 @@ export function ContextSidebar({
 
             {/* Chat messages */}
             <div className="context-messages-list">
-              {activeConversation?.messages.length === 0 ? (
+              {(activeConversation?.messages.length ?? 0) === 0 ? (
                 <div className="context-chat-empty">
                   <div className="empty-sparkle">✨</div>
                   <p>Ask anything about this document, its citations, or request architectural enhancements.</p>
@@ -336,45 +340,58 @@ export function ContextSidebar({
                       </button>
                     </div>
                   )}
-                {pulseRun.items.map((it) => (
-                  <div key={it.id} className="context-inventory-item">
-                    <div className="item-name">{it.file_path}</div>
-                    {it.tags.length > 0 && (
-                      <div className="item-status">
-                        tags: {it.tags.join(', ')}
-                      </div>
-                    )}
-                    {it.connections.map((c, idx) => (
-                      <div key={idx} className="item-status">
-                        {c.relation} → {c.path}
-                        {c.why ? ` (${c.why})` : ''}
-                      </div>
-                    ))}
-                    <div className="item-status">{it.decision}</div>
-                    {it.decision === 'pending' && (
-                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                        <button
-                          type="button"
-                          className="btn text-sm"
-                          style={{ fontSize: 11, padding: '2px 6px' }}
-                          onClick={() => onApplyPulseItem(it.id)}
-                          disabled={busy}
-                        >
-                          Apply
-                        </button>
-                        <button
-                          type="button"
-                          className="btn text-sm"
-                          style={{ fontSize: 11, padding: '2px 6px' }}
-                          onClick={() => onSkipPulseItem(it.id)}
-                          disabled={busy}
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {pulseRun.items.map((it) => {
+                  const done = it.decision === 'applied'
+                  const gone = it.decision === 'skipped'
+                  return (
+                    <div key={it.id} className="context-inventory-item">
+                      <div className="item-name">{it.file_path}</div>
+                      {it.tags.length > 0 && (
+                        <div className="item-status">
+                          tags: {it.tags.join(', ')}
+                        </div>
+                      )}
+                      {it.connections.map((c, idx) => (
+                        <div key={idx} className="item-status">
+                          {c.relation} → {c.path}
+                          {c.why ? ` (${c.why})` : ''}
+                        </div>
+                      ))}
+                      {/* No buttons once decided. They used to stay clickable
+                          and the only outcome of a second click was a 409, so
+                          the buttons implied a choice that was no longer
+                          available. */}
+                      {it.decision === 'pending' && (
+                        <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                          <button
+                            type="button"
+                            className="btn text-sm"
+                            style={{ fontSize: 11, padding: '2px 6px' }}
+                            onClick={() => onApplyPulseItem(it.id)}
+                            disabled={busy}
+                          >
+                            Apply
+                          </button>
+                          <button
+                            type="button"
+                            className="btn text-sm"
+                            style={{ fontSize: 11, padding: '2px 6px' }}
+                            onClick={() => onSkipPulseItem(it.id)}
+                            disabled={busy}
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      )}
+                      {done && (
+                        <div className="item-status">Applied — the file was written.</div>
+                      )}
+                      {gone && (
+                        <div className="item-status">Skipped — the file was left untouched.</div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

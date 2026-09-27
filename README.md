@@ -393,6 +393,46 @@ The inventory may create a target folder that does not exist yet (that is how
 the structure gets established), but a *manually* requested move into a
 non-existent folder is still refused, because that is more likely a typo.
 
+## Delphi Pulse
+
+A scan of the documentation that proposes **thematic tags** and **connections**
+between documents, so the corpus becomes findable by topic and its cross-links
+surface instead of living only in a maintainer's head.
+
+```
+run    POST   /pulse/runs                                  -> a run
+read   GET    /pulse/runs/{id}                             -> the suggestions
+decide POST   /pulse/runs/{id}/items/{i}/apply              -> accept
+       POST   /pulse/runs/{id}/items/{i}/apply  {"parts": ["tags"]}
+       POST   /pulse/runs/{id}/items/{i}/skip
+```
+
+Accepted suggestions are written into the document's YAML front matter as
+`pulse-tags` and `pulse-connections`. The prose is never touched, which is why
+front matter was chosen over inline text.
+
+**Tags and connections are separately acceptable.** The tags are usually a fair
+description of a document, while the inferred connections are the part worth
+thinking about, so the endpoint takes `parts` and writes only what you name.
+`null` on the other side means *leave that key as the author had it* — accepting
+the tags never silently drops connections you accepted earlier. The item stays
+`pending` until both halves are in, and `applied_parts` records which have been,
+so a half-accepted item still offers the remaining choice after a reload.
+
+The review panel lives in the **reading pane**, above the document it describes
+and separated from it by a divider: judging a suggestion means comparing it with
+the text, which the narrow sidebar is the wrong place for.
+
+A scan is incremental by content hash, computed *without* the Pulse front matter
+— so applying suggestions never invalidates itself and forces a re-scan.
+
+**Scan mode and the automatic schedule are under Settings → Delphi Pulse** —
+whether a scan only suggests or auto-applies, and whether it runs by itself
+every N hours or weekly. That section is per-workspace, so it is hidden when
+there is no workspace yet. It used to live in a Pulse-only dialog reachable
+solely through a small gear in the Pulse view, which is a hard place to find a
+setting you only occasionally need.
+
 ## Layout
 
 ```
@@ -424,17 +464,22 @@ backend/
       tools.py          the AI's read-only toolbelt
       agent.py          the tool-calling loop
       inventory.py      content-based document classification
+      pulse.py          Delphi Pulse: tags, connections, partial acceptance
   tests/                103 tests + a mock LLM server for manual runs
 frontend/
   src/
     api/client.ts       typed API client (the only place URLs are built)
     markdown.tsx        small Markdown renderer; no innerHTML, no dependencies
+    theme.ts            theme choice, applied before the first paint
+    columnResize.tsx    draggable list-column widths and the divider control
     App.tsx             state and orchestration
     components/
-      WorkspacePanel.tsx    left: repositories + document tree
-      ConversationPanel.tsx centre: messages, mode switch, citations
-      ContextPanel.tsx      right: document / inventory / proposals
-  scripts/smoke.mjs     browser smoke test (playwright)
+      NavigationColumn.tsx      left: sections, workspace switcher, counts
+      FolderContentsColumn.tsx centre: the object list for a section
+      FileContentColumn.tsx    right: the selected object
+      ContextSidebar.tsx       far right: chat, proposals, inventory
+      SettingsModal.tsx        provider config, incl. embedding models
+  scripts/             playwright smoke tests (theme, models, columns)
 ```
 
 ## Configuring the AI
@@ -461,6 +506,135 @@ tiny OpenAI-compatible server that exercises the whole tool loop:
 python tests/mock_llm_server.py 8097
 LLM_BASE_URL=http://127.0.0.1:8097/v1 LLM_MODEL=mock uvicorn app.main:app
 ```
+
+## Configuring semantic search (embeddings)
+
+Semantic search is a separate concern from the chat model. A chat model reads
+and writes text; an embedding model turns text into vectors. Configuring
+`LLM_MODEL` does not give you semantic search.
+
+With no embedding endpoint configured, the app falls back to a built-in hash
+embedder. It is deterministic and dependency-free, so indexing and retrieval
+work offline, but it is **not** a semantic model: it matches shared words, never
+synonyms. "How do I deploy?" will not find "publishing to production".
+
+### Downloading a model from the app
+
+Open **Settings → Semantic index** and pick a runtime. The two supported
+runtimes both serve the standard OpenAI `/v1/embeddings` API; they differ in
+where the weights come from and in what they can fetch.
+
+| | Ollama | llama.cpp |
+|---|---|---|
+| Download | the daemon's own `pull` API | the app fetches a GGUF over HTTPS |
+| Progress | per-layer, so it moves in steps | exact, from a real `Content-Length` |
+| bge-m3 (docs) | ✅ official build | ⚠️ community conversion |
+| Jina code (code) | ❌ no such model | ✅ official Jina GGUF |
+
+That asymmetry is real and checked against the HuggingFace API, not assumed:
+BAAI publishes no GGUF for bge-m3, while Jina publishes one themselves. The
+app labels a community conversion as *unofficial* rather than passing it off as
+the vendor's weights.
+
+**Ollama**
+
+1. Install and start [Ollama](https://ollama.com).
+2. Press **Download** on `BAAI/bge-m3`.
+3. Set `EMBEDDING_API_BASE_URL=http://127.0.0.1:11434/v1` and restart the backend.
+
+**llama.cpp**
+
+1. Build or install `llama-server`.
+2. Press **Download**. The app writes the GGUF into `LLAMACPP_MODELS_DIR`
+   (default `backend/models`). It does this itself because llama-server has no
+   download API — its documentation assumes you already have a model.
+3. Start the server on the file, then point the app at it:
+
+   ```bash
+   llama-server -m backend/models/bge-m3-Q8_0.gguf --embedding --port 8080
+   # backend/.env:
+   #   EMBEDDING_RUNTIME=llamacpp
+   #   EMBEDDING_API_BASE_URL=http://127.0.0.1:8080/v1
+   ```
+
+Then re-index the workspace. This is required, not optional: the stored vectors
+came from the previous provider and live in a different vector space, so
+searching them against a new model silently returns nonsense.
+
+Downloading only makes a model *available*. It never changes configuration on
+its own — switching models invalidates the index, and that is an explicit
+decision.
+
+### Using a hosted provider instead
+
+Any OpenAI-compatible `/embeddings` endpoint works:
+
+```bash
+EMBEDDING_API_BASE_URL=https://api.jina.ai/v1
+EMBEDDING_API_KEY=...
+```
+
+The model **name** differs per endpoint, and the app translates it for you:
+`BAAI/bge-m3` is sent to a hosted API as `BAAI/bge-m3`, to Ollama as `bge-m3`,
+and to llama-server as `bge-m3-Q8_0.gguf`. Leave `CODE_EMBEDDING_MODEL` and
+`DOCUMENT_EMBEDDING_MODEL` at their defaults and the wire name follows the
+endpoint.
+
+### Changing models later
+
+Every stored chunk records the model and dimension it was embedded with, so
+the app detects a mismatch and reports `reindex_required` instead of quietly
+comparing vectors from different models.
+
+## Appearance
+
+Two colour themes, under **Settings → Appearance**.
+**Standard** is the original: pure white surfaces, near-black text.
+
+**Calm Mode** uses the palette from [intro.higaia.nl](https://intro.higaia.nl/) —
+a dark, warm scheme built on that site's `ink`, `gold` and `sage` scales:
+
+| Role | Colour | Source |
+|---|---|---|
+| Page | `#0D0C0A` | ink-950 (the site's own body colour) |
+| Text | `#E9E7E0` | ink-100 |
+| Muted text | `#B3AEA0` | ink-300 |
+| Accent | `#DCBE88` | gold-300 |
+| Secondary | `#7C9A82` | sage-400 |
+
+The choice is remembered in `localStorage` and applied before the first paint,
+so it survives a reload without a flash of the other theme.
+
+Scrollbars are themed through `--scrollbar-thumb` rather than left to the
+browser default, because the default is a light grey bar and that is the most
+glaring thing left on a dark page. Calm Mode's thumb is `#605D55`, picked for
+measured contrast rather than by eye: `1.4:1` against the background is dark but
+invisible in practice, and this reaches `3.19:1`. The track is transparent on
+purpose — a visible track is a second rectangle competing with the panel it
+sits in.
+
+The two list columns are resizable. Drag the border between the navigation and
+the object list, or between the object list and the document. The widths persist
+in `localStorage` alongside the theme.
+
+Together they are capped at **half the viewport width**, so the document column
+— the only flexible one, and the reason the app exists — always keeps at least
+half the screen. Below about 780px wide the two minimums (170px and 220px) need
+more than their share, and they win: a column too narrow to read is worse than a
+document column that has collapsed, and the layout does not target that width
+anyway.
+
+Each divider is also a real control, not just a drag target: it takes focus,
+responds to the arrow keys (Shift for a coarser step), and `Home` or a
+double-click restores the defaults. Dragging alone would leave the layout
+unreachable without a mouse.
+
+Two notes on the palette. Every foreground clears WCAG AA on the surface it
+sits on (body text 15.8:1, muted 8.8:1, faint 5.6:1); the darker members of the
+source scales are deliberately not used as text on a dark surface, and the
+comment in `app.css` records which ones and why. And the source palette
+contains no red, so error states use a light terracotta (`#C97B66`): still
+unmistakably an alert, without the glare of the standard `#E11D48`.
 
 ## Running
 
@@ -714,6 +888,16 @@ out-of-date database refuses to start:
 ```
 The database schema is out of date. Missing migration(s): 0002_....
 Run `alembic upgrade head`, or set DB_MIGRATE_ON_STARTUP=true.
+```
+
+A database built by `create_all` that is *also* behind the head needs a two-step
+adoption rather than one command. It has no `alembic_version` row, so `upgrade`
+would try to replay `0001` and fail; and `stamp head` would skip the migrations
+it is genuinely missing.
+
+```bash
+alembic stamp 0007_pulse_schedules   # the revision the schema corresponds to
+alembic upgrade head                 # applies 0008 and anything after it
 ```
 
 Setting `DB_MIGRATE_ON_STARTUP=true` applies pending migrations on boot. That is

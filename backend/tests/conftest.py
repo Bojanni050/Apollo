@@ -30,8 +30,24 @@ os.environ.pop("ALLOWED_WORKSPACE_ROOTS", None)
 os.environ.pop("CORS_ORIGINS", None)
 
 from app import models  # noqa: E402,F401  (registers tables on Base.metadata)
+from app.config import settings  # noqa: E402
 from app.db import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+def llm_is_configured() -> bool:
+    """Whether this machine can actually build a provider.
+
+    ``app.llm.get_provider`` needs a base URL and a model, for the background
+    role or the primary fallback; anything less raises ``LLMNotConfigured``.
+
+    A few tests assert what the API does when *no* provider exists. A developer
+    .env with a working model inverts that premise, so those tests can only run
+    on a machine without one. They are marked with this predicate rather than
+    skipped outright, so a fresh checkout and CI -- where the LLM is genuinely
+    absent -- still exercise the refusal path.
+    """
+    return bool((settings.background_llm_model or settings.llm_model) and settings.llm_base_url)
 
 
 @pytest.fixture()

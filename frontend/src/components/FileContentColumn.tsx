@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Repository } from '../api/client'
+import type { PulseItem, PulseItemPart, Repository } from '../api/client'
 import { renderMarkdown } from '../markdown'
 import type { ItemCard } from './FolderContentsColumn'
 
@@ -11,6 +11,17 @@ interface Props {
   onToggleContext?: () => void
   contextOpen?: boolean
   onDelete?: () => void
+  /**
+   * The Pulse suggestion for the open document, if any.
+   *
+   * Reviewing a suggestion needs the document and the suggestion side by side,
+   * which is why this lives in the reading pane rather than in the narrow
+   * sidebar, where a diff and a list of tags are both cramped.
+   */
+  pulseItem?: PulseItem | null
+  busy?: boolean
+  onApplyPulsePart?: (itemId: number, parts: PulseItemPart[]) => void
+  onSkipPulseItem?: (itemId: number) => void
 }
 
 export function FileContentColumn({
@@ -21,12 +32,29 @@ export function FileContentColumn({
   onToggleContext,
   contextOpen,
   onDelete,
+  pulseItem = null,
+  busy = false,
+  onApplyPulsePart = () => {},
+  onSkipPulseItem = () => {},
 }: Props) {
   const [showRaw, setShowRaw] = useState(false)
   const [tags, setTags] = useState<string[]>(['pulse-weave'])
   const [copied, setCopied] = useState(false)
 
   const activeContent = documentMarkdown ?? selectedItem?.snippet ?? null
+
+  /**
+   * Whether each half of the suggestion has already been written.
+   *
+   * A partial accept leaves the item pending, so the decision alone cannot say
+   * what is left to do. `appliedParts` is the record; when it is absent the
+   * whole suggestion is still open.
+   */
+  const acceptedParts = pulseItem?.applied_parts ?? []
+  const pulseTagsDone =
+    pulseItem?.decision === 'applied' || acceptedParts.includes('tags')
+  const pulseConnsDone =
+    pulseItem?.decision === 'applied' || acceptedParts.includes('connections')
 
   const handleShare = () => {
     navigator.clipboard?.writeText(window.location.href)
@@ -166,8 +194,153 @@ export function FileContentColumn({
             </button>
           </div>
 
+          {/* Pulse review panel. The suggestions get the wide reading pane
+              rather than the sidebar: they need room to be judged next to the
+              document they are about, and the decision is per-suggestion, not
+              per-run. */}
+          {pulseItem && (
+            <section className="pulse-review" aria-label="Delphi Pulse suggestions">
+              <header className="pulse-review-head">
+                <span className="pulse-review-badge">✦ Delphi Pulse</span>
+                <span className="pulse-review-path">{pulseItem.file_path}</span>
+                {pulseItem.confidence !== null && (
+                  <span className="pulse-review-confidence">
+                    confidence {Math.round(pulseItem.confidence * 100)}%
+                  </span>
+                )}
+              </header>
+
+              {pulseItem.summary && (
+                <p className="pulse-review-summary">{pulseItem.summary}</p>
+              )}
+
+              <div className="pulse-review-groups">
+                {/* Tags: the part that is usually fair about a document, and
+                    the part worth accepting on its own. */}
+                <div className="pulse-review-group">
+                  <div className="pulse-review-group-head">
+                    <span className="pulse-review-group-title">Suggested tags</span>
+                    {pulseTagsDone && (
+                      <span className="pulse-review-group-state done">applied</span>
+                    )}
+                  </div>
+                  {pulseItem.tags.length === 0 ? (
+                    <p className="pulse-review-none">No tags suggested.</p>
+                  ) : (
+                    <>
+                      <div className="pulse-review-chips">
+                        {pulseItem.tags.map((t) => (
+                          <span key={t} className="pulse-review-chip">
+                            #{t}
+                          </span>
+                        ))}
+                      </div>
+                      {!pulseTagsDone && (
+                        <div className="pulse-review-actions">
+                          <button
+                            type="button"
+                            className="btn small primary"
+                            onClick={() => onApplyPulsePart(pulseItem.id, ['tags'])}
+                            disabled={busy}
+                          >
+                            Accept tags
+                          </button>
+                          <button
+                            type="button"
+                            className="btn small"
+                            onClick={() => onSkipPulseItem(pulseItem.id)}
+                            disabled={busy}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Connections: inferences between documents, so these get their
+                    own accept, separately from the tags. */}
+                <div className="pulse-review-group">
+                  <div className="pulse-review-group-head">
+                    <span className="pulse-review-group-title">Suggested connections</span>
+                    {pulseConnsDone && (
+                      <span className="pulse-review-group-state done">applied</span>
+                    )}
+                  </div>
+                  {pulseItem.connections.length === 0 ? (
+                    <p className="pulse-review-none">No connections suggested.</p>
+                  ) : (
+                    <>
+                      <ul className="pulse-review-conns">
+                        {pulseItem.connections.map((c, idx) => (
+                          <li key={idx} className="pulse-review-conn">
+                            <span className={`pulse-conn-relation ${c.relation}`}>
+                              {c.relation}
+                            </span>
+                            <span className="pulse-conn-path">{c.path}</span>
+                            {c.why && <span className="pulse-conn-why">{c.why}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                      {!pulseConnsDone && (
+                        <div className="pulse-review-actions">
+                          <button
+                            type="button"
+                            className="btn small primary"
+                            onClick={() => onApplyPulsePart(pulseItem.id, ['connections'])}
+                            disabled={busy}
+                          >
+                            Accept connections
+                          </button>
+                          <button
+                            type="button"
+                            className="btn small"
+                            onClick={() => onSkipPulseItem(pulseItem.id)}
+                            disabled={busy}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Both halves still open: the one-click route. */}
+                {pulseItem.decision === 'pending' &&
+                  !pulseTagsDone &&
+                  !pulseConnsDone &&
+                  (pulseItem.tags.length > 0 || pulseItem.connections.length > 0) && (
+                    <div className="pulse-review-actions both">
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => onApplyPulsePart(pulseItem.id, ['tags', 'connections'])}
+                        disabled={busy}
+                      >
+                        Accept both
+                      </button>
+                    </div>
+                  )}
+              </div>
+
+              {pulseItem.decision !== 'pending' && (
+                <p className="pulse-review-closed">
+                  {pulseItem.decision === 'applied'
+                    ? 'This suggestion was applied to the document.'
+                    : 'This suggestion was declined. The file was left untouched.'}
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* Divider between the review panel and the document itself. */}
+          {pulseItem && <div className="pulse-document-divider" />}
+
           {/* Rendered Prose Content */}
           {activeContent ? (
+
             <div className="file-document-body">
               {showRaw ? (
                 <pre className="file-raw-markdown">{activeContent}</pre>

@@ -77,7 +77,7 @@ export function AddRepoModal({
 
           <form onSubmit={handleSubmit} style={{ padding: '16px 20px' }}>
             {error && (
-              <div style={{ color: '#DC2626', background: '#FEE2E2', padding: '6px 10px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
+              <div style={{ color: 'var(--error-fg)', background: 'var(--error-bg)', padding: '6px 10px', borderRadius: 6, fontSize: 12, marginBottom: 12 }}>
                 {error}
               </div>
             )}

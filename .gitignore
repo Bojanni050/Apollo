@@ -39,3 +39,9 @@ src-tauri/gen/
 *.db-shm
 # Managed checkouts for GitHub repository sources (SOURCE_CHECKOUT_ROOT)
 gaia_source_checkouts/
+# Local embedding model weights (LLAMACPP_MODELS_DIR). Multi-gigabyte downloads
+# the app fetches; they are reproducible from the catalog and must never be
+# committed.
+backend/models/
+*.gguf
+*.gguf.part
