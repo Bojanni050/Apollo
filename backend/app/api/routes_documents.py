@@ -12,8 +12,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_repository, get_workspace, resolve_repo_root
 from app.db import get_db
 from app.schemas import (
+    DocumentLinkOut,
+    DocumentLinksOut,
     DocumentOut,
     DocumentTreeOut,
+    ExternalReferenceOut,
     GitChangesOut,
     GitStatusEntryOut,
     SearchHitOut,
@@ -21,7 +24,8 @@ from app.schemas import (
 )
 from app.services import git
 from app.services.documents import DocumentError, build_tree, read_document
-from app.services.paths import PathSecurityError
+from app.services.links import collect_links
+from app.services.paths import PathSecurityError, safe_path
 from app.services.search import search_documents
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["documents"])
@@ -89,6 +93,56 @@ def read_doc(
         raw_markdown=content,
         revision=git.head_revision(root) if git.is_repo(root) else None,
         size=len(content),
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/document/links", response_model=DocumentLinksOut
+)
+def document_links(
+    workspace_id: int,
+    repository_id: int,
+    path: str = Query(..., description="Repository-relative path of the document"),
+    db: Session = Depends(get_db),
+) -> DocumentLinksOut:
+    """The links into and out of one document, as written in the Markdown.
+
+    Read-only and derived from the repository on disk on every call: these are
+    the author's own links, so a cached answer could contradict the file the
+    reader is looking at.
+
+    The inbound half scans the rest of the corpus, because Markdown records only
+    the forward direction. That makes this more expensive than reading one
+    file, and it is a separate endpoint for that reason: the reading pane wants
+    the document, the context panel wants the graph, and neither should pay for
+    the other.
+    """
+    get_workspace(db, workspace_id)
+    repo = get_repository(db, workspace_id, repository_id)
+    root = resolve_repo_root(repo)
+    # Validated here even though collect_links tolerates anything. The service is
+    # written to answer "no links" for a path it cannot read, which is right when
+    # it is parsing links and wrong at the door: a traversal attempt must be
+    # refused the same way every other document route refuses one, not answered
+    # with an empty graph that looks like a document with no relationships.
+    try:
+        safe_path(root, path)
+    except PathSecurityError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    try:
+        result = collect_links(root, path)
+    except PathSecurityError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except DocumentError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return DocumentLinksOut(
+        repository_id=repo.id,
+        path=result.path,
+        outbound=[DocumentLinkOut(path=l.path, text=l.text) for l in result.outbound],
+        inbound=[DocumentLinkOut(path=l.path, text=l.text) for l in result.inbound],
+        external=[ExternalReferenceOut(target=e.target, text=e.text) for e in result.external],
     )
 
 
