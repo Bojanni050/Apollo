@@ -325,6 +325,20 @@ class Group(TimestampMixin, Base):
     layout: Mapped[str] = mapped_column(
         String(20), default="grid", server_default="grid", nullable=False
     )
+    #: The folder under the working directory where this group's documents
+    #: belong, or NULL for a group that is a view only.
+    #:
+    #: The column that finally connects the arrangement to the disk, and it is
+    #: nullable on purpose. A group without a folder is a pure view: putting a
+    #: document in it changes the board and nothing else. That is not a
+    #: half-finished state, it is the state most groups are in -- a grouping you
+    #: are still thinking about should not start moving files.
+    #:
+    #: Set by the reader, never inferred. Deriving a folder name from the group's
+    #: name would mean every group Delphi proposes also proposes a directory, and
+    #: a typo in a generated name would be a directory on disk. Writing the
+    #: folder down is a decision with a visible consequence, so it is one.
+    folder: Mapped[str | None] = mapped_column(String(200))
 
     workspace: Mapped[Workspace] = relationship(back_populates="groups")
     placements: Mapped[list["GroupPlacement"]] = relationship(
