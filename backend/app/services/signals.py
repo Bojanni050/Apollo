@@ -14,6 +14,11 @@ The validation is strict on the way *out* for the same reason the archive is
 strict on the way in: an unrecognised signal name or a reference to a document
 that does not exist would put a claim in the sidebar that the reader cannot
 check, which is the one thing a signal must never be.
+
+That is also why every signal carries a ``why``. A finding without its evidence
+is an assertion, and the signal bar above the document is the last place an
+assertion belongs. A claim the reader can open the referenced document against is
+a claim; anything else is decoration, and is dropped here rather than shown.
 """
 from __future__ import annotations
 
@@ -37,9 +42,9 @@ SIGNAL_LABELS: dict[str, str] = {
 #: inline in the prompt string so the wording the model is given and the wording
 #: the user reads cannot drift apart.
 SIGNAL_DESCRIPTIONS = """
-- outdated:  the document has been superseded by a newer one. Say which document
-  supersedes it, and why you believe so (a later date, a higher version, a
-  document that explicitly replaces it). Being merely old is not enough.
+- outdated:  the document has been superseded by a newer one. Name the document
+  that supersedes it, and say why you believe so (a later date, a higher version,
+  a document that explicitly replaces it). Being merely old is not enough.
 - duplicate: two documents cover substantially the same ground. Name the one
   that covers it better, if one does, and say what makes them overlap.
 - new:       the document says something the rest of the corpus does not. No
@@ -49,6 +54,12 @@ SIGNAL_DESCRIPTIONS = """
 - conflict:  two documents give incompatible information about the same subject.
   Name the other document and say specifically what disagrees. A difference in
   emphasis is not a conflict; a difference in what is claimed to be true is.
+
+Every signal also carries a "why": one or two sentences naming the evidence in
+the documents themselves -- the sentence, the date, the version. A reader will
+check your claim against those documents, and a signal without the evidence is
+worse than no signal at all, because it asks for that check without saying what
+to check.
 """
 
 
@@ -60,6 +71,10 @@ class Signal:
     #: The document it points at, repository-relative. None for "new", and None
     #: when Delphi did not name one.
     reference: str | None = None
+    #: The evidence, in one or two sentences. Never empty in a signal that
+    #: survived validation: a finding the reader cannot check is an assertion,
+    #: and the sidebar is the last place an assertion belongs.
+    why: str = ""
 
     @property
     def label(self) -> str:
@@ -86,6 +101,10 @@ class SignalSet:
 
     def has(self, kind: str) -> bool:
         return any(s.kind == kind for s in self.signals)
+
+    def get(self, kind: str) -> Signal | None:
+        """The signal of this kind, if the model raised one."""
+        return next((s for s in self.signals if s.kind == kind), None)
 
     @property
     def is_empty(self) -> bool:
@@ -127,11 +146,17 @@ def parse_signals(
 
     seen: set[str] = set()
     for entry in raw:
+        why = ""
         if isinstance(entry, str):
             kind, reference = entry.strip(), ""
         elif isinstance(entry, dict):
             kind = str(entry.get("kind") or entry.get("signal") or "").strip()
             reference = str(entry.get("reference") or entry.get("path") or "").strip()
+            # Accepted under any of the names a model reaches for. Capped like
+            # the reference: this is a sentence in a sidebar, not an essay.
+            why = str(
+                entry.get("why") or entry.get("reason") or entry.get("because") or ""
+            ).strip()[:1000]
         else:
             result.dropped.append(f"ignored a signal that was not a name or an object: {entry!r}")
             continue
@@ -139,6 +164,17 @@ def parse_signals(
         if kind not in PULSE_SIGNALS:
             result.dropped.append(f"{kind!r} is not a signal Apollo knows")
             continue
+
+        if not why:
+            # Dropped rather than shown without a reason. A bare claim cannot be
+            # checked, and a signal whose entire value is being checkable is
+            # better absent than decorative. Recorded in `dropped` because it is
+            # Delphi's own failure, which the reviewer has a right to see.
+            result.dropped.append(
+                f"{kind!r} was raised without saying why; a claim needs its evidence"
+            )
+            continue
+
         if kind in seen:
             # The same finding twice is one finding.
             continue
@@ -156,7 +192,7 @@ def parse_signals(
             # worth reading even when Delphi failed to say out of date relative
             # to what; dropping the finding over a missing field would lose the
             # more useful half of it.
-            result.signals.append(Signal(kind=kind, reference=None))
+            result.signals.append(Signal(kind=kind, reference=None, why=why))
             if kind in PULSE_SIGNAL_REFS:
                 # Recorded so the reviewer can see the finding is incomplete
                 # rather than assume Delphi considered it and found nothing.
@@ -167,17 +203,17 @@ def parse_signals(
 
         if not _is_document_name(reference):
             result.dropped.append(f"{kind!r} pointed at {reference!r}, which is not a document path")
-            result.signals.append(Signal(kind=kind, reference=None))
+            result.signals.append(Signal(kind=kind, reference=None, why=why))
             continue
 
         if known_paths is not None and reference not in known_paths:
             result.dropped.append(
                 f"{kind!r} pointed at {reference!r}, which is not in this repository"
             )
-            result.signals.append(Signal(kind=kind, reference=None))
+            result.signals.append(Signal(kind=kind, reference=None, why=why))
             continue
 
-        result.signals.append(Signal(kind=kind, reference=reference))
+        result.signals.append(Signal(kind=kind, reference=reference, why=why))
 
     # Ordered by the canonical order rather than by the model's, so two runs over
     # the same corpus produce the same sidebar.
@@ -186,17 +222,26 @@ def parse_signals(
 
 
 def signals_prompt_instruction() -> str:
-    """The block appended to Delphi's system prompt."""
+    """The block that tells the model what a signal is and how to shape one.
+
+    Kept out of the analysis module on purpose: the wording the model is given
+    and the wording the reader sees both live in this file, so they cannot drift
+    apart into two different vocabularies for the same idea.
+    """
     return (
-        "In addition to tags and connections, report SIGNALS about each "
-        "document's standing. A signal is a claim that something about the "
-        "document has changed relative to its peers, and each one is a "
-        "suggestion a person will review -- never state it as settled fact.\n"
+        "Report SIGNALS about each document's standing. A signal is a claim that "
+        "something about the document has changed relative to its peers, and each "
+        "one is a suggestion a person will review -- never state it as settled "
+        "fact.\n"
         f"{SIGNAL_DESCRIPTIONS}\n"
-        'Use "reference" to name the other document, as a path relative to the '
-        "repository root. Only use these signal names; if nothing applies, "
-        "report an empty list. Do not use a signal to say a document is "
-        "unrelated -- that is what an empty list means.\n"
+        'Report each signal as an object: {"kind": "...", "reference": "..." or '
+        'null, "why": "..."}. Use "reference" to name the other document, as a '
+        "path relative to the repository root, and leave it null only for a "
+        "signal that is about this corpus rather than about a file. Every signal "
+        "needs a non-empty why.\n"
+        "Only use these signal names; if nothing applies, report an empty list. "
+        "Do not use a signal to say a document is unrelated -- that is what an "
+        "empty list means.\n"
     )
 
 

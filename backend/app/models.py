@@ -164,6 +164,12 @@ class Workspace(TimestampMixin, Base):
     groups: Mapped[list["Group"]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan"
     )
+    # Claims about documents, kept with the workspace for the same reason the
+    # groups are: the documents they describe are about to stop being known to
+    # the app, so keeping the claims would leave rows pointing at nothing.
+    signals: Mapped[list["DocSignal"]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
 
 
 class Repository(TimestampMixin, Base):
@@ -835,6 +841,77 @@ class WorkspacePulseSettings(TimestampMixin, Base):
     last_run_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     workspace: Mapped[Workspace] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# Delphi's information signals
+# ---------------------------------------------------------------------------
+#: Where a signal stands. A signal is a claim about a document, not an action, so
+#: the only transitions are the reader's: notice it, leave it, or hide it.
+#: Nothing in the application writes this column but an explicit decision.
+DOC_SIGNAL_STATUSES = ("new", "confirmed", "dismissed")
+
+
+class DocSignal(TimestampMixin, Base):
+    """One claim about a document's standing, waiting for a decision.
+
+    A *connection* says two documents are related. A *signal* says something
+    about a document relative to its peers -- that it has been superseded, that
+    it covers ground another document already covers, that it disagrees with
+    one. Only the second is a reason to move a document out of the way, which is
+    why signals are stored apart from the pulse's connections instead of inside
+    them.
+
+    Three rules hold here:
+
+    * **A signal is a suggestion.** It is recorded and shown. It is never acted
+      on, and no code path turns one into a file operation.
+    * **A dismissed signal stays dismissed.** A later analysis that finds the same
+      thing again refreshes the reason, not the decision -- otherwise "this is a
+      false alarm" would quietly expire and the finding would come back on its
+      own.
+    * **``why`` is not optional.** A claim the reader cannot check is the one
+      thing a signal must never be, and a sentence of evidence is what makes it
+      checkable. A finding without one is dropped at the boundary rather than
+      shown as an assertion.
+
+    ``reference`` is NULL for the one signal that is a statement about the corpus
+    rather than about another file ("new"), and otherwise a repository-relative
+    path that is known to exist: an unresolvable reference would put a link in the
+    sidebar that nobody can follow.
+    """
+
+    __tablename__ = "doc_signals"
+    __table_args__ = (
+        _check("kind", PULSE_SIGNALS, "ck_doc_signals_kind"),
+        _check("status", DOC_SIGNAL_STATUSES, "ck_doc_signals_status"),
+        # The lookup behind which signals a document has, run on every
+        # selection in the reading pane.
+        Index("ix_doc_signals_document", "workspace_id", "repository_id", "file_path"),
+        # The open-signal count per workspace, shown as a badge.
+        Index("ix_doc_signals_open", "workspace_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), index=True
+    )
+    #: Repository-relative, exactly as the document routes spell it.
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: The document this is about, when the signal names one. NULL for "new".
+    reference: Mapped[str | None] = mapped_column(String(1000))
+    #: The evidence, in one or two sentences. Never empty.
+    why: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(
+        String(20), default="new", server_default="new", nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="signals")
 
 
 class CodeChunk(TimestampMixin, Base):
