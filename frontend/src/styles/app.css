@@ -505,7 +505,59 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 8px;
 }
 
-/* The list of documents in a group, and the groups a document is in. A plain
+/* Adding a whole folder, next to the dropzone rather than inside it. Quiet by
+   default and full width when opened, because it is a path -- a long one -- and a
+   field that wraps its own value is unreadable. */
+.inbox-folder {
+  margin-top: 6px;
+}
+.inbox-folder-open {
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.inbox-folder-open:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.inbox-folder-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+/* The path is the long thing here, so the buttons around it must not be the
+   flexible part: a two-line "Copy in" reads as a mistake. */
+.inbox-folder-row .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.inbox-folder-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.inbox-folder-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.inbox-folder-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+/* The list of documents in the group, and the groups a document is in. A plain
    list: these are one-column things in a one-column panel, and a card grid
    would trade a readable path for a shape. */
 .context-member-list {

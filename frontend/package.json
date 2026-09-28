@@ -15,6 +15,7 @@
     "smoke:columns": "node scripts/smoke-columns.mjs",
     "smoke:groups": "node scripts/smoke-groups-board.mjs",
     "smoke:sidebar": "node scripts/smoke-sidebar.mjs",
+    "smoke:inbox-folder": "node scripts/smoke-inbox-folder.mjs",
     "smoke:context": "node scripts/smoke-context-panel.mjs",
     "smoke:chat": "node scripts/smoke-chat-panel.mjs",
     "smoke:settings": "node scripts/smoke-settings-save.mjs",

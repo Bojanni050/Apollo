@@ -16,9 +16,23 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_or_create_storage_repo, get_storage_repository, get_workspace
 from app.db import get_db
-from app.schemas import InboxFileOut, InboxOut, InboxUploadOut
+from app.schemas import (
+    ImportedFileOut,
+    InboxFileOut,
+    InboxImportFolderOut,
+    InboxImportFolderRequest,
+    InboxOut,
+    InboxUploadOut,
+    RefusedFileOut,
+)
 from app.services import storage
-from app.services.storage import INBOX_DIR, StorageError, list_inbox, store_upload
+from app.services.storage import (
+    INBOX_DIR,
+    StorageError,
+    import_folder,
+    list_inbox,
+    store_upload,
+)
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["inbox"])
 
@@ -44,6 +58,57 @@ def read_inbox(workspace_id: int, db: Session = Depends(get_db)) -> InboxOut:
             InboxFileOut(path=entry.path, name=entry.name, size=entry.size)
             for entry in list_inbox(workspace_id)
         ],
+    )
+
+
+@router.post("/inbox/import-folder", response_model=InboxImportFolderOut, status_code=status.HTTP_201_CREATED)
+def import_inbox_folder(
+    workspace_id: int,
+    payload: InboxImportFolderRequest,
+    db: Session = Depends(get_db),
+) -> InboxImportFolderOut:
+    """Copy the documents out of a folder the reader already has.
+
+    The folder is read and nothing else: it is not moved, not renamed and not
+    emptied, so the reader's own project is exactly as it was afterwards. What
+    lands here is a *copy* under the inbox, with the folder's structure kept.
+
+    The repository row is written after the bytes are on disk, for the same reason
+    the upload endpoint does it: the other order leaves a registered repository
+    pointing at a folder the import never filled.
+
+    Named ``import_inbox_folder`` rather than ``import_folder`` on purpose: the
+    service is imported under that name in this module, and a route function of
+    the same name shadows it -- the call below would then recurse into this
+    function with the request's own defaults and fail on the dependency object.
+    """
+    get_workspace(db, workspace_id)
+    try:
+        result = import_folder(workspace_id, payload.path)
+    except StorageError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    repo = get_or_create_storage_repo(db, workspace_id)
+    return InboxImportFolderOut(
+        repository_id=repo.id,
+        folder_name=result.folder_name,
+        found=result.found,
+        copied=[
+            ImportedFileOut(
+                source_path=f.source_path,
+                path=f.path,
+                name=f.name,
+                size=f.size,
+                readable=f.readable,
+                unreadable_reason=f.unreadable_reason,
+            )
+            for f in result.copied
+        ],
+        refused=[
+            RefusedFileOut(source_path=f.source_path, reason=f.reason)
+            for f in result.refused
+        ],
+        truncated=result.truncated,
     )
 
 

@@ -294,6 +294,33 @@ export interface InboxListing {
   files: InboxFile[]
 }
 
+/** One document copied out of a folder the reader offered. */
+export interface ImportedFile {
+  /** Where it came from, in the reader's own terms, so a mistake is traceable. */
+  source_path: string
+  path: string
+  name: string
+  size: number
+  readable: boolean
+  unreadable_reason: string | null
+}
+
+/** One document that was not copied, and the reason. */
+export interface RefusedFile {
+  source_path: string
+  reason: string
+}
+
+export interface InboxImport {
+  repository_id: number
+  folder_name: string
+  found: number
+  copied: ImportedFile[]
+  refused: RefusedFile[]
+  /** The folder holds more documents than one import copies. */
+  truncated: boolean
+}
+
 export interface InboxUpload {
   repository_id: number
   path: string
@@ -839,6 +866,20 @@ export const api = {
       headers: {},
     })
   },
+  /**
+   * Copy the documents out of a folder already on this machine.
+   *
+   * A path rather than an upload, because the folder is not sent anywhere: Apollo
+   * reads it and copies what is in it, so the reader's own project keeps its own
+   * layout. Every refusal comes back with its reason rather than as a missing
+   * file, because a document that silently did not arrive is a document the
+   * reader believes Apollo has.
+   */
+  importFolder: (workspaceId: number, path: string) =>
+    request<InboxImport>(`/workspaces/${workspaceId}/inbox/import-folder`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 
   // --- Delphi's findings --------------------------------------------------
   /**

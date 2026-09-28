@@ -47,6 +47,8 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Leiders-veto is niet te omzeilen | `GroupPlacementRequest` heeft geen `placed_by` meer; `routes_groups.py` schrijft altijd `"user"` | klaar (Fase 3) |
 | Navigatie is de kernworkflow | `NavigationColumn.tsx` — Inbox, All objects, Groups, Notes & Docs, Ideas, Conversations zichtbaar; Repositories, ADRs, Open Questions en Inventory Runs achter "More" (Fase 6) | klaar (Fase 6) |
 | Sidebar kent groepen en signalen | `ContextSidebar.tsx` — `GroupPanel` (wie, waarom, leden, bevindingen) en "BELONGS TO" per document; `GroupsBoard` krijgt een Details-knop; `scripts/smoke-sidebar.mjs` | klaar (Fase 5) |
+| Een hele map toevoegen | `storage.import_folder` + `POST /inbox/import-folder` + `InboxDropzone.tsx`; bron wordt **gekopieerd**, nooit geschreven (`tests/test_import_folder.py`, `scripts/smoke-inbox-folder.mjs`) | klaar (Fase 4-voorbereiding) |
+| De werkmap is van de gebruiker | Nog niet gedaan: nu nog `APOLLO_STORAGE_ROOT/workspace_<id>/`. De gebruiker moet een map kiezen, liefst leeg, en dáár komen Inbox, groepsmappen en `Archief/` | open, eerstvolgende stap |
 
 ### Wat ontbreekt
 
@@ -254,7 +256,7 @@ bewijzen niet dragen. De pass mag falen zonder de bevindingen mee te nemen.
 gewone namen en elk lid met een reden; één foute groep met één drag gecorrigeerd
 is en gecorrigeerd blijft na opnieuw analyseren.
 
-## Fase 4 — Fysiek & archief (1–2 dagen)
+## Fase 4 — Fysiek & archief (1–2 dagen) — **begonnen, nog niet af**
 
 - De eerste toewijzing aan een groep levert een **voorstel** via
   `plan_move(..., allow_missing_dir=True)`, geaccepteerd in het bestaande
@@ -266,6 +268,29 @@ is en gecorrigeerd blijft na opnieuw analyseren.
 
 **Klaar als:** archiveren bewaart, de verplaatsing als voorstel verschijnt, weigeren
 alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
+
+**Drie beslissingen, alle drie van de gebruiker:**
+1. Eén map per groep, met de groepsnaam (`Planning 2026` → `Planning 2026/`), en
+   het archief als `Archief/`. Geen categorie-veld, geen extra UI.
+2. De app-opslag wordt een Git-repository: één initiële commit, en één commit per
+   geaccepteerde move. Zonder dat weigert `apply_change` élke verplaatsing van een
+   Inbox-bestand, en die weigering is terecht.
+3. Een map toevoegen is een **kopie**. De bronmap wordt nooit geschreven.
+
+**Wat klaarstaat:** stap 3, de map-import. Stap 1 en 2 (de werkmap die de gebruiker
+kiest) staan als volgende stap open; de groepsmappen en de move-voorstellen
+kunnen pas daarna.
+
+### De werkmap (nog te doen)
+
+De workflow begint nu met een map die Apollo zelf uitzoekt. De gebruiker moet die
+map zelf kiezen, liefst leeg — dan is hij van hem en kan Apollo hem inrichten
+zonder iets van iemand anders aan te raken. Daarin komen `Inbox/`, de groepsmappen
+en `Archief/`, en dáár komt de git-geschiedenis van beslissing 2.
+
+Dat is een kolom op `Workspace` plus een keuze in de wizard, en het raakt de
+functies die nu `settings.effective_storage_root` gebruiken. Zolang die er niet is,
+blijft de huidige map gelden — de bestaande 700+ tests blijven daarmee de waarheid.
 
 ## Fase 5 — Contextsidebar (1 dag) — **grootste deel afgerond**
 
@@ -341,10 +366,10 @@ daar staan; ze komen niet in de weg van de basisworkflow.
 
 ## Eerstvolgende stap
 
-Fase 4 — Fysiek & archief. De eerste toewijzing aan een groep levert een
-voorstel op (`plan_move(..., allow_missing_dir=True)`) in het bestaande
-voorstellenscherm; archiveren is naar de `Archief`-groep plus zo'n voorstel.
-Tot die tijd is de documentatie op schijf statisch en de groepen lopen er
-bewust nog los naast — dat is de scheiding die Fase 4 nu gaat sluiten.
+**De werkmap die de gebruiker kiezen kan.** Een kolom op `Workspace` plus een veld
+in de wizard, met een waarschuwing als de map niet leeg is. Daar komen `Inbox/`,
+de groepsmappen en `Archief/` in, en daar komt de git-geschiedenis die een
+geaccepteerde move herstelbaar maakt. Pas daarna kan Fase 4 af: groepmap,
+move-voorstel, en archiveren naar `Archief/`.
 
 

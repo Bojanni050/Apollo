@@ -954,6 +954,55 @@ class InboxUploadOut(BaseModel):
     unreadable_reason: str | None = None
 
 
+class ImportedFileOut(BaseModel):
+    """One document copied out of a folder the reader offered."""
+
+    #: Where it came from, in the reader's own terms, so a mistake in the import
+    #: can be traced back to a file they recognise.
+    source_path: str
+    path: str
+    name: str
+    size: int
+    readable: bool = True
+    unreadable_reason: str | None = None
+
+
+class RefusedFileOut(BaseModel):
+    """One document that was not copied, and the reason.
+
+    The reason is not decoration: a folder added as a source is read once, and a
+    file that silently did not arrive is a document the reader believes Apollo has.
+    """
+
+    source_path: str
+    reason: str
+
+
+class InboxImportFolderOut(BaseModel):
+    """What adding a folder as a source did."""
+
+    repository_id: int
+    #: The folder's name as it is known inside the inbox, which may not be the
+    #: name on disk.
+    folder_name: str
+    #: Files considered, including the ones that are not documents.
+    found: int
+    copied: list[ImportedFileOut]
+    refused: list[RefusedFileOut]
+    #: True when the folder holds more documents than one import copies, so the
+    #: collection above is only part of what is on disk.
+    truncated: bool = False
+
+
+class InboxImportFolderRequest(BaseModel):
+    """Which folder to copy in.
+
+    A path, not an upload: the folder is already on this machine and stays there.
+    """
+
+    path: str = Field(..., min_length=1, max_length=1000)
+
+
 # --------------------------------------------------------------------------
 # Delphi's findings
 # --------------------------------------------------------------------------

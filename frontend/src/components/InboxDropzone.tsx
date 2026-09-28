@@ -35,6 +35,8 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [outcomes, setOutcomes] = useState<Outcome[]>([])
+  const [folderPath, setFolderPath] = useState('')
+  const [folderOpen, setFolderOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   // dragenter and dragleave fire for every child the cursor crosses, so a
   // boolean would flicker off the moment the pointer moved onto the text inside
@@ -86,6 +88,68 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
     setDragging(false)
     void upload(Array.from(event.dataTransfer.files ?? []))
   }
+
+  /**
+   * Copy a whole folder in.
+   *
+   * The folder is named, not chosen: a browser cannot see the disk, so the reader
+   * types the path they already know, exactly as they would type it into a file
+   * manager. What comes back is reported per document rather than as a single
+   * "done", for the same reason a drop reports per document: forty copied and one
+   * refused is a different outcome from forty-one copied, and the reader needs to
+   * know which.
+   */
+  const importFolder = useCallback(async () => {
+    const path = folderPath.trim()
+    if (!path) return
+    setBusy(true)
+    setOutcomes([])
+    try {
+      const result = await api.importFolder(workspaceId, path)
+      const reported: Outcome[] = result.copied.map((file) => ({
+        name: file.name,
+        ok: file.readable,
+        message: file.readable
+          ? `Copied ${file.path}`
+          : `${file.path} is kept, but Apollo cannot read it: ${file.unreadable_reason}`,
+      }))
+      for (const refusal of result.refused) {
+        reported.push({ name: refusal.source_path, ok: false, message: `${refusal.source_path}: ${refusal.reason}` })
+      }
+      if (result.copied.length === 0) {
+        reported.push({
+          name: path,
+          ok: false,
+          message: `Nothing was copied from ${path}.`,
+        })
+      }
+      // Said out loud rather than left for the reader to notice: a folder with
+      // more documents than one import copies must not look complete.
+      if (result.truncated) {
+        reported.push({
+          name: path,
+          ok: false,
+          message: `That folder has more documents than Apollo copies at once. Only the first ${result.copied.length} were copied.`,
+        })
+      }
+      setOutcomes(reported)
+      setFolderPath('')
+      if (result.copied.length > 0) onStored()
+    } catch (e) {
+      setOutcomes([
+        {
+          name: path,
+          ok: false,
+          message:
+            e instanceof ApiError
+              ? `${path}: ${e.detail}`
+              : `${path}: the request did not reach Apollo. Is the backend running?`,
+        },
+      ])
+    } finally {
+      setBusy(false)
+    }
+  }, [workspaceId, folderPath, onStored])
 
   return (
     <div className={`inbox-drop${compact ? ' inbox-drop--compact' : ''}`}>
@@ -146,6 +210,66 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
           Drag files in, or click to choose. Markdown, text, PDF and Word. Apollo keeps
           its own copy; nothing you already have is moved or deleted.
         </span>
+      </div>
+
+      {/* A whole folder, for the reader who already has one. Behind a button
+          rather than in the dropzone itself: dropping a folder from the desktop
+          is something browsers do inconsistently, so this is a path the reader
+          types and Apollo reads -- and it is a different kind of act from adding
+          a few files, which is why it is not the first thing on screen. */}
+      <div className="inbox-folder">
+        {folderOpen ? (
+          <div className="inbox-folder-row">
+            <input
+              className="inbox-folder-input"
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void importFolder()
+                }
+                if (e.key === 'Escape') setFolderOpen(false)
+              }}
+              placeholder="C:\Users\jij\Documenten\Mijn project"
+              aria-label="Path of the folder to copy in"
+              autoFocus
+            />
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void importFolder()}
+              disabled={busy || !folderPath.trim()}
+            >
+              {busy ? 'Copying…' : 'Copy in'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setFolderOpen(false)
+                setFolderPath('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="inbox-folder-open"
+            onClick={() => setFolderOpen(true)}
+          >
+            + Add a whole folder
+          </button>
+        )}
+        {folderOpen && (
+          <p className="inbox-folder-hint">
+            Apollo copies the documents out of it and keeps the folder&apos;s
+            structure. Your folder itself is not moved, not renamed and not
+            emptied.
+          </p>
+        )}
       </div>
 
       {outcomes.length > 0 && (
