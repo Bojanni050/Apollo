@@ -24,6 +24,7 @@ from app.schemas import (
     ProposalOut,
 )
 from app.services import git
+from app.services.filing import repoint_after_move
 from app.services.proposals import (
     PlannedChange,
     ProposalError,
@@ -251,6 +252,19 @@ def accept_proposal(
         applied = apply_change(root, change)
     except ProposalError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    # A move changes the document's identity, so everything that recorded the
+    # old path has to follow it. Done here rather than in the proposal service
+    # because the service knows nothing about groups, and a caller that forgot
+    # to do this would leave cards pointing at a file that is no longer there.
+    if change.action in ("move", "rename") and first.get("source_path"):
+        repoint_after_move(
+            db,
+            workspace_id,
+            repository_id,
+            first["source_path"],
+            applied,
+        )
 
     proposal.status = "accepted"
     proposal.decided_at = dt.datetime.now(dt.timezone.utc)

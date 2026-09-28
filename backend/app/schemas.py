@@ -427,6 +427,11 @@ class GroupOut(BaseModel):
     position: int
     layout: str
     document_count: int = 0
+    #: The folder this group's documents belong in, or None for a view-only
+    #: group. On the wire because the board has to be able to say which of its
+    #: groups rearrange files and which only rearrange the view -- a reader
+    #: cannot make that distinction from the name alone.
+    folder: str | None = None
 
 
 class GroupCreate(BaseModel):
@@ -438,14 +443,40 @@ class GroupCreate(BaseModel):
     source: str = "user"
     is_archive: bool = False
     layout: str = "grid"
+    # No folder by default: a new group is a view, and giving it a folder would
+    # make the very first document dropped into it propose a move.
+    folder: str | None = Field(default=None, max_length=200)
 
 
 class GroupUpdate(BaseModel):
-    """Every field optional, so a rename and a description edit are the same call."""
+    """Every field optional, so a rename and a description edit are the same call.
+
+    ``folder`` is in here but is *not* cleared by omission: a request that does
+    not mention it leaves it alone. Clearing it is an explicit ``null``, because
+    "you did not say" and "remove the folder" are different intentions, and
+    guessing between them would either lose a folder the reader set up or keep
+    one they just removed. That needs ``model_fields_set``, which is why the
+    route below checks it rather than reading the attribute.
+    """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     layout: str | None = None
+    #: Absent leaves the folder alone; an explicit null clears it.
+    folder: str | None = Field(default=None, max_length=200)
+
+
+class GroupMoveOut(BaseModel):
+    """The result of dragging a document onto a group.
+
+    ``proposal_id`` is the only thing here, and it is null more often than not:
+    most groups are views, and a drop into a view rearranges the board and
+    nothing else. Reporting that honestly -- rather than always returning a
+    proposal -- is what keeps the distinction between the two kinds of group
+    visible to the reader.
+    """
+
+    proposal_id: int | None = None
 
 
 class GroupDocumentOut(BaseModel):
@@ -459,6 +490,15 @@ class GroupDocumentOut(BaseModel):
     path: str
     position: int
     placed_by: str | None = None
+    #: The move this placement proposed, when the group has a folder and the
+    #: document was not already filed in it.
+    #:
+    #: On the response rather than only in the proposal list, because the reader
+    #: has just dropped a document and the next thing they need to know is "there
+    #: is a card waiting for you" -- not "the drop worked, go and find the other
+    #: screen". None means the placement changed only the board, which is a
+    #: perfectly good outcome and must not be dressed up as a pending action.
+    proposal_id: int | None = None
 
 
 class GroupPlacementRequest(BaseModel):

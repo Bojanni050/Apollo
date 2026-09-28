@@ -53,6 +53,10 @@ class GroupView:
     position: int
     layout: str
     document_count: int
+    #: The folder this group's documents belong in, or None. Mirrors the column
+    #: so the board can tell a view from a filing destination without a second
+    #: query per group.
+    folder: str | None
 
 
 #: The name of the single archive group. One, not several: "the archive" is a
@@ -124,6 +128,7 @@ def list_groups(db: Session, workspace_id: int) -> list[GroupView]:
             position=g.position,
             layout=g.layout,
             document_count=counts.get(g.id, 0),
+            folder=g.folder,
         )
         for g in groups
     ]
@@ -181,6 +186,14 @@ def create_group(
         layout=layout,
         position=(last or 0) + 1,
     )
+    if is_archive:
+        # Set here rather than only in ``get_or_create_archive`` so that both
+        # ways of making an archive produce the same one. An archive that
+        # existed but had no folder would quietly behave like a plain view --
+        # filing into it would propose nothing and the file would never move.
+        from app.services.filing import ARCHIVE_FOLDER  # local: avoids a cycle
+
+        group.folder = ARCHIVE_FOLDER
     db.add(group)
     db.commit()
     db.refresh(group)
@@ -401,8 +414,17 @@ def get_or_create_archive(db: Session, workspace_id: int) -> Group:
         select(Group).where(Group.workspace_id == workspace_id, Group.is_archive.is_(True))
     )
     if existing is not None:
+        if existing.folder is None:
+            # An archive created before groups had folders gets its one now. It
+            # is the only folder in the system the reader does not choose, which
+            # is why it is applied here and not on create.
+            from app.services.filing import ARCHIVE_FOLDER  # local: avoids a cycle
+
+            existing.folder = ARCHIVE_FOLDER
+            db.commit()
+            db.refresh(existing)
         return existing
-    return create_group(
+    group = create_group(
         db,
         workspace_id,
         ARCHIVE_GROUP_NAME,
@@ -414,6 +436,12 @@ def get_or_create_archive(db: Session, workspace_id: int) -> Group:
         is_archive=True,
         layout="list",
     )
+    from app.services.filing import ARCHIVE_FOLDER  # local: avoids a cycle
+
+    group.folder = ARCHIVE_FOLDER
+    db.commit()
+    db.refresh(group)
+    return group
 
 
 __all__ = [

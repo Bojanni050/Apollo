@@ -20,15 +20,18 @@ from app.db import get_db
 from app.schemas import (
     GroupCreate,
     GroupDocumentOut,
+    GroupMoveOut,
     GroupMoveRequest,
     GroupOut,
     GroupPlacementRequest,
     GroupUpdate,
 )
+from app.services.filing import plan_filing, set_group_folder
 from app.services.placement import (
     PlacementError,
     create_group,
     delete_group,
+    get_group,
     group_documents,
     groups_of_document,
     list_groups,
@@ -61,6 +64,7 @@ def _group_out(group, document_count: int) -> GroupOut:
         position=group.position,
         layout=group.layout,
         document_count=document_count,
+        folder=group.folder,
     )
 
 
@@ -92,6 +96,10 @@ def create(
             is_archive=payload.is_archive,
             layout=payload.layout,
         )
+        if payload.folder is not None:
+            # Through the one function that validates it, so a group created with
+            # a folder is checked exactly like one given one later.
+            group = set_group_folder(db, workspace_id, group.id, payload.folder)
     except PlacementError as exc:
         raise _fail(exc) from exc
     return _group_out(group, 0)
@@ -136,6 +144,12 @@ def update(
             description=payload.description,
             layout=payload.layout,
         )
+        # Only when the request actually mentioned the field. Omitting it means
+        # "I am not touching the folder"; sending null means "remove it". Reading
+        # the attribute would collapse those two, and a rename would silently
+        # undo a folder the reader had set up.
+        if "folder" in payload.model_fields_set:
+            group = set_group_folder(db, workspace_id, group_id, payload.folder)
     except PlacementError as exc:
         raise _fail(exc) from exc
     return _group_out(group, len(group_documents(db, workspace_id, group_id)))
@@ -166,7 +180,13 @@ def add_document(
     payload: GroupPlacementRequest,
     db: Session = Depends(get_db),
 ) -> GroupDocumentOut:
-    """Put a document into a group. This is the drop side of a drag."""
+    """Put a document into a group. This is the drop side of a drag.
+
+    Two things can happen, and only one of them touches a file. The placement
+    always happens. Whether the document *travels* depends on the group: a group
+    with a folder proposes a move, and a group without one is a view. The
+    proposal is returned so the interface can say so immediately.
+    """
     get_workspace(db, workspace_id)
     try:
         placement = place_document(
@@ -180,6 +200,12 @@ def add_document(
             # analysis -- which would make correcting Delphi unsafe.
             placed_by="user",
         )
+        # Read the group back rather than trusting the payload: the folder is
+        # what decides whether anything is proposed at all.
+        group = get_group(db, workspace_id, group_id)
+        proposal = plan_filing(
+            db, workspace_id, group, payload.repository_id, payload.path
+        )
     except PlacementError as exc:
         raise _fail(exc) from exc
     return GroupDocumentOut(
@@ -187,6 +213,7 @@ def add_document(
         path=placement.file_path,
         position=placement.position,
         placed_by=placement.placed_by,
+        proposal_id=proposal.id if proposal is not None else None,
     )
 
 
@@ -206,15 +233,19 @@ def take_document_out(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
-@router.post("/groups/move", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/groups/move", response_model=GroupMoveOut)
 def move(
     workspace_id: int, payload: GroupMoveRequest, db: Session = Depends(get_db)
-) -> None:
+) -> GroupMoveOut:
     """Move a document from one group to another.
 
     One request rather than a remove followed by an add, so a failure cannot
-    leave the document in both groups or in neither. The file on disk is not
-    touched: this rearranges the view and nothing else.
+    leave the document in both groups or in neither.
+
+    The arrangement is always changed. Whether a *file* moves depends on the
+    target: a group with a folder proposes it, and the id comes back here so the
+    board can say so at once rather than leaving the reader to notice a card on
+    another screen.
     """
     get_workspace(db, workspace_id)
     try:
@@ -226,8 +257,13 @@ def move(
             from_group_id=payload.from_group_id,
             to_group_id=payload.to_group_id,
         )
+        group = get_group(db, workspace_id, payload.to_group_id)
+        proposal = plan_filing(
+            db, workspace_id, group, payload.repository_id, payload.path
+        )
     except PlacementError as exc:
         raise _fail(exc) from exc
+    return GroupMoveOut(proposal_id=proposal.id if proposal is not None else None)
 
 
 @router.get("/documents/groups", response_model=list[GroupOut])
