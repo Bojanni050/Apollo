@@ -93,6 +93,10 @@ class DelphiResult:
     documents: int = 0
     analysed: int = 0
     signals: list[SignalDraft] = field(default_factory=list)
+    #: The documents that were actually read, in collection order. Handed to the
+    #: clustering pass, which may only group these: a cluster is a claim about
+    #: documents somebody read, not about paths it was told exist.
+    paths: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -109,7 +113,7 @@ class DelphiResult:
         return (
             f"Read {self.analysed} of {self.documents} document"
             f"{'' if self.documents == 1 else 's'}. {what} "
-            "Nothing was moved or changed."
+            "No document was moved, renamed, or rewritten."
         )
 
 
@@ -267,6 +271,8 @@ def analyse(provider: LLMProvider, root: str) -> DelphiResult:
     if not prepared:
         result.errors.append("No document in this collection could be read.")
         return result
+
+    result.paths = [doc["path"] for doc in prepared]
 
     system = _system_prompt()
     known = {doc["path"] for doc in prepared}

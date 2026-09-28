@@ -175,7 +175,10 @@ def add_document(
             group_id,
             payload.repository_id,
             payload.path,
-            placed_by=payload.placed_by,
+            # Always the reader's: this endpoint is the board being used, and a
+            # placement recorded as provisional could be undone by the next
+            # analysis -- which would make correcting Delphi unsafe.
+            placed_by="user",
         )
     except PlacementError as exc:
         raise _fail(exc) from exc

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { Conversation, Decision, DocNode, InboxFile, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
+import type { Conversation, Decision, DocNode, GroupProposal, InboxFile, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
 import type { NavSection } from './NavigationColumn'
 import { InboxDropzone } from './InboxDropzone'
 
@@ -67,6 +67,9 @@ interface Props {
   openFindings?: number
   delphiSummary?: string | null
   delphiErrors?: string[]
+  /** The groups this pass proposed, named in the report so the reader knows a
+   *  group is Delphi's proposal and not something that was always there. */
+  delphiGroups?: GroupProposal[]
   onDismissDelphiReport?: () => void
 }
 
@@ -112,12 +115,29 @@ export function FolderContentsColumn({
   openFindings = 0,
   delphiSummary = null,
   delphiErrors = [],
+  delphiGroups = [],
   onDismissDelphiReport = () => {},
 }: Props) {
   // The analysis belongs to the sections that list documents, and to the inbox:
   // it is a question about a collection, and those are the collections on offer.
   const canAnalyse =
     activeSection === 'inbox' || activeSection === 'all' || activeSection === 'docs'
+
+  /* What the pass proposed, said the way the reader would say it.
+
+     A member the reader had already placed is reported as left alone rather than
+     as a member: it was not put anywhere, and that difference is the whole of
+     the reader's right to disagree. */
+  const groupLines = delphiGroups.map((group) => {
+    const parts = [`${group.placed.length} ${group.placed.length === 1 ? 'document' : 'documenten'}`]
+    if (group.left_alone.length > 0) {
+      parts.push(`${group.left_alone.length} op de plek gelaten die je had bepaald`)
+    }
+    if (group.unavailable.length > 0) {
+      parts.push(`${group.unavailable.length} niet meer te vinden`)
+    }
+    return { key: String(group.group_id), text: `${group.name}: ${parts.join(', ')}` }
+  })
   // Convert current items into standard ItemCard format
   const items = useMemo<ItemCard[]>(() => {
     const flatFiles = flattenDocs(tree)
@@ -379,9 +399,23 @@ export function FolderContentsColumn({
           found, what it did not do, and anything that went wrong. Kept until the
           reader clears it, because "read 4 of 10 documents" is only useful if it
           stays on screen long enough to be read. */}
-      {(delphiSummary || delphiErrors.length > 0) && (
+      {(delphiSummary || delphiErrors.length > 0 || groupLines.length > 0) && (
         <div className="delphi-report">
           {delphiSummary && <p className="delphi-report-summary">{delphiSummary}</p>}
+          {groupLines.length > 0 && (
+            <>
+              <p className="delphi-report-groups">
+                {groupLines.length === 1
+                  ? 'Delphi stelde één groep voor:'
+                  : `Delphi stelde ${groupLines.length} groepen voor:`}
+              </p>
+              {groupLines.map((line) => (
+                <p key={line.key} className="delphi-report-group">
+                  {line.text}
+                </p>
+              ))}
+            </>
+          )}
           {delphiErrors.map((error, index) => (
             <p key={index} className="delphi-report-error">
               {error}

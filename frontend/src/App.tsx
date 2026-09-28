@@ -15,6 +15,7 @@ import {
   type PulseRun,
   type DocumentLinks,
   type Group,
+  type GroupProposal,
   type InboxFile,
   type Signal,
   type Repository,
@@ -110,6 +111,10 @@ export default function App() {
   // what it found, and what it did not do.
   const [delphiSummary, setDelphiSummary] = useState<string | null>(null)
   const [delphiErrors, setDelphiErrors] = useState<string[]>([])
+  // The groups this pass proposed. Named in the report rather than left to be
+  // discovered on the board, so a group the reader did not make is never mistaken
+  // for one that was always there.
+  const [delphiGroups, setDelphiGroups] = useState<GroupProposal[]>([])
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
@@ -251,6 +256,7 @@ export default function App() {
         setSignals([])
         setDelphiSummary(null)
         setDelphiErrors([])
+        setDelphiGroups([])
         if (runs.length > 0) setInventoryRun(runs[0])
         // The newest Pulse run *with items*, not simply the newest run. A
         // scheduled scan on a repository whose documents are not committed yet
@@ -794,6 +800,15 @@ export default function App() {
       setDelphiSummary(result.summary)
       setDelphiErrors(result.errors)
       setOpenSignals(result.open_signals)
+      setDelphiGroups(result.groups)
+      // The board may have gained a group, so it is re-read rather than guessed:
+      // a proposal the reader cannot see is a proposal they cannot drag a
+      // document out of. A failure here leaves the board as it was -- a refresh,
+      // not news.
+      await api
+        .groups(workspace.id)
+        .then(setGroups)
+        .catch(() => {})
       // Re-read the open document rather than trusting the response list: the
       // response holds everything this pass found, and the bar above a document
       // should show that document's own findings, dismissed ones included out.
@@ -984,9 +999,11 @@ export default function App() {
             openFindings={openSignals}
             delphiSummary={delphiSummary}
             delphiErrors={delphiErrors}
+            delphiGroups={delphiGroups}
             onDismissDelphiReport={() => {
               setDelphiSummary(null)
               setDelphiErrors([])
+              setDelphiGroups([])
             }}
           />
         )}

@@ -130,14 +130,36 @@ def test_a_document_is_dropped_into_a_group(
 
     dropped = client.post(
         f"{base}/{gid}/documents",
-        json={"repository_id": _doc_repo_id(workspace), "path": "notes.md",
-              "placed_by": "user"},
+        json={"repository_id": _doc_repo_id(workspace), "path": "notes.md"},
     )
 
     assert dropped.status_code == 201
     assert dropped.json()["path"] == "notes.md"
+    assert dropped.json()["placed_by"] == "user"
     listed = client.get(f"{base}/{gid}/documents").json()
     assert [d["path"] for d in listed] == ["notes.md"]
+
+
+def test_a_placement_made_here_cannot_be_declared_provisional(
+    client: TestClient, workspace: dict
+) -> None:
+    """The reader's arrangement is what a later analysis must not undo, so it
+    cannot be handed in as a maybe -- not even by a client that asks nicely."""
+    base = f"/api/workspaces/{workspace['id']}/groups"
+    gid = client.post(base, json={"name": "Projecten"}).json()["id"]
+
+    response = client.post(
+        f"{base}/{gid}/documents",
+        json={
+            "repository_id": _doc_repo_id(workspace),
+            "path": "notes.md",
+            "placed_by": "ai",
+        },
+    )
+
+    # The field is not part of the request at all: this is the reader acting, and
+    # the server is the only one who decides whose decision this was.
+    assert response.json()["placed_by"] == "user"
 
 
 def test_a_document_moves_between_groups_in_one_request(

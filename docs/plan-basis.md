@@ -41,7 +41,10 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Analyse: API | `api/routes_signals.py` — `/delphi/analyze`, `/signals`, `/signals/count`, `/signals/{id}/dismiss` | klaar (Fase 2) |
 | Analyse: bewaarplaats | `DocSignal` (migratie `0011`) met verplichte `why` en status `new/confirmed/dismissed` | klaar (Fase 2) |
 | Analyse: UI | `Analyseren`-knop met teller, rapportbalk, signaalbalk boven het document | klaar (Fase 2) |
-| Tests analyse | `tests/test_delphi.py` (14), `tests/test_signals_api.py` (15), `tests/test_signals.py` (28) | klaar |
+| Tests analyse | `tests/test_delphi.py` (14), `tests/test_signals_api.py` (24), `tests/test_signals.py` (28) | klaar |
+| Groepen uit de analyse | `services/delphi_grouping.py` — `propose_clusters` (tweede pass over de bevindingen), `propose_groups` (schrijft `source="ai"`, `placed_by="ai"`) | klaar (Fase 3) |
+| Tests groepvoorstel | `tests/test_delphi_grouping.py` (27), plus 6 end-to-endtests in `tests/test_signals_api.py` | klaar |
+| Leiders-veto is niet te omzeilen | `GroupPlacementRequest` heeft geen `placed_by` meer; `routes_groups.py` schrijft altijd `"user"` | klaar (Fase 3) |
 
 ### Wat ontbreekt
 
@@ -53,7 +56,7 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Signalen zijn onzichtbaar in de API | **geregeld in Fase 2** — `/signals` per document, per groep, plus `/signals/count` voor de teller |
 | Geen reden per signaal | **geregeld in Fase 2** — `why` is verplicht; zonder reden wordt de bevinding bij de grens weggegooid |
 | Geen dismiss-status | **geregeld in Fase 2** — `doc_signals.status`; een weggezette bevinding blijft weggezet na een nieuwe pass |
-| Nog geen groepen uit de analyse | Fase 3: Delphi stelt groepen voor; `services/delphi_grouping.py` staat nog niet |
+| Nog geen groepen uit de analyse | **geregeld in Fase 3** — `services/delphi_grouping.py`; één knop doet signalen én groepen |
 | Archiveren doet nog niets met een map | Fase 4: het signaal is er, de actie niet — nog bewust |
 | Delphi maakt geen groepen | `create_group(..., source="ai")` komt alleen in tests voor |
 | De sidebar kent geen groepen of signalen | `client.groupsOfDocument()` bestaat maar wordt door geen enkel component gebruikt |
@@ -224,17 +227,26 @@ verwijdert niets; de bestandshashes vóór en na de analyse gelijk zijn.
 werkende link; zonder key is de knop uitgeschakeld met uitleg; dismiss verbergt en
 verwijdert niets; de bestandshashes vóór en na de analyse gelijk zijn.
 
-## Fase 3 — Delphi stelt groepen voor (1–2 dagen)
+## Fase 3 — Delphi stelt groepen voor (1–2 dagen) — **afgerond**
 
-- Nieuwe `services/delphi_grouping.py`: clusters uit de bestaande
-  pulse-connections plus de signalen → `create_group(source="ai")` en
-  `place_document(placed_by="ai")`. Eén knop doet signalen **en** groepsvoorstel;
+- Nieuwe `services/delphi_grouping.py`: `propose_clusters` (vraagt het model om te
+  groeperen) en `propose_groups` (schrijft `create_group(source="ai")` en
+  `place_document(placed_by="ai")`). Eén knop doet signalen **en** groepsvoorstel;
   de gebruiker vroeg om één ding, niet om twee schermen.
 - De mens wint bij een re-scan: een document met `placed_by="user"` wordt nooit
   teruggezet, en een AI-groep die leegloopt blijft bestaan als leeg in plaats van
   stilzwijgend opgeruimd.
 - `GroupsBoard` blijft ongewijzigd: slepen is klaar en schrijft alleen naar de
   database.
+
+**Afwijking van de oorspronkelijke tekst, met reden.** De clusters komen uit de
+*bevindingen* van de leespass, niet uit de bestaande pulse-connections. Pulse
+verloopt in batches en levert bovendien pas iets op nadat er een scan is
+gedraaid, dus een cluster dat over twee leesbatches heen ligt zou daar onzichtbaar
+blijven. De clustering krijgt daarom een eigen, kleine pass: de bevindingen (paar
+honderd tokens voor de hele collectie) plus de volledige padenlijst. Het model
+leest de documenten geen tweede keer, dus het kan geen structuur verzinnen die de
+bewijzen niet dragen. De pass mag falen zonder de bevindingen mee te nemen.
 
 **Klaar als:** analyseren op tien bestanden twee tot vier groepen oplevert met
 gewone namen en elk lid met een reden; één foute groep met één drag gecorrigeerd
@@ -287,8 +299,11 @@ en een groep openen leden en signalen toont.
    van gearchiveerd.
 6. Signalen zijn voorstellen, geen beslissingen. Elk signaal heeft een reden en
    een controleerbare verwijzing.
-7. Code en UI in het Engels.
-8. Elke fase eindigt met een groene testrun en een commit.
+7. Een groep is een beeld, geen schijfwijziging — en een groep die de lezer heeft
+   geordend, is van hem. Geen enkele pass zet een document terug dat de lezer
+   zelf heeft geplaatst, en de API kan dit niet omzeilen.
+8. Code en UI in het Engels.
+9. Elke fase eindigt met een groene testrun en een commit.
 
 ## Nu expliciet niet doen
 
@@ -298,10 +313,10 @@ daar staan; ze komen niet in de weg van de basisworkflow.
 
 ## Eerstvolgende stap
 
-Fase 3 — Delphi stelt groepen voor. Uit de bevindingen en de bestaande
-pulse-connecties clusters maken en die wegschrijven als `create_group(source="ai")`
-+ `place_document(placed_by="ai")`, waarbij `placed_by="user"` altijd wint bij een
-nieuwe pass. Eén knop doet dan signalen én groepen, want de lezer vroeg om één
-ding. `services/delphi_grouping.py` staat nog niet.
+Fase 4 — Fysiek & archief. De eerste toewijzing aan een groep levert een
+voorstel op (`plan_move(..., allow_missing_dir=True)`) in het bestaande
+voorstellenscherm; archiveren is naar de `Archief`-groep plus zo'n voorstel.
+Tot die tijd is de documentatie op schijf statisch en de groepen lopen er
+bewust nog los naast — dat is de scheiding die Fase 4 nu gaat sluiten.
 
 

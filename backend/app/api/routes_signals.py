@@ -28,7 +28,13 @@ from app.db import get_db
 from app.llm import get_provider
 from app.llm.base import LLMError, LLMNotConfigured
 from app.models import DocSignal
-from app.schemas import AnalyseOut, AnalyseRequest, OpenSignalsOut, SignalOut
+from app.schemas import (
+    AnalyseOut,
+    AnalyseRequest,
+    GroupProposalOut,
+    OpenSignalsOut,
+    SignalOut,
+)
 from app.services.delphi import (
     DelphiError,
     analyse,
@@ -38,6 +44,7 @@ from app.services.delphi import (
     signals_for_document,
     signals_for_group,
 )
+from app.services.delphi_grouping import propose_clusters, propose_groups
 from app.services.placement import PlacementError, get_group
 from app.services.signals import SIGNAL_LABELS
 
@@ -111,12 +118,35 @@ def analyze_collection(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM error: {exc}") from exc
 
     stored = record_signals(db, workspace_id, repo.id, result.signals)
+
+    # The grouping pass runs on the findings, not on a second reading of the
+    # documents, so a cluster spanning two reading batches is still visible. It
+    # is a second request, and it is allowed to fail on its own: the findings are
+    # already recorded and are worth the reader's attention whether or not a
+    # group could be proposed for them.
+    proposals = propose_groups(
+        db,
+        workspace_id,
+        repo.id,
+        propose_clusters(provider, result.signals, result.paths),
+    )
+
     return AnalyseOut(
         repository_id=repo.id,
         documents=result.documents,
         analysed=result.analysed,
         signals=[_signal_out(s) for s in stored],
         open_signals=open_signal_count(db, workspace_id),
+        groups=[
+            GroupProposalOut(
+                group_id=p.group_id,
+                name=p.name,
+                placed=p.placed,
+                left_alone=p.left_alone,
+                unavailable=p.unavailable,
+            )
+            for p in proposals
+        ],
         summary=result.summary,
         errors=result.errors,
     )

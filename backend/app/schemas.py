@@ -462,11 +462,18 @@ class GroupDocumentOut(BaseModel):
 
 
 class GroupPlacementRequest(BaseModel):
+    """A document being put into a group by whoever is reading the board.
+
+    There is deliberately no ``placed_by`` here. This endpoint is the reader
+    acting, so the server records the placement as theirs: a client that could
+    declare its own placement provisional would be able to talk a later analysis
+    into moving the document back, and a reader's arrangement is exactly what
+    must survive that. Delphi's placements are written by the analysis itself,
+    which is the only other writer.
+    """
+
     repository_id: int
     path: str = Field(..., min_length=1, max_length=1000)
-    # "user" or "ai". Recorded so a placement can be attributed, and so the UI
-    # can show that a document was put somewhere rather than found there.
-    placed_by: str | None = None
 
 
 class GroupMoveRequest(GroupPlacementRequest):
@@ -972,6 +979,21 @@ class SignalOut(BaseModel):
     created_at: dt.datetime
 
 
+class GroupProposalOut(BaseModel):
+    """What one proposed group actually did.
+
+    ``placed`` and ``left_alone`` are both reported because the difference is the
+    point: a document the reader dragged somewhere else is not a member, and a
+    group that quietly lost one would read as a group of the size it shows.
+    """
+
+    group_id: int
+    name: str
+    placed: list[str] = Field(default_factory=list)
+    left_alone: list[str] = Field(default_factory=list)
+    unavailable: list[str] = Field(default_factory=list)
+
+
 class AnalyseRequest(BaseModel):
     """Which collection to analyse.
     Omitted, the workspace's documentation is analysed, falling back to the inbox
@@ -1010,5 +1032,7 @@ class AnalyseOut(BaseModel):
     signals: list[SignalOut]
     #: Findings still waiting for a decision, across the whole workspace.
     open_signals: int
+    #: The groups Delphi proposed from those findings, and what became of them.
+    groups: list[GroupProposalOut] = Field(default_factory=list)
     summary: str
     errors: list[str] = Field(default_factory=list)

@@ -325,6 +325,18 @@ export interface Signal {
   created_at: string
 }
 
+/** What one proposed group actually did, and what became of its members. */
+export interface GroupProposal {
+  group_id: number
+  name: string
+  /** Documents Delphi put in this group. */
+  placed: string[]
+  /** Members left alone because the reader had already placed them elsewhere. */
+  left_alone: string[]
+  /** Members that are no longer readable at that path. */
+  unavailable: string[]
+}
+
 export interface AnalyseResult {
   repository_id: number
   /** Documents in the collection. */
@@ -333,6 +345,8 @@ export interface AnalyseResult {
   analysed: number
   signals: Signal[]
   open_signals: number
+  /** Groups Delphi proposed from the findings. Empty when it proposed none. */
+  groups: GroupProposal[]
   /** One sentence, in the reader's terms, saying what did and did not happen. */
   summary: string
   errors: string[]
@@ -878,10 +892,13 @@ export const api = {
     request<void>(`/workspaces/${workspaceId}/groups/${groupId}`, { method: 'DELETE' }),
   groupDocuments: (workspaceId: number, groupId: number) =>
     request<GroupDocument[]>(`/workspaces/${workspaceId}/groups/${groupId}/documents`),
+  // The server records a placement made here as the reader's own; there is no
+  // placed_by to send, because a client that could mark its placement
+  // provisional would be talking a later analysis into moving the document back.
   addToGroup: (
     workspaceId: number,
     groupId: number,
-    payload: { repository_id: number; path: string; placed_by?: string },
+    payload: { repository_id: number; path: string },
   ) =>
     request<GroupDocument>(`/workspaces/${workspaceId}/groups/${groupId}/documents`, {
       method: 'POST',

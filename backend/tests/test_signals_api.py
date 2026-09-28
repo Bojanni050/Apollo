@@ -59,6 +59,28 @@ def _one_finding() -> LLMResponse:
     )
 
 
+def _one_group(name: str = "Planning", members: list[str] | None = None) -> LLMResponse:
+    """The second request the button makes: a grouping over the findings."""
+    return LLMResponse(
+        content=json.dumps(
+            {
+                "groups": [
+                    {
+                        "name": name,
+                        "paths": members or ["notes.md", "README.md"],
+                        "why": "The findings connect these two, and the evidence is "
+                        "in what each says about the other.",
+                    }
+                ]
+            }
+        )
+    )
+
+
+def _finding_and_group(name: str = "Planning") -> list[LLMResponse]:
+    return [_one_finding(), _one_group(name)]
+
+
 # ---------------------------------------------------------------------------
 # The one button
 # ---------------------------------------------------------------------------
@@ -76,8 +98,10 @@ def test_the_button_reports_what_it_found(
     assert body["documents"] == 6
     assert body["analysed"] == 6
     assert body["open_signals"] == 1
-    # The sentence says what happened, and says what did not happen.
-    assert "Nothing was moved or changed." in body["summary"]
+    # The sentence says what happened, and says what did not happen -- of the
+    # documents. A proposed group is a view over them, and the report names it
+    # separately rather than letting this sentence cover it.
+    assert "No document was moved, renamed, or rewritten." in body["summary"]
     (finding,) = body["signals"]
     assert finding["kind"] == "outdated"
     assert finding["label"] == "Older information"
@@ -386,4 +410,143 @@ def test_there_is_no_route_here_that_can_change_a_document() -> None:
     ]
 
     assert writes == []
+
+# ---------------------------------------------------------------------------
+# The same button, proposing groups
+# ---------------------------------------------------------------------------
+
+
+def test_the_button_proposes_a_group_that_the_board_can_show(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """One press: findings, and a group to put them in. The group has to be a
+    real group afterwards -- visible, named, and carrying its reason -- because
+    a proposal that only exists in a response is a proposal the reader cannot
+    drag a document out of."""
+    mock_llm(_finding_and_group())
+    base = f"/api/workspaces/{workspace['id']}"
+
+    body = client.post(
+        f"{base}/delphi/analyze", json={}
+    ).json()
+
+    (proposal,) = body["groups"]
+    assert proposal["name"] == "Planning"
+    assert sorted(proposal["placed"]) == ["README.md", "notes.md"]
+
+    groups = client.get(f"{base}/groups").json()
+    proposed = next(g for g in groups if g["name"] == "Planning")
+    # Marked as Delphi's and carrying the reason, so the card says who thought so
+    # and why without anything else having to be opened.
+    assert proposed["source"] == "ai"
+    assert proposed["description"]
+
+    members = client.get(f"{base}/groups/{proposed['id']}/documents").json()
+    assert sorted(m["path"] for m in members) == ["README.md", "notes.md"]
+    assert all(m["placed_by"] == "ai" for m in members)
+
+
+def test_the_readers_own_placement_survives_the_next_analysis(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """The acceptance criterion in one test.
+
+    A reader drags a document where they want it, Delphi disagrees, the reader
+    presses the button again -- and the document stays where the reader put it.
+    Making that true is what makes disagreeing with Delphi safe; without it,
+    every correction would be a temporary one.
+    """
+    mock_llm(_finding_and_group())
+    base = f"/api/workspaces/{workspace['id']}"
+    repo = _doc_repo_id(workspace)
+
+    mine = client.post(f"{base}/groups", json={"name": "Mijn eigen plek"}).json()["id"]
+    client.post(
+        f"{base}/groups/{mine}/documents", json={"repository_id": repo, "path": "notes.md"}
+    )
+
+    body = client.post(
+        f"{base}/delphi/analyze", json={}
+    ).json()
+
+    (proposal,) = body["groups"]
+    assert proposal["left_alone"] == ["notes.md"]
+    assert proposal["placed"] == ["README.md"]
+
+    # Still in the reader's group, and not in Delphi's.
+    assert [
+        d["path"] for d in client.get(f"{base}/groups/{mine}/documents").json()
+    ] == ["notes.md"]
+    theirs = next(
+        g for g in client.get(f"{base}/groups").json() if g["name"] == "Planning"
+    )
+    assert [d["path"] for d in client.get(f"{base}/groups/{theirs['id']}/documents").json()] == [
+        "README.md"
+    ]
+
+
+def test_a_second_press_does_not_stack_a_second_copy_of_a_group(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """Analysing twice is ordinary use, not a mistake, and must not litter the
+    board with a copy of every group the reader already has."""
+    mock_llm(_finding_and_group() + _finding_and_group())
+    base = f"/api/workspaces/{workspace['id']}"
+
+    first = client.post(f"{base}/delphi/analyze", json={}).json()
+    second = client.post(f"{base}/delphi/analyze", json={}).json()
+
+    assert first["groups"][0]["group_id"] == second["groups"][0]["group_id"]
+    names = [g["name"] for g in client.get(f"{base}/groups").json()]
+    assert names.count("Planning") == 1
+
+
+def test_proposing_a_group_writes_no_file(
+    client: TestClient, workspace: dict, mock_llm, doc_repo
+) -> None:
+    """A group is a view on the documents, never an edit of them. Checked against
+    the repository byte for byte, which is the only way to be sure."""
+    from tests.test_delphi_grouping import _tree
+
+    mock_llm(_finding_and_group())
+    before = _tree(doc_repo)
+
+    client.post(f"/api/workspaces/{workspace['id']}/delphi/analyze", json={})
+
+    assert _tree(doc_repo) == before
+
+
+def test_nothing_standing_out_means_nothing_proposed(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """A quiet collection gets a quiet answer. Asking for groups with no findings
+    to group on would be asking for a structure invented out of nothing."""
+    mock_llm([_response([{"path": "notes.md", "signals": []}])])
+    base = f"/api/workspaces/{workspace['id']}"
+
+    body = client.post(
+        f"{base}/delphi/analyze", json={}
+    ).json()
+
+    assert body["signals"] == []
+    assert body["groups"] == []
+    assert client.get(f"{base}/groups").json() == []
+
+
+def test_a_grouping_that_fails_does_not_cost_the_findings(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """The grouping is a second request, and it is allowed to fail on its own: the
+    findings are already recorded and are worth the reader's attention whether or
+    not a group could be proposed for them."""
+    mock_llm([_one_finding(), LLMResponse(content="I could not group these.")])
+    base = f"/api/workspaces/{workspace['id']}"
+
+    body = client.post(
+        f"{base}/delphi/analyze", json={}
+    ).json()
+
+    assert [s["why"] for s in body["signals"]] == [EVIDENCE]
+    assert body["groups"] == []
+    assert body["open_signals"] == 1
 

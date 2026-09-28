@@ -3418,6 +3418,21 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.45;
   color: var(--pulse-gold-fg);
 }
+/* A proposed group is named here rather than only on the board: a group the
+   reader did not make should never be mistaken for one that was always there. */
+.delphi-report-groups {
+  margin: 6px 0 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--pulse-gold-fg);
+}
+.delphi-report-group {
+  margin: 1px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--pulse-gold-fg);
+}
 /* A failure is stated in the same place as the result, never swallowed: a pass
    that read three documents out of ten said so, and that has to stay visible. */
 .delphi-report-error {
