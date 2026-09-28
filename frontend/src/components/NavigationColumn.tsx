@@ -188,42 +188,6 @@ export function NavigationColumn({
 
             <button
               type="button"
-              className={`nav-item ${activeSection === 'repos' ? 'active' : ''}`}
-              onClick={() => onSelectSection('repos')}
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">👤</span>
-                <span>Repositories</span>
-              </span>
-              <span className="nav-item-count">{counts.repos}</span>
-            </button>
-
-            <button
-              type="button"
-              className={`nav-item ${activeSection === 'decisions' ? 'active' : ''}`}
-              onClick={() => onSelectSection('decisions')}
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">⚖️</span>
-                <span>Decisions (ADRs)</span>
-              </span>
-              <span className="nav-item-count">{counts.decisions}</span>
-            </button>
-
-            <button
-              type="button"
-              className={`nav-item ${activeSection === 'questions' ? 'active' : ''}`}
-              onClick={() => onSelectSection('questions')}
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">❓</span>
-                <span>Open Questions</span>
-              </span>
-              <span className="nav-item-count">{counts.questions}</span>
-            </button>
-
-            <button
-              type="button"
               className={`nav-item ${activeSection === 'proposals' ? 'active' : ''}`}
               onClick={() => onSelectSection('proposals')}
             >
@@ -245,37 +209,77 @@ export function NavigationColumn({
               </span>
               <span className="nav-item-count">{counts.conversations}</span>
             </button>
-
-            <button
-              type="button"
-              className={`nav-item ${activeSection === 'inventory' ? 'active' : ''}`}
-              onClick={() => onSelectSection('inventory')}
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">📦</span>
-                <span>Inventory Runs</span>
-              </span>
-              <span className="nav-item-count">{counts.inventory}</span>
-            </button>
           </div>
         </div>
 
-        {/* Section: Filters */}
+        {/* Everything that exists, but is not the way in.
+
+            The list above is the workflow -- documents arrive, Delphi says what
+            stands out, groups hold them together. Repositories, inventory runs,
+            ADRs and open questions are how this was built and how it is looked
+            after; they stay one click away rather than sitting at the same
+            weight as the three things a reader opens the app for. A <details>
+            element rather than a button and a flag: it is a disclosure, it works
+            from the keyboard, and it remembers nothing. Nothing here is hidden
+            or removed -- a section that is not on the front page is still a
+            section you can open.
+
+            Delphi Pulse is deliberately not repeated here. It has its own pinned
+            button in the footer, always visible, and a second entry in a list
+            that opens on demand is the same destination twice for no gain. */}
         <div className="nav-section-group">
-          <div className="nav-section-title">FILTERS</div>
-          <div className="nav-list">
-            <button
-              type="button"
-              className={`nav-item ${activeSection === 'pulse' ? 'active' : ''}`}
-              onClick={() => onSelectSection('pulse')}
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">💡</span>
-                <span>Delphi Pulse</span>
-              </span>
-              <span className="nav-item-count">{counts.pulseWoven}</span>
-            </button>
-          </div>
+          <details className="nav-more">
+            <summary className="nav-section-title nav-more-summary">More</summary>
+            <div className="nav-list">
+              <button
+                type="button"
+                className={`nav-item ${activeSection === 'repos' ? 'active' : ''}`}
+                onClick={() => onSelectSection('repos')}
+              >
+                <span className="nav-item-left">
+                  <span className="nav-item-glyph">👤</span>
+                  <span>Repositories</span>
+                </span>
+                <span className="nav-item-count">{counts.repos}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`nav-item ${activeSection === 'decisions' ? 'active' : ''}`}
+                onClick={() => onSelectSection('decisions')}
+              >
+                <span className="nav-item-left">
+                  <span className="nav-item-glyph">⚖️</span>
+                  <span>Decisions (ADRs)</span>
+                </span>
+                <span className="nav-item-count">{counts.decisions}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`nav-item ${activeSection === 'questions' ? 'active' : ''}`}
+                onClick={() => onSelectSection('questions')}
+              >
+                <span className="nav-item-left">
+                  <span className="nav-item-glyph">❓</span>
+                  <span>Open Questions</span>
+                </span>
+                <span className="nav-item-count">{counts.questions}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`nav-item ${activeSection === 'inventory' ? 'active' : ''}`}
+                onClick={() => onSelectSection('inventory')}
+              >
+                <span className="nav-item-left">
+                  <span className="nav-item-glyph">📦</span>
+                  <span>Inventory Runs</span>
+                </span>
+                <span className="nav-item-count">{counts.inventory}</span>
+              </button>
+            </div>
+          </details>
         </div>
 
         {/* Why this exists. Last in the scrolling list rather than pinned to the

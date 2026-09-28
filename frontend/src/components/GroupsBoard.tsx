@@ -23,6 +23,16 @@ interface Props {
   onOpenDocument: (repositoryId: number, path: string) => void
   /** Currently open document, so the board can show where it sits. */
   activeDocument?: { repositoryId: number; path: string } | null
+  /**
+   * The group whose details the sidebar is showing, and the way to change that.
+   *
+   * The board already knew everything the sidebar needs -- the members are in
+   * `members` and the origin is on the card -- so this is a pointer, not a
+   * second copy of the same state. `null` for both means the sidebar has nothing
+   * selected, which is also what clearing the selection does.
+   */
+  selectedGroupId?: number | null
+  onSelectGroup?: (groupId: number | null) => void
 }
 
 const ARCHIVE_NAME = 'Archief'
@@ -52,7 +62,13 @@ function fileName(path: string): string {
   return path.split('/').pop() ?? path
 }
 
-export function GroupsBoard({ workspaceId, onOpenDocument, activeDocument }: Props) {
+export function GroupsBoard({
+  workspaceId,
+  onOpenDocument,
+  activeDocument,
+  selectedGroupId = null,
+  onSelectGroup = () => {},
+}: Props) {
   const [groups, setGroups] = useState<Group[]>([])
   const [members, setMembers] = useState<Record<number, GroupDocument[]>>({})
   const [loading, setLoading] = useState(true)
@@ -205,6 +221,7 @@ export function GroupsBoard({ workspaceId, onOpenDocument, activeDocument }: Pro
                   'group-card',
                   group.is_archive ? 'group-card--archive' : '',
                   isTarget ? 'group-card--droptarget' : '',
+                  selectedGroupId === group.id ? 'group-card--selected' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -221,6 +238,21 @@ export function GroupsBoard({ workspaceId, onOpenDocument, activeDocument }: Pro
                   <span className="group-card-count">
                     {docs.length} {docs.length === 1 ? 'document' : 'documents'}
                   </span>
+                  {/* A button, not the card itself. The card is a drop target and
+                      holds a draggable list, so making the whole thing clickable
+                      would put a click handler on top of both -- and a reader who
+                      misses a drag would silently change what the panel shows. */}
+                  <button
+                    type="button"
+                    className="group-card-details"
+                    onClick={() =>
+                      onSelectGroup(selectedGroupId === group.id ? null : group.id)
+                    }
+                    aria-pressed={selectedGroupId === group.id}
+                    title="Show this group's members and findings in the panel"
+                  >
+                    {selectedGroupId === group.id ? 'Hide details' : 'Details'}
+                  </button>
                 </header>
 
                 {group.description && (

@@ -45,6 +45,8 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Groepen uit de analyse | `services/delphi_grouping.py` — `propose_clusters` (tweede pass over de bevindingen), `propose_groups` (schrijft `source="ai"`, `placed_by="ai"`) | klaar (Fase 3) |
 | Tests groepvoorstel | `tests/test_delphi_grouping.py` (27), plus 6 end-to-endtests in `tests/test_signals_api.py` | klaar |
 | Leiders-veto is niet te omzeilen | `GroupPlacementRequest` heeft geen `placed_by` meer; `routes_groups.py` schrijft altijd `"user"` | klaar (Fase 3) |
+| Navigatie is de kernworkflow | `NavigationColumn.tsx` — Inbox, All objects, Groups, Notes & Docs, Ideas, Conversations zichtbaar; Repositories, ADRs, Open Questions en Inventory Runs achter "More" (Fase 6) | klaar (Fase 6) |
+| Sidebar kent groepen en signalen | `ContextSidebar.tsx` — `GroupPanel` (wie, waarom, leden, bevindingen) en "BELONGS TO" per document; `GroupsBoard` krijgt een Details-knop; `scripts/smoke-sidebar.mjs` | klaar (Fase 5) |
 
 ### Wat ontbreekt
 
@@ -58,10 +60,10 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Geen dismiss-status | **geregeld in Fase 2** — `doc_signals.status`; een weggezette bevinding blijft weggezet na een nieuwe pass |
 | Nog geen groepen uit de analyse | **geregeld in Fase 3** — `services/delphi_grouping.py`; één knop doet signalen én groepen |
 | Archiveren doet nog niets met een map | Fase 4: het signaal is er, de actie niet — nog bewust |
-| Delphi maakt geen groepen | `create_group(..., source="ai")` komt alleen in tests voor |
-| De sidebar kent geen groepen of signalen | `client.groupsOfDocument()` bestaat maar wordt door geen enkel component gebruikt |
+| Delphi maakt geen groepen | **geregeld in Fase 3** — `create_group(..., source="ai")` wordt nu door de analyse zelf geschreven, niet alleen door tests |
+| De sidebar kent geen groepen of signalen | **geregeld in Fase 5** — `GroupPanel` toont leden en bevindingen van de gekozen groep; een document toont "BELONGS TO". Chat stond al op de tweede plek, dus al secundair |
 | Geen app-beheerde opslagroot | **geregeld in Fase 1**: `effective_storage_root` en `effective_allowed_workspace_roots` in `config.py`. Een lege operatorlijst blijft leeg, want in development betekent leeg "alles toegestaan" en er zou anders één map overblijven |
-| Bevriezen is niet gedaan | `NavigationColumn.tsx` toont nog 10 secties, inclusief repos, inventory en pulse |
+| Bevriezen is niet gedaan | **deels geregeld in Fase 6** — de kern staat vooraan, de rest zit achter "More". Nog niet gedaan: de basisworkflow als eerste README-sectie, en `smoke:basis` die de hele keten in één keer afloopt |
 
 ### Waar de oude plannen van uitgingen die niet meer klopten
 
@@ -265,7 +267,7 @@ is en gecorrigeerd blijft na opnieuw analyseren.
 **Klaar als:** archiveren bewaart, de verplaatsing als voorstel verschijnt, weigeren
 alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
 
-## Fase 5 — Contextsidebar (1 dag)
+## Fase 5 — Contextsidebar (1 dag) — **grootste deel afgerond**
 
 - Bij een document: "Hoort bij" (via het bestaande maar ongebruikte
   `groupsOfDocument`), signalen met reden, relaties, en acties (naar archief,
@@ -276,7 +278,23 @@ alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
 **Klaar als:** een document selecteren groep en signalen toont zonder extra klik,
 en een groep openen leden en signalen toont.
 
-## Fase 6 — Opruimen (halve dag)
+**Wat er staat.** "BELONGS TO" bij een document, met per groep wie hem heeft
+gemaakt. Een `GroupPanel` in hetzelfde paneel voor de gekozen groep: naam, herkomst,
+de reden (`description`), de leden, en de bevindingen met hun `why`. De groepen
+worden in `openDocument` gelezen, met hetzelfde repository-id als de tekst —
+anders vraag je naar de Inbox met het id van de documentatiemap en krijg je stil
+niets terug, wat leest als "die zit in geen enkele groep". Het paneel beschrijft
+één ding tegelijk: een document openen wist de groepselectie.
+
+De actie "naar archief" is er **niet**: archiveren hoort bij Fase 4, waar het een
+mapvoorstel kan zijn. Een knop die alleen in de database archievert zou de lezer
+vertellen dat zijn bestand is opgeruimd.
+
+De signalen van een *document* staan niet dubbel in het paneel: de signaalbalk
+boven het document toont ze al, met reden. Wat het paneel erbij zet is de
+bevinding-van-een-groep, waar nog niets was.
+
+## Fase 6 — Opruimen (halve dag) — **deels afgerond**
 
 - `repos`, `inventory`, `pulse`, `decisions` en `questions` naar "Meer" of achter
   een instelling; embeddings, vector en sources blijven backend-only (verbergen,
@@ -285,6 +303,16 @@ en een groep openen leden en signalen toont.
   eerste sectie.
 - `npm run smoke:basis`: drop → analyse op de mock-provider → groep → drag →
   archief.
+
+**Wat er staat.** Repositories, ADRs, Open Questions en Inventory Runs zitten
+achter een `<details>` met "More"; Inbox, All objects, Groups, Notes & Docs,
+Ideas & Proposals en Conversations staan vooraan. Delphi Pulse is uit de lijst
+gehaald: die heeft een vastgezette knop onderaan, dus een tweede vermelding is
+dezelfde bestemming twee keer.
+
+Nog niet gedaan: de README-sectie en `smoke:basis`. Er is nu `smoke:sidebar`,
+dat de kern van deze fase afdwingt (kern vooraan, alles nog bereikbaar, paneel
+beschrijft groep én document) en zijn eigen groep weer opruimt.
 
 ## Harde regels
 

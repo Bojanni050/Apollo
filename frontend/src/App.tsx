@@ -15,6 +15,7 @@ import {
   type PulseRun,
   type DocumentLinks,
   type Group,
+  type GroupDocument,
   type GroupProposal,
   type InboxFile,
   type Signal,
@@ -87,6 +88,15 @@ export default function App() {
   // change on every drag and re-fetching them here would make a drop appear to
   // do nothing until something else happened to trigger a reload.
   const [groups, setGroups] = useState<Group[]>([])
+  // The group whose details the panel is showing, and what the panel needs to
+  // show them. Two pieces rather than one object: the group itself is already in
+  // `groups`, so storing it again would be a second copy that can disagree.
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+  const [groupMembers, setGroupMembers] = useState<GroupDocument[]>([])
+  const [groupSignals, setGroupSignals] = useState<Signal[]>([])
+  // Which groups the open document sits in. Null means "not read yet", which is
+  // a different claim from "it is in no group" and the panel words them apart.
+  const [documentGroups, setDocumentGroups] = useState<Group[] | null>(null)
 
   // Documents dropped in, and the repository they were stored in. Held here
   // rather than in the column because the navigation badge, the inbox column and
@@ -404,6 +414,10 @@ export default function App() {
       setDocumentPath(path)
       setDocumentMarkdown(null)
       setDocumentLinks(null)
+      // The panel describes one thing at a time. Opening a document ends the
+      // group's details rather than leaving them above a document that has
+      // nothing to do with that group.
+      setSelectedGroupId(null)
       // The document, its links and its findings are independent reads, so they
       // are not awaited one after the other: the text appears as soon as it is
       // ready, and a failure in either of the other two leaves the document
@@ -416,13 +430,20 @@ export default function App() {
         .signalsForDocument(workspace.id, repoId, path)
         .then(setSignals)
         .catch(() => setSignals([]))
+      // Read with the same repository id as the text above. Asking with the
+      // documentation repository while reading an inbox file returns an empty
+      // answer rather than an error, which would read as "it is in no group".
+      const belonging = api
+        .groupsOfDocument(workspace.id, repoId, path)
+        .then(setDocumentGroups)
+        .catch(() => setDocumentGroups([]))
       try {
         const doc = await api.document(workspace.id, repoId, path)
         setDocumentMarkdown(doc.raw_markdown)
       } catch (e) {
         report(e)
       }
-      await Promise.all([links, findings])
+      await Promise.all([links, findings, belonging])
     },
     [workspace, repository],
   )
@@ -823,6 +844,30 @@ export default function App() {
     }
   }, [workspace, inbox.repository_id, documentPath])
 
+  /* Show a group's details in the panel, or stop showing them.
+
+     One request for the members and one for the findings, started together
+     because neither is useful alone: a list of documents with nothing said about
+     them, or findings about documents the reader cannot see, are each half an
+     answer. Both are cleared first, so a slow second read cannot leave the
+     previous group's documents on screen under the new group's name -- which is
+     the one way this panel could be confidently wrong. */
+  const selectGroup = useCallback(
+    async (groupId: number | null) => {
+      setSelectedGroupId(groupId)
+      setGroupMembers([])
+      setGroupSignals([])
+      if (!workspace || groupId === null) return
+      const [members, signals] = await Promise.all([
+        api.groupDocuments(workspace.id, groupId).catch(() => []),
+        api.signalsForGroup(workspace.id, groupId).catch(() => []),
+      ])
+      setGroupMembers(members)
+      setGroupSignals(signals)
+    },
+    [workspace],
+  )
+
   /* Hide one finding. The list is re-read rather than edited in place, so the bar
      cannot disagree with the server about what is still open -- and a dismissal
      survives the next analysis, which is the whole point of making one. */
@@ -963,6 +1008,8 @@ export default function App() {
             <GroupsBoard
               workspaceId={workspace!.id}
               onOpenDocument={(repositoryId, path) => void openDocument(path, repositoryId)}
+        selectedGroupId={selectedGroupId}
+        onSelectGroup={(groupId) => void selectGroup(groupId)}
               activeDocument={
                 documentPath && repository
                   ? { repositoryId: repository.id, path: documentPath }
@@ -1075,6 +1122,12 @@ export default function App() {
           onOpenAiChat={openAiChat}
           chatNonce={chatNonce}
           onRunPulse={workspace ? runPulse : undefined}
+          documentGroups={documentGroups}
+          selectedGroup={groups.find((g) => g.id === selectedGroupId) ?? null}
+          groupMembers={groupMembers}
+          groupSignals={groupSignals}
+          onOpenGroup={(groupId) => void selectGroup(groupId)}
+          onOpenDocumentIn={(repositoryId, path) => void openDocument(path, repositoryId)}
         />
       </div>
 

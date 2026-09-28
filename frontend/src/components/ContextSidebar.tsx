@@ -3,11 +3,14 @@ import type {
   Conversation,
   ConversationDetail,
   DocumentLinks,
+  Group,
+  GroupDocument,
   InventoryRun,
   Mode,
   Proposal,
   PulseRun,
   Repository,
+  Signal,
 } from '../api/client'
 import { renderDiff } from '../markdown'
 
@@ -60,6 +63,27 @@ interface Props {
    * like a second request, and a boolean set to `true` twice does not re-fire.
    */
   chatNonce?: number
+  /**
+   * The groups the open document sits in. Null while the answer is still being
+   * read, which the panel words apart from "it is in no group": not knowing and
+   * knowing there is nothing are different claims.
+   */
+  documentGroups?: Group[] | null
+  /** The group the board has selected, if any. It takes over the panel's first tab. */
+  selectedGroup?: Group | null
+  groupMembers?: GroupDocument[]
+  groupSignals?: Signal[]
+  /** Show a group's details in the panel. */
+  onOpenGroup?: (groupId: number) => void
+  /**
+   * Open a document by its own repository.
+   *
+   * Separate from onOpenDocument because a group member is identified by the
+   * pair: a member can sit in the inbox while the panel is looking at the
+   * documentation repository, and opening it against the wrong one shows the
+   * reader a different file with the same name.
+   */
+  onOpenDocumentIn?: (repositoryId: number, path: string) => void
 }
 
 type Tab = 'related' | 'chat' | 'proposals'
@@ -102,6 +126,126 @@ const SUGGESTIONS = [
   'What is still undecided here?',
 ]
 
+function fileNameOf(path: string): string {
+  return path.split('/').pop() ?? path
+}
+
+/**
+ * The group, in the panel: who thought it up, why, what is in it, and what
+ * Delphi found in it.
+ *
+ * The board already lists the members, so this is not a second copy of the
+ * board -- it is the board's answer to the two questions the board cannot ask:
+ * why is this document in this group, and what is wrong with it. The reason and
+ * the findings are the parts that exist only here, and both carry their
+ * evidence: the description is the reason the group was proposed with, and every
+ * finding shows the `why` it was recorded with.
+ */
+function GroupPanel({
+  group,
+  members,
+  signals,
+  onOpenDocumentIn,
+}: {
+  group: Group
+  members: GroupDocument[]
+  signals: Signal[]
+  onOpenDocumentIn: (repositoryId: number, path: string) => void
+}) {
+  return (
+    <>
+      <div className="context-section-label">THIS GROUP</div>
+      <div className="context-current-doc">
+        <span className="context-card-title">{group.name}</span>
+        <div className="context-doc-tags">
+          {/* Who made it, said out loud. A group Delphi proposed and one the
+              reader built are otherwise identical on screen, and the reader has
+              to be able to tell which is which before trusting it. */}
+          <span className="context-doc-tag">
+            {group.source === 'ai'
+              ? 'Delphi proposed this'
+              : 'You made this group'}
+          </span>
+          {group.is_archive && <span className="context-doc-tag">Archive</span>}
+        </div>
+      </div>
+      {group.description && <p className="context-card-body">{group.description}</p>}
+
+      <div className="context-section-label" style={{ marginTop: 18 }}>
+        DOCUMENTS IN THIS GROUP
+      </div>
+      {members.length === 0 ? (
+        <div className="context-related-empty">
+          Nothing in this group. Drag a document onto the group on the board to
+          put one there; nothing moves on disk either way.
+        </div>
+      ) : (
+        <ul className="context-member-list">
+          {members.map((doc) => (
+            <li key={`${doc.repository_id}:${doc.path}`}>
+              <button
+                type="button"
+                className="context-object-card context-object-card--click"
+                onClick={() => onOpenDocumentIn(doc.repository_id, doc.path)}
+                title={doc.path}
+              >
+                <span className="context-card-title">{fileNameOf(doc.path)}</span>
+                <span className="context-link-path">{doc.path}</span>
+                {/* The same promise the board makes, restated where the decision
+                    is made: moving it yourself is what the next analysis has to
+                    respect. */}
+                {doc.placed_by === 'ai' && (
+                  <span className="context-link-origin">
+                    Delphi put this here — move it yourself and it stays
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="context-section-label" style={{ marginTop: 18 }}>
+        FINDINGS
+      </div>
+      {signals.length === 0 ? (
+        <div className="context-related-empty">
+          Nothing Delphi found in these documents that still needs a decision.
+        </div>
+      ) : (
+        <ul className="context-signal-list">
+          {signals.map((signal) => (
+            <li key={signal.id} className="context-signal-item">
+              <button
+                type="button"
+                className="context-signal-head"
+                onClick={() =>
+                  onOpenDocumentIn(signal.repository_id, signal.file_path)
+                }
+                title={`Open ${signal.file_path}`}
+              >
+                <span className={`signal-kind signal-kind--${signal.kind}`}>
+                  {signal.label}
+                </span>
+                <span className="context-signal-path">{signal.file_path}</span>
+              </button>
+              {/* The evidence, in full. A finding shown without its reason is a
+                  claim the reader has to take on trust, which is the one thing
+                  Delphi is not allowed to ask for. */}
+              <p className="context-card-body">{signal.why}</p>
+              {signal.reference && (
+                <span className="context-link-origin">
+                  About {signal.reference}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
 export function ContextSidebar({
   isOpen,
   onClose,
@@ -130,6 +274,12 @@ export function ContextSidebar({
   onOpenAiChat,
   onRunPulse,
   chatNonce = 0,
+  documentGroups = null,
+  selectedGroup = null,
+  groupMembers = [],
+  groupSignals = [],
+  onOpenGroup = () => {},
+  onOpenDocumentIn = () => {},
 }: Props) {
   const [tab, setTab] = useState<Tab>('related')
   const [chatInput, setChatInput] = useState('')
@@ -310,7 +460,7 @@ export function ContextSidebar({
             className={`context-tab-chip ${tab === 'related' ? 'active' : ''}`}
             onClick={() => setTab('related')}
           >
-            This document
+            {selectedGroup ? 'This group' : 'This document'}
           </button>
           <button
             type="button"
@@ -335,7 +485,18 @@ export function ContextSidebar({
             reading pane, and says so plainly when nothing is open yet. */}
         {tab === 'related' && (
           <div className="context-scroll-body">
-            {!documentPath ? (
+            {selectedGroup ? (
+              /* The panel describes one subject at a time. A group that is
+                 selected replaces the document rather than stacking below it:
+                 a panel showing a group's members above an unrelated document is
+                 two answers to a question the reader did not ask. */
+              <GroupPanel
+                group={selectedGroup}
+                members={groupMembers}
+                signals={groupSignals}
+                onOpenDocumentIn={onOpenDocumentIn}
+              />
+            ) : !documentPath ? (
               <>
                 <div className="context-section-label">THIS DOCUMENT</div>
                 <div className="context-related-empty">
@@ -358,6 +519,46 @@ export function ContextSidebar({
                     </div>
                   )}
                 </div>
+
+                {/* Where this document sits, which is the question a reader has
+                    when they open a file Delphi just grouped. It answers "why is
+                    this here" in one click, and it states the origin of each
+                    group, because a group the reader did not make should never
+                    be mistaken for one that was always there. */}
+                <div className="context-section-label" style={{ marginTop: 18 }}>
+                  BELONGS TO
+                </div>
+                {documentGroups === null ? (
+                  <div className="context-related-empty">
+                    Reading which groups this file sits in…
+                  </div>
+                ) : documentGroups.length === 0 ? (
+                  <div className="context-related-empty">
+                    Not in any group. Run the analysis to have Delphi propose some,
+                    or drag this file onto a group on the board.
+                  </div>
+                ) : (
+                  <ul className="context-member-list">
+                    {documentGroups.map((group) => (
+                      <li key={group.id}>
+                        <button
+                          type="button"
+                          className="context-object-card context-object-card--click"
+                          onClick={() => onOpenGroup(group.id)}
+                          title={`Show ${group.name} in this panel`}
+                        >
+                          <span className="context-card-title">{group.name}</span>
+                          <span className="context-link-origin">
+                            {group.source === 'ai'
+                              ? 'Delphi proposed this group'
+                              : 'Your group'}
+                            {group.is_archive ? ' · archive' : ''}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 {/* Actions, first: what you can DO with this file. The reading
                     pane's own toolbar holds these too, and this is the same set

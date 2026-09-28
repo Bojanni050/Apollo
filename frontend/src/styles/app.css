@@ -505,6 +505,88 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 8px;
 }
 
+/* The list of documents in a group, and the groups a document is in. A plain
+   list: these are one-column things in a one-column panel, and a card grid
+   would trade a readable path for a shape. */
+.context-member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.context-member-list .context-object-card {
+  width: 100%;
+  text-align: left;
+}
+
+/* Findings, per group. The heading is a button so the document it is about can
+   be opened from the panel; the reason below it is the evidence, and it is not
+   clickable, because a sentence is not a target. */
+.context-signal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.context-signal-item {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.context-signal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.context-signal-head:hover .context-signal-path {
+  color: var(--text);
+}
+.context-signal-path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-signal-item .context-card-body {
+  margin: 4px 0 0;
+}
+
+/* A "More" is a disclosure, so it is a <summary> and gets the triangle the
+   browser already draws -- the one thing worth keeping from the default
+   appearance. The label is a button to the reader and must read as pressable,
+   so it takes the same colour as the section titles until hovered or focused,
+   and the focus ring is the one the other controls use. */
+.nav-more-summary {
+  cursor: pointer;
+  list-style-position: outside;
+  border-radius: var(--radius-xs);
+  transition: color 0.12s;
+}
+.nav-more-summary:hover {
+  color: var(--text-dim);
+}
+.nav-more-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  color: var(--text);
+}
+.nav-more .nav-list {
+  padding-left: 8px;
+}
+
 .nav-list {
   display: flex;
   flex-direction: column;
@@ -1711,6 +1793,13 @@ input:focus, textarea:focus, select:focus {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+  /* The board lives in the contents column, which is about 320px wide. Side by
+     side, the title block and the form left the sentence -- the one thing on
+     this board that explains what a group is -- about 100px, wrapping to one
+     word per line. Wrapping lets the sentence take the full width and the form
+     drop below it once there is no room, instead of the sentence shrinking to
+     nothing. */
+  flex-wrap: wrap;
 }
 
 .groups-board-title {
@@ -1721,7 +1810,10 @@ input:focus, textarea:focus, select:focus {
 
 .groups-board-hint {
   margin: 0;
+  /* The cap is on the sentence, not on the column: it keeps the line readable on
+     a wide screen without refusing to grow when the column gives it room. */
   max-width: 46ch;
+  flex: 1 1 220px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-muted);
@@ -1808,6 +1900,39 @@ input:focus, textarea:focus, select:focus {
   font-size: 11px;
   color: var(--text-faint);
   white-space: nowrap;
+}
+
+/* The button that shows this group's members and findings in the panel. Small and
+   quiet, because it is a way of looking rather than an action on the group: the
+   words change to "Hide details" while it is on, so the panel and the button
+   cannot disagree about what is showing. */
+.group-card-details {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.group-card-details:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.group-card-details:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The card whose details the panel is showing. A border rather than a
+   background tint: the drop-target state also changes the border, and the two
+   must be tellable apart -- one says "it would go here", the other says "this
+   one is open over there". */
+.group-card--selected {
+  border-color: var(--accent, var(--text));
+  box-shadow: inset 0 0 0 1px var(--accent, var(--text));
 }
 
 .group-card-description {
