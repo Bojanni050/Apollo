@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { Conversation, Decision, DocNode, GroupProposal, InboxFile, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
 import type { NavSection } from './NavigationColumn'
 import { InboxDropzone } from './InboxDropzone'
+import { WorkingFolderCard } from './WorkingFolderCard'
 
 export interface ItemCard {
   id: string
@@ -439,6 +440,12 @@ export function FolderContentsColumn({
         <div className="folder-contents-inbox-tools">
           <InboxDropzone workspaceId={workspaceId} onStored={onInboxStored} compact />
         </div>
+      )}
+
+      {/* Only when the reader has not chosen one, and never in the way: a card
+          for something already decided is a card pushing the documents down. */}
+      {activeSection === 'inbox' && workspaceId !== null && (
+        <WorkingFolderCard workspaceId={workspaceId} onChanged={onInboxStored} />
       )}
 
       {/* 3. Items List */}

@@ -1,0 +1,11 @@
+The working folder, chosen in the wizard and shown afterwards
+
+The wizard asks for it as step one, in plain words: a folder on your
+own disk, and preferably empty. The card afterwards says which folder it
+is and offers one way out - a different one, or none at all.
+
+"None" is a real option and not a shrug. Without a working folder the
+inbox still works, it just lives in Apollo's own storage; that is a
+legitimate choice for someone who does not want their documents in a
+folder of theirs, and the card says exactly that rather than implying
+something is missing.

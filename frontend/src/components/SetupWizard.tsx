@@ -29,7 +29,7 @@ import { useState } from 'react'
 import { ApiError, api, type Workspace } from '../api/client'
 import { FolderPickerModal } from './FolderPickerModal'
 
-type Step = 'workspace' | 'repository' | 'done'
+type Step = 'workspace' | 'working' | 'repository' | 'done'
 
 interface Props {
   /** Called when a workspace exists, so the app can load and select it. */
@@ -75,7 +75,7 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
       // workspace to App's list, which makes App render the main layout and
       // unmount this wizard -- so the repository step would never be seen.
       // The parent is told once the whole flow finishes, in finish().
-      setStep('repository')
+      setStep('working')
     } catch (err) {
       message(err, 'Could not create the workspace.')
     } finally {
@@ -97,6 +97,38 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
       // than leaving the user on a wizard that looks finished but is not.
       message(err, 'The workspace was created, but could not be loaded.')
     }
+  }
+
+  // -- step 2: the working folder ---------------------------------------------
+  // Asked before the documentation folder, and that order is the argument: this
+  // is where documents *arrive*, and the folder they are read from is a
+  // separate, later question. A reader with no existing documentation at all --
+  // the common case for somebody opening this for the first time -- needs this
+  // answer and not the other one.
+  const [workingPath, setWorkingPath] = useState('')
+  const [workingPicked, setWorkingPicked] = useState(false)
+  const [workingWarning, setWorkingWarning] = useState<string | null>(null)
+  const [workingPickerOpen, setWorkingPickerOpen] = useState(false)
+
+  const chooseWorkingFolder = async (path: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.setWorkingDir(created!.id, path)
+      setWorkingPicked(true)
+      setWorkingPath(result.working_dir ?? path)
+      setWorkingWarning(result.warning)
+    } catch (err) {
+      message(err, 'That folder could not be chosen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Skipping is a real state, not a dismissal: the folder stays Apollo's own
+   *  and the card beside the inbox keeps saying so. */
+  const skipWorkingFolder = () => {
+    if (created) setStep('repository')
   }
 
   const addRepository = async (e: React.FormEvent) => {
@@ -171,7 +203,103 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     )
   }
 
-  // -- step 2: the documentation repository ----------------------------------
+  // -- step 3: the documentation repository ----------------------------------
+  if (step === 'working' && created) {
+    return (
+      <>
+        <form className="setup" onSubmit={(e) => { e.preventDefault(); setStep('repository') }}>
+          <h2>Where should your documents go?</h2>
+          <p className="faint">
+            Workspace <strong>{created.name}</strong> is ready. Pick an empty folder
+            on this machine for Apollo to work in — a document you drop in will be
+            kept there, in a folder you can open yourself.
+          </p>
+
+          {workingPicked ? (
+            <div className="form-group">
+              <label className="form-label">Your folder</label>
+              <p className="setup-picked">{workingPath}</p>
+              {workingWarning && <p className="hint">{workingWarning}</p>}
+              <p className="hint">
+                Apollo keeps a history of this folder, so anything it later
+                rearranges can be undone. What is already in there is never
+                touched.
+              </p>
+            </div>
+          ) : (
+            <div className="form-group">
+              <label className="form-label" htmlFor="working-path">
+                Folder
+              </label>
+              <div className="input-with-button">
+                <input
+                  id="working-path"
+                  value={workingPath}
+                  onChange={(e) => setWorkingPath(e.target.value)}
+                  placeholder="C:/Documenten/Apollo"
+                  spellCheck={false}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setWorkingPickerOpen(true)}
+                  title="Browse local folders"
+                >
+                  📁 Browse…
+                </button>
+              </div>
+              <p className="hint">
+                Must be an existing directory. An empty one is best, but a folder
+                that already has files in it is fine — Apollo adds its own
+                alongside and leaves the rest alone.
+              </p>
+            </div>
+          )}
+
+          {error && <p className="error">{error}</p>}
+
+          <div className="btn-row">
+            {workingPicked ? (
+              <button className="btn primary" type="submit" disabled={busy}>
+                {busy ? 'Working…' : 'Continue'}
+              </button>
+            ) : (
+              <button
+                className="btn primary"
+                type="button"
+                disabled={busy || !workingPath.trim()}
+                onClick={() => void chooseWorkingFolder(workingPath.trim())}
+              >
+                {busy ? 'Choosing…' : 'Use this folder'}
+              </button>
+            )}
+            <button
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={skipWorkingFolder}
+            >
+              Use Apollo&rsquo;s own folder
+            </button>
+          </div>
+        </form>
+
+        <FolderPickerModal
+          isOpen={workingPickerOpen}
+          initialPath={workingPath || undefined}
+          title="Select Your Working Folder"
+          onSelect={(path) => {
+            setWorkingPath(path)
+            setWorkingPickerOpen(false)
+          }}
+          onClose={() => setWorkingPickerOpen(false)}
+        />
+      </>
+    )
+  }
+
+  // -- step 4: the documentation repository ----------------------------------
   if (step === 'repository' && created) {
     return (
       <>

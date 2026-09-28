@@ -395,25 +395,38 @@ non-existent folder is still refused, because that is more likely a typo.
 ## The inbox
 
 Where documents come *from*. Drag them in from the desktop and they land in
-`<APOLLO_STORAGE_ROOT>/workspace_<id>/Inbox/`, a folder Apollo keeps for you and
-never empties.
+`Inbox/` inside your **working folder** — a folder you choose. Until you choose
+one, that folder is `<APOLLO_STORAGE_ROOT>/workspace_<id>/`, which is a perfectly
+usable default and not one you ever looked at.
 
 ```
-plan   POST   /inbox/upload   -> store one dropped file
-read   GET    /inbox          -> what is waiting
+plan   PUT    /working-dir     -> choose the folder to work in
+read   GET    /working-dir     -> where documents go, and what is in there
+plan   POST   /inbox/upload    -> store one dropped file
+plan   POST   /inbox/import-folder -> copy a whole folder in
+read   GET    /inbox           -> what is waiting
 ```
 
-Four decisions worth knowing, because each is a rule rather than an
+Six decisions worth knowing, because each is a rule rather than an
 implementation detail:
 
-- **The intake is Apollo's folder, not yours.** A repository you registered is
-  read from, and written to only through the approval-gated proposal flow. A
-  drop zone is neither of those, so it gets a home of its own
-  (`APOLLO_STORAGE_ROOT`, `./apollo_storage` by default). It is registered as a
-  documentation repository of its own, marked `is_storage` — which is how a scan
-  tells your documentation from your intake, and why a workspace holding only an
-  inbox reports "no documentation repository" instead of analysing an empty
-  folder and calling it "nothing found".
+- **The folder is yours.** A folder the application picked is a folder you have
+  never opened, and the first thing this product does with a document is
+  rearrange it on disk. So the wizard asks before anything is dropped in, and
+  the card above the inbox says afterwards. A folder that is *not empty* is
+  accepted and reported, never refused: keeping your documents in a folder that
+  already has some is reasonable, and the only thing Apollo owes you is saying
+  plainly that it will add its own folders beside them and never touch the rest.
+- **Choosing a folder moves nothing.** It changes where new documents go. What is
+  already there stays where it is, under its own bytes and its own name.
+- **The intake is Apollo's folder, not your documentation.** A repository you
+  registered is read from, and written to only through the approval-gated
+  proposal flow. A drop zone is neither of those, so it gets a home of its own
+  inside your working folder. It is registered as a documentation repository of
+  its own, marked `is_storage` — which is how a scan tells your documentation
+  from your intake, and why a workspace holding only an inbox reports "no
+  documentation repository" instead of analysing an empty folder and calling it
+  "nothing found".
 - **Listing creates nothing.** The first *upload* is what creates the storage
   repository; opening a workspace must not put a folder on disk.
 - **Nothing is overwritten and nothing is removed.** A name that is taken gets a
@@ -427,6 +440,20 @@ implementation detail:
 Markdown, text, PDF and Word, up to 25 MB — the same ceiling as reading, so a
 document that can be stored can always be opened. Anything else is refused with a
 message that names the accepted formats.
+
+### The folder keeps its own history
+
+Choosing a working folder turns it into a Git repository, once. Nothing is
+pushed anywhere and nothing is configured globally; the commits are attributed to
+Apollo, because they are Apollo's work.
+
+This is not housekeeping. The move engine refuses to relocate a file Git does not
+track, so without it every rearrangement of a dropped-in document would be
+refused and the proposal flow would look broken. The first commit records the
+folder as you left it — that is the baseline everything later is diffed against —
+and every document Apollo stores there is committed as it arrives. If a folder
+you chose is later deleted by hand, the card says so rather than letting it
+reappear unexplained on your next drop.
 
 ## The analysis
 

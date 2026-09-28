@@ -48,7 +48,7 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Navigatie is de kernworkflow | `NavigationColumn.tsx` — Inbox, All objects, Groups, Notes & Docs, Ideas, Conversations zichtbaar; Repositories, ADRs, Open Questions en Inventory Runs achter "More" (Fase 6) | klaar (Fase 6) |
 | Sidebar kent groepen en signalen | `ContextSidebar.tsx` — `GroupPanel` (wie, waarom, leden, bevindingen) en "BELONGS TO" per document; `GroupsBoard` krijgt een Details-knop; `scripts/smoke-sidebar.mjs` | klaar (Fase 5) |
 | Een hele map toevoegen | `storage.import_folder` + `POST /inbox/import-folder` + `InboxDropzone.tsx`; bron wordt **gekopieerd**, nooit geschreven (`tests/test_import_folder.py`, `scripts/smoke-inbox-folder.mjs`) | klaar (Fase 4-voorbereiding) |
-| De werkmap is van de gebruiker | Nog niet gedaan: nu nog `APOLLO_STORAGE_ROOT/workspace_<id>/`. De gebruiker moet een map kiezen, liefst leeg, en dáár komen Inbox, groepsmappen en `Archief/` | open, eerstvolgende stap |
+| De werkmap is van de gebruiker | **geregeld**: `workspaces.working_dir` (migratie `0012`) + `GET/PUT /working-dir` + stap 2 in de wizard + `WorkingFolderCard.tsx`; zonder keuze blijft de oude opslagroot gelden, en een niet-lege map wordt waargeschuwd in plaats van geweigerd | klaar |
 
 ### Wat ontbreekt
 
@@ -256,7 +256,7 @@ bewijzen niet dragen. De pass mag falen zonder de bevindingen mee te nemen.
 gewone namen en elk lid met een reden; één foute groep met één drag gecorrigeerd
 is en gecorrigeerd blijft na opnieuw analyseren.
 
-## Fase 4 — Fysiek & archief (1–2 dagen) — **begonnen, nog niet af**
+## Fase 4 — Fysiek & archief (1–2 dagen) — **voorbereiding af, mappingen nog niet**
 
 - De eerste toewijzing aan een groep levert een **voorstel** via
   `plan_move(..., allow_missing_dir=True)`, geaccepteerd in het bestaande
@@ -277,20 +277,46 @@ alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
    Inbox-bestand, en die weigering is terecht.
 3. Een map toevoegen is een **kopie**. De bronmap wordt nooit geschreven.
 
-**Wat klaarstaat:** stap 3, de map-import. Stap 1 en 2 (de werkmap die de gebruiker
-kiest) staan als volgende stap open; de groepsmappen en de move-voorstellen
-kunnen pas daarna.
+**Wat klaarstaat:** stap 3, de map-import, en stap 1 en 2, de werkmap die de
+gebruiker kiest. De groepsmappen en de move-voorstellen kunnen pas daarna.
 
-### De werkmap (nog te doen)
+### De werkmap (klaar)
 
-De workflow begint nu met een map die Apollo zelf uitzoekt. De gebruiker moet die
-map zelf kiezen, liefst leeg — dan is hij van hem en kan Apollo hem inrichten
-zonder iets van iemand anders aan te raken. Daarin komen `Inbox/`, de groepsmappen
-en `Archief/`, en dáár komt de git-geschiedenis van beslissing 2.
+De workflow begon met een map die Apollo zelf uitzocht. Nu kiest de gebruiker
+die map zelf, liefst leeg — dan is hij van hem en kan Apollo hem inrichten
+zonder iets van iemand anders aan te raken. Daarin komen `Inbox/`, straks de
+groepsmappen en `Archief/`, en daar staat de git-geschiedenis van beslissing 2.
 
-Dat is een kolom op `Workspace` plus een keuze in de wizard, en het raakt de
-functies die nu `settings.effective_storage_root` gebruiken. Zolang die er niet is,
-blijft de huidige map gelden — de bestaande 700+ tests blijven daarmee de waarheid.
+`workspaces.working_dir` (migratie `0012`), nullable, en null betekent "geen keuze
+gemaakt": dan blijft `APOLLO_STORAGE_ROOT/workspace_<id>/` gelden, precies zoals
+vóór de kolom bestond. Dat is wat de migratie veilig maakt — een bestaande
+workspace verandert niets totdat iemand iets kiest, en de keuze wordt door de
+gebruiker gemaakt in plaats van hem opgelegd. `workspace_storage`,
+`ensure_inbox`, `store_upload`, `list_inbox` en `import_folder` nemen de map als
+optionaal argument mee, dus de terugval staat op één plek in plaats van in elke
+route.
+
+`PUT /workspaces/{id}/working-dir` weigert alleen wat niet werkt: een pad dat geen
+map is, en een map ín Apollo's eigen opslag. Een map die al vol staat mag wél,
+met een waarschuwing — weigeren zou Apollo beslissen dat de eigen mappen van de
+lezer niet mogen bestaan. Kiezen verplaatst geen enkel document; de
+opslagrepository-rij volgt de keuze, want een rij die naar een map wijst die deze
+workspace niet meer gebruikt is een bewering over documenten die er niet zijn.
+
+De map wordt eenmaal een git-repository, met de identiteit van het repository
+zelf en niet die van de lezer: die commits zijn het werk van Apollo, en het is ook
+wat de commit laat slagen op een machine zonder git-identiteit. De eerste commit
+legt de map vast zoals de lezer hem achterliet, en elk opgeslagen document wordt
+meeverloopt. Dat laatste is geen extra's: `apply_change` weigert een bestand dat
+git niet volgt, dus zonder deze commits zou élke verplaatsing van een
+Inbox-bestand geweigerd worden.
+
+Wat de test onderweg vond: de mapkiezer liet de browse die bij het openen start
+het getypte pad overschrijven, waarna "Go" naar de verkeerde map ging.
+Vastgelegd in `FolderPickerModal` met een volgnummer en een typemarkering, en de
+smoke-test wacht nu tot de picker daadwerkelijk op het getypte pad staat voor hij
+bevestigt — bevestigen wat er toevallig geselecteerd is maakte een stille
+mislukking onzichtbaar.
 
 ## Fase 5 — Contextsidebar (1 dag) — **grootste deel afgerond**
 

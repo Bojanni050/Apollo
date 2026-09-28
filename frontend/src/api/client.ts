@@ -332,6 +332,26 @@ export interface InboxUpload {
   unreadable_reason: string | null
 }
 
+/** Where a workspace keeps its own documents.
+ *
+ *  `working_dir` is null until the reader has chosen one, and that is a real
+ *  answer rather than a missing field: until then everything lives in a folder
+ *  Apollo made up, and the interface needs to be able to say so instead of
+ *  showing a path the reader did not pick. */
+export interface WorkingDir {
+  working_dir: string | null
+  /** Whether the chosen folder is empty. Empty is the recommended state, and the
+   *  only one where nothing in it can be mistaken for Apollo's work. */
+  empty: boolean
+  entries: number
+  /** Says what is at stake when the folder is not empty. A warning, never a
+   *  refusal: the reader may have a folder they already keep documents in. */
+  warning: string | null
+  /** Where a document dropped in right now would land, so the consequence of the
+   *  choice is visible rather than inferred. */
+  inbox_dir: string
+}
+
 // --- Delphi's findings -----------------------------------------------------
 // What stands out in a collection. Suggestions, never decisions: a finding can
 // be dismissed and nothing else, and no finding ever reaches a file.
@@ -878,6 +898,28 @@ export const api = {
   importFolder: (workspaceId: number, path: string) =>
     request<InboxImport>(`/workspaces/${workspaceId}/inbox/import-folder`, {
       method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+
+  // --- Where the workspace works -----------------------------------------
+  /**
+   * Which folder this workspace keeps its documents in.
+   *
+   * Read rather than assumed, because the answer differs per workspace and the
+   * interface shows this path before anything is dropped in it.
+   */
+  workingDir: (workspaceId: number) =>
+    request<WorkingDir>(`/workspaces/${workspaceId}/working-dir`),
+  /**
+   * Choose the folder to work in. An empty string goes back to Apollo's own.
+   *
+   * Nothing is moved by this: it changes where new documents go, and the folder
+   * gets a history of its own so a later rearrangement can be undone. Documents
+   * that are already there stay where they are.
+   */
+  setWorkingDir: (workspaceId: number, path: string) =>
+    request<WorkingDir>(`/workspaces/${workspaceId}/working-dir`, {
+      method: 'PUT',
       body: JSON.stringify({ path }),
     }),
 

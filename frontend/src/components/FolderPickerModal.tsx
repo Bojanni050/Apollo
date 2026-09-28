@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { api, type FolderBrowseResult } from '../api/client'
 
 interface Props {
@@ -24,21 +24,42 @@ export function FolderPickerModal({
   const [loading, setLoading] = useState(false)
   const [nativeBusy, setNativeBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Which browse is the current one; see loadDirectory. */
+  const browseSeq = useRef(0)
+  /** Bumped by every keystroke in the path field; see loadDirectory. */
+  const typedMark = useRef(0)
 
   const loadDirectory = async (path?: string) => {
+    // Two guards, because the dialog browses on open and the reader can start
+    // typing before that answer arrives.
+    //
+    // `browseSeq` drops a response that is no longer the newest one, so two
+    // quick navigations cannot arrive out of order.
+    //
+    // `typedMark` stops an in-flight browse from overwriting what the reader has
+    // typed since it began. Without it, the folders load, the field the reader
+    // is halfway through typing in is rewritten to wherever the dialog started,
+    // and pressing Go navigates to that instead -- which reads as the picker
+    // ignoring you.
+    const seq = ++browseSeq.current
+    const mark = typedMark.current
     setLoading(true)
     setError(null)
     try {
       const res = await api.browseFolders(path)
+      if (seq !== browseSeq.current) return
       setData(res)
       setCurrentPath(res.current_path)
-      setPathInput(res.current_path)
       setSelectedFolder(res.current_path)
       setFilter('')
+      if (typedMark.current === mark) {
+        setPathInput(res.current_path)
+      }
     } catch (err) {
+      if (seq !== browseSeq.current) return
       setError(err instanceof Error ? err.message : 'Could not browse directory.')
     } finally {
-      setLoading(false)
+      if (seq === browseSeq.current) setLoading(false)
     }
   }
 
@@ -155,7 +176,10 @@ export function FolderPickerModal({
               <input
                 className="picker-path-input"
                 value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
+                onChange={(e) => {
+                  typedMark.current += 1
+                  setPathInput(e.target.value)
+                }}
                 placeholder="Enter folder path..."
                 spellCheck={false}
               />
