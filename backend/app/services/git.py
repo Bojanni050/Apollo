@@ -141,7 +141,25 @@ def untracked_paths(repo: str | Path) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def commit_paths(repo: str | Path, paths: list[str], message: str) -> str | None:
+#: The identity Apollo commits under, applied per invocation and never written to
+#: a repository's configuration.
+#:
+#: Passed with ``git -c`` on each call rather than stored in the repository, so a
+#: commit in somebody's own project is recorded as Apollo's work without changing
+#: a setting they chose. Writing ``user.name`` into their repository -- which is
+#: what :func:`~app.services.storage.ensure_working_repo` does for a folder it
+#: creates itself, where there is no existing configuration to overwrite -- would
+#: be a different act in a folder that is already theirs.
+APOLLO_IDENTITY = ("Apollo", "apollo@localhost")
+
+
+def commit_paths(
+    repo: str | Path,
+    paths: list[str],
+    message: str,
+    *,
+    identity: tuple[str, str] | None = None,
+) -> str | None:
     """Stage exactly ``paths`` and commit them. Returns the new revision.
 
     This is the one function here that writes history, and the narrowness is
@@ -155,6 +173,11 @@ def commit_paths(repo: str | Path, paths: list[str], message: str) -> str | None
     * a message is required, so no commit is ever left with Git's default
       "Update file" prose.
 
+    ``identity`` overrides the author for this one commit, using ``git -c`` so
+    nothing is written to the repository's configuration. It is how a commit
+    ends up in a log as Apollo's work without touching a setting the reader
+    picked.
+
     Returns None when there is nothing to commit -- the caller treats that as
     "already recorded" rather than as a failure, because the user's intent
     (keep the original recoverable) is satisfied either way.
@@ -164,13 +187,28 @@ def commit_paths(repo: str | Path, paths: list[str], message: str) -> str | None
     if not message.strip():
         raise GitError("A commit needs a message.")
 
+    who = identity or APOLLO_IDENTITY
     # `--` before the paths ends option parsing, so a path beginning with a dash
     # is a path and not a flag.
     _run(repo, ["add", "--", *paths])
     staged = _run(repo, ["diff", "--staged", "--name-only"])
     if not staged.strip():
         return None
-    _run(repo, ["commit", "--quiet", "-m", message, "--", *paths])
+    _run(
+        repo,
+        [
+            "-c",
+            f"user.name={who[0]}",
+            "-c",
+            f"user.email={who[1]}",
+            "commit",
+            "--quiet",
+            "-m",
+            message,
+            "--",
+            *paths,
+        ],
+    )
     return head_revision(repo)
 
 
