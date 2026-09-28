@@ -987,6 +987,20 @@ class WorkingDirIn(BaseModel):
     path: str = Field(..., max_length=1000)
 
 
+class AdoptFolderOut(BaseModel):
+    """What happened when the reader asked for their folder to be made safe.
+
+    ``committed`` is the number of files recorded, and it is the whole point of
+    reading the response rather than just seeing it succeed: zero means there
+    was nothing to record, which is a different outcome from a failure and worth
+    telling apart.
+    """
+
+    ok: bool
+    committed: int = 0
+    message: str
+
+
 class WorkingDirOut(BaseModel):
     """Where this workspace keeps its own documents, and what is in there."""
 
@@ -1008,6 +1022,11 @@ class WorkingDirOut(BaseModel):
     #: The folder a document dropped in right now would end up in, so the reader
     #: can see the consequence of the choice rather than infer it.
     inbox_dir: str
+    #: Documents in the folder that Git does not track yet, and so cannot be
+    #: moved. Non-zero means the engine will refuse every move here, which is
+    #: exactly what the reader must be told before they try one -- the refusal
+    #: names Git rather than this application, and reads as a bug in it.
+    untracked: int = 0
 
 
 class InboxUploadOut(BaseModel):

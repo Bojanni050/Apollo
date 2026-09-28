@@ -634,6 +634,80 @@ def _document_relatives(target: Path) -> list[str]:
     )
 
 
+def adopt_folder_history(root: str | Path) -> dict[str, object]:
+    """Make the documents already in the reader's folder recoverable, once.
+
+    The gap this fills is concrete. :func:`ensure_working_repo` returns
+    immediately when the folder is *already* a Git repository -- which is exactly
+    the folder a reader is most likely to choose: their own documents folder, a
+    project they already keep under version control. Their files stay untracked,
+    and ``apply_change`` refuses every move of an untracked document. So a group
+    with a folder proposes a move, the reader accepts it, and the engine says no
+    for a reason the interface never mentioned.
+
+    This is the way out of that, and the reader takes it deliberately: one commit
+    recording the folder as it is now. Nothing is moved, renamed or rewritten --
+    the commit only makes the current state recoverable, which is the
+    precondition for any later move being safe.
+
+    Existing commits are never touched, and nothing is pushed. In a folder that
+    is not a repository this creates one first, exactly as choosing the folder
+    does, so the two paths cannot disagree.
+    """
+    from app.services import git
+
+    target = Path(root)
+    try:
+        ensure_working_repo(target)
+        if not git.is_repo(target):
+            return {"ok": False, "committed": 0, "message": _ADOPT_FAILED}
+
+        # What a human would stage: Git's own exclusions apply, so build output
+        # and dependencies are left alone rather than swept in.
+        pending = [p for p in git.untracked_paths(target) if p]
+        if not pending:
+            return {
+                "ok": True,
+                "committed": 0,
+                "message": (
+                    "Everything in this folder is already recorded, so a document "
+                    "can be moved and still recovered."
+                ),
+            }
+
+        git.commit_paths(
+            target,
+            pending,
+            "The documents that were already in this folder",
+        )
+        return {
+            "ok": True,
+            "committed": len(pending),
+            "paths": pending,
+            "message": (
+                f"Recorded {len(pending)} "
+                f"{'file' if len(pending) == 1 else 'files'} that were already in "
+                "this folder. Nothing was moved or changed; from now on a "
+                "document Apollo proposes to move can be recovered."
+            ),
+        }
+    except git.GitError as exc:
+        # Git's own words, because a failure here is a Git problem the reader
+        # can act on -- a locked folder, a dubious ownership complaint -- and
+        # "something went wrong" would leave them with nothing to do.
+        return {"ok": False, "committed": 0, "message": f"{_ADOPT_FAILED} {exc}"}
+
+
+#: Said when the folder could not be made recoverable, which is a diminished
+#: guarantee rather than a broken feature: the moves are refused by the engine
+#: rather than performed unrecoverably, and the reader is told that where it
+#: matters.
+_ADOPT_FAILED = (
+    "This folder's history could not be written, so Apollo will refuse to move "
+    "documents in it -- it will not move a file it cannot recover."
+)
+
+
 def record_added(root: str | Path, relatives: list[str], what: str) -> None:
     """Commit documents Apollo just wrote, so a later move can be undone.
 

@@ -24,6 +24,7 @@ from app.api.deps import (
 )
 from app.db import get_db
 from app.schemas import (
+    AdoptFolderOut,
     ImportedFileOut,
     InboxFileOut,
     InboxImportFolderOut,
@@ -35,6 +36,7 @@ from app.schemas import (
     WorkingDirOut,
 )
 from app.services import storage
+from app.services.documents import DOC_SUFFIXES
 from app.services.storage import (
     INBOX_DIR,
     StorageError,
@@ -186,7 +188,80 @@ def _working_dir_out(workspace) -> WorkingDirOut:
             "own folders beside them and never touch what is already there."
         ),
         inbox_dir=str(target / INBOX_DIR),
+        untracked=_untracked_documents(target),
     )
+
+
+@router.post("/working-dir/adopt", response_model=AdoptFolderOut)
+def adopt_working_folder(
+    workspace_id: int, db: Session = Depends(get_db)
+) -> AdoptFolderOut:
+    """Make the documents already in the chosen folder recoverable.
+
+    The way out of a dead end rather than a convenience. When the chosen folder
+    was *already* a Git repository, its files were never recorded, and the move
+    engine refuses to relocate anything Git does not track. So a group with a
+    folder proposes a move, the reader accepts, and the refusal names Git rather
+    than this application.
+
+    This writes one commit recording the folder as it is. Nothing is moved,
+    renamed or rewritten, no existing commit is touched, and nothing is pushed.
+    """
+    workspace = get_workspace(db, workspace_id)
+    if not workspace.working_dir:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Choose a working folder first: there is nothing here to record yet.",
+        )
+    target = Path(workspace.working_dir)
+    if not target.is_dir():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"That folder is gone: {workspace.working_dir}",
+        )
+
+    result = storage.adopt_folder_history(target)
+    if not result["ok"]:
+        # A refused request rather than a 200 with a sad message: the reader
+        # asked for a guarantee and did not get one, and the interface needs to
+        # be able to say so as a failure.
+        raise HTTPException(status.HTTP_409_CONFLICT, str(result["message"]))
+    return AdoptFolderOut(
+        ok=True,
+        committed=int(result["committed"]),
+        message=str(result["message"]),
+    )
+
+
+def _untracked_documents(target: Path) -> int:
+    """How many documents in the folder Git cannot yet recover.
+
+    Counted rather than assumed, because the two cases look identical from the
+    outside and need different answers. A folder Apollo prepared has a history
+    and every document in it is recorded. A folder that was *already* a
+    repository when the reader chose it -- their own documents folder, quite
+    possibly -- was left untouched, so its files are untracked and every move in
+    it will be refused.
+
+    Zero when the folder is not a repository or is missing, because "not
+    applicable" and "nothing to do" are the same answer here: there is no
+    document that cannot move.
+    """
+    from app.services import git
+
+    try:
+        if not target.is_dir() or not git.is_repo(target):
+            return 0
+        return sum(
+            1
+            for p in git.untracked_paths(target)
+            if Path(p).suffix.lower() in DOC_SUFFIXES
+        )
+    except git.GitError:
+        # A folder Git cannot answer for is reported as needing attention by the
+        # card's other line, not here; raising would turn a curiosity into a
+        # failed request for the whole folder description.
+        return 0
 
 
 @router.get("/inbox", response_model=InboxOut)
