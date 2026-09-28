@@ -7,8 +7,7 @@ architecture before anything is changed**. Markdown files in your documentation
 repository are the source of truth; the database holds only workspaces,
 conversations, questions, decisions and analysis results.
 
-> Milestones 1â€“5 complete, plus a security hardening pass. Backend (188 tests)
-> and frontend (TypeScript-clean, browser-verified) are both working together.
+> Milestones 1â€“5 complete, plus a security hardening pass. Backend (598 tests, 8 skipped) and frontend (TypeScript-clean, browser-verified) are both working together.
 
 ## Running the whole thing
 
@@ -393,6 +392,68 @@ The inventory may create a target folder that does not exist yet (that is how
 the structure gets established), but a *manually* requested move into a
 non-existent folder is still refused, because that is more likely a typo.
 
+## Groups
+
+The arrangement. A **group** is a named cluster of documents that exist only in
+the database — a view, not a folder.
+
+```
+list   GET    /groups                            -> every group, archive last
+make   POST   /groups                            -> an empty group
+edit   PATCH  /groups/{id}                       -> rename, re-describe
+drop   DELETE /groups/{id}                       -> the view, never the files
+
+open   GET    /groups/{id}/documents
+put    POST   /groups/{id}/documents             -> put a document in
+take   DELETE /groups/{id}/documents            -> take one out
+move   POST   /groups/move                       -> between groups, one request
+
+where  GET    /documents/groups?repository_id=&path=
+```
+
+**No operation here moves a file.** Not one, and not as a side effect: the
+service that implements them has no filesystem call in it. Dragging rearranges
+the view; the folders on disk stay where they are and stay reviewable in Git.
+That separation is what makes the arrangement safe to edit constantly — you are
+not asking the reader to trust a move before they correct a grouping.
+
+There is deliberately **no endpoint that deletes a document**. Deleting a group
+removes the view; every file it held is untouched, on disk and readable. The
+test suite asserts this against the route table rather than trusting review, so
+a future route that could remove a document fails the build.
+
+**A document can be in several groups at once.** That is not a contradictory
+state and it is not a claim that it was moved: a planning document belongs to
+its project *and* to its own topic, and forcing one home would make the answer
+a lie.
+
+### The archive
+
+`is_archive` marks a single group as the archive, and putting a document in it
+is a placement like any other — reversible by dragging it out, and never a
+deletion. One archive, not several: "is this archived?" has to have one answer.
+
+The archive is created on first use rather than migrated, so a workspace that
+never archives anything does not carry a group nobody asked for.
+
+## Signals
+
+Delphi also reports what it thinks is happening to a document's *standing*,
+which is a different claim from being related to another document:
+
+| Signal | It says |
+|---|---|
+| `outdated` | superseded by a newer document — the only thing that justifies proposing the archive |
+| `duplicate` | covers the same ground as another document |
+| `new` | says something the rest of the corpus does not |
+| `update` | relevant to a topic another document already covers |
+| `conflict` | two documents give incompatible information |
+
+A signal is a suggestion a person reviews. It is never applied automatically,
+and an unrecognised name or a reference to a document that is not in the
+repository costs that one signal rather than the whole scan — see
+`services/signals.py`.
+
 ## Delphi Pulse
 
 A scan of the documentation that proposes **thematic tags** and **connections**
@@ -464,6 +525,8 @@ backend/
       tools.py          the AI's read-only toolbelt
       agent.py          the tool-calling loop
       inventory.py      content-based document classification
+      placement.py      visual groups and the archive; touches no files
+      signals.py        Delphi's information signals, validated on the way out
       pulse.py          Delphi Pulse: tags, connections, partial acceptance
   tests/                103 tests + a mock LLM server for manual runs
 frontend/
@@ -475,6 +538,7 @@ frontend/
     App.tsx             state and orchestration
     components/
       NavigationColumn.tsx      left: sections, workspace switcher, counts
+      GroupsBoard.tsx          centre: the arrangement, with drag and drop
       FolderContentsColumn.tsx centre: the object list for a section
       FileContentColumn.tsx    right: the selected object
       ContextSidebar.tsx       far right: chat, proposals, inventory
