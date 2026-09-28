@@ -48,10 +48,30 @@ if (/\b255,\s*255,\s*255\b/.test(calmBg)) {
 const text = await page.evaluate(() => getComputedStyle(document.body).color)
 console.log('calm body text:', text)
 
-// --- The toggle in Settings ----------------------------------------------
+// --- The default ----------------------------------------------------------
+// A machine that has never been asked gets the dark palette. Checked by
+// clearing the key rather than by reading the source, because a default is
+// exactly the sort of thing that rots while the toggle still works.
 await page.evaluate(() => window.localStorage.removeItem('apollo.theme'))
 await page.reload({ waitUntil: 'networkidle' })
-await page.waitForTimeout(1000)
+await page.waitForTimeout(800)
+const freshTheme = await themeOf()
+console.log('theme on a fresh machine:', freshTheme)
+if (freshTheme !== 'calm') {
+  throw new Error(`a machine with no stored choice got ${freshTheme}, not calm`)
+}
+
+// --- The toggle in Settings ----------------------------------------------
+// Starting from Standard rather than from the default: with the dark palette
+// already applied, clicking Calm would prove nothing, and the point of this
+// section is that the button switches the palette.
+await page.evaluate(() => window.localStorage.setItem('apollo.theme', 'default'))
+await page.reload({ waitUntil: 'networkidle' })
+await page.waitForTimeout(800)
+const before = await page.evaluate(
+  () => getComputedStyle(document.body).backgroundColor,
+)
+console.log('body bg before the click:', before)
 const gear = page.locator('.nav-settings-btn')
 if ((await gear.count()) > 0) {
   await gear.first().click()
@@ -62,6 +82,14 @@ if ((await gear.count()) > 0) {
   console.log('after clicking Calm:', after)
   if (after !== 'calm') {
     throw new Error('the Calm button did not apply the theme')
+  }
+  // The attribute alone is not the switch: the palette has to have followed it.
+  const afterBg = await page.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  )
+  console.log('body bg after the click:', afterBg)
+  if (afterBg === before) {
+    throw new Error('Calm was applied but the page did not change colour')
   }
   // The active chip is a light gold fill with dark text in Calm Mode. Checked
   // numerically rather than by eye: at screenshot size a gold fill and a muted
@@ -93,5 +121,7 @@ if ((await gear.count()) > 0) {
 }
 
 if (errors.length) throw new Error('console errors:\n' + errors.join('\n'))
-console.log('OK: calm mode applies, differs from standard, and persists across reload')
+console.log(
+  'OK: calm is the default, calm applies, differs from standard, and persists',
+)
 await browser.close()

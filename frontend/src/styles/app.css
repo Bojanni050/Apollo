@@ -4,6 +4,14 @@
    ========================================================================== */
 
 :root {
+  /* Tells the browser which way to paint the things it paints itself: the
+     dropdown of a <select>, a date field's calendar, a file input's button, the
+     caret, autofill. Without it those stay light however dark the page is, and
+     a white dropdown opening under a dark toolbar is the most jarring thing a
+     dark default can leave behind. It is set on both themes, because the one
+     thing a reader notices is a control that ignored the palette. */
+  color-scheme: light;
+
   --font-sans: "Inter", "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
 
@@ -155,6 +163,10 @@
      terracotta #8E3B2C 2.6:1  too dark; use the light terracotta #C97B66
    ========================================================================== */
 [data-theme="calm"] {
+  /* The same declaration as :root, inverted: the native controls follow the
+     palette instead of opening as a light box on a dark page. */
+  color-scheme: dark;
+
   /* Surfaces: a warm near-black ramp, lightest on the page so raised cards
      read as raised. */
   --bg-app: #0D0C0A;        /* ink-950, the site's own body colour */

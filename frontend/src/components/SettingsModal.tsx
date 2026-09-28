@@ -668,9 +668,11 @@ export function SettingsModal({
               <div className="settings-section">
                 <div className="settings-section-title">Appearance</div>
                 <p className="settings-hint">
-                  Calm Mode repaints the app in the dark, warm palette used on the Gaia site:
-                  a warm near-black page instead of pure white, soft cream text, and gold
-                  accents. Less glare over a long session; body text still clears WCAG AA.
+                  Calm is the default: the dark, warm palette used on the Gaia site,
+                  a warm near-black page instead of pure white, soft cream text, and
+                  gold accents. Less glare over a long session; body text still clears
+                  WCAG AA. Standard is the light original. Whichever you pick is
+                  remembered on this machine.
                 </p>
                 <div className="chip-row">
                   <button

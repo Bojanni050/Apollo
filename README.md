@@ -738,7 +738,11 @@ comparing vectors from different models.
 
 ## Appearance
 
-Two colour themes, under **Settings → Appearance**.
+Two colour themes, under **Settings → Appearance**. **Calm** — the dark, warm
+palette — is the default; **Standard** is the light original. A choice you make
+is remembered and always wins over the default, so the default only ever speaks
+for a machine that has not been asked yet.
+
 **Standard** is the original: pure white surfaces, near-black text.
 
 **Calm Mode** uses the palette from [intro.higaia.nl](https://intro.higaia.nl/) —

@@ -12,12 +12,18 @@ const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 
 // The settled record is gold, and gold has one value per theme: the light-theme
 // value is unreadable on a dark background. Measuring the record against its own
-// panel in both schemes catches a colour that only works in the theme it was
+// panel in both themes catches a colour that only works in the theme it was
 // tuned in, which is exactly the mistake the two values exist to prevent.
+//
+// The theme is driven through localStorage rather than emulateMedia: the app
+// reads its own apollo.theme key and has no prefers-color-scheme rule at all, so
+// emulating the OS scheme measured the same palette twice and filed the copy
+// under the other theme's name.
 async function checkSettledThemes(page) {
-  for (const scheme of ['dark', 'light']) {
-    await page.emulateMedia({ colorScheme: scheme })
-    await page.waitForTimeout(250)
+  for (const theme of ['default', 'calm']) {
+    await page.evaluate((t) => window.localStorage.setItem('apollo.theme', t), theme)
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.waitForTimeout(600)
     const contrast = await page.evaluate(() => {
       const el = document.querySelector('.pulse-accepted')
       if (!el) return null
@@ -29,17 +35,15 @@ async function checkSettledThemes(page) {
           lum(parse(getComputedStyle(panel).backgroundColor)),
       )
     })
-    console.log(`settled record contrast (${scheme}):`, contrast?.toFixed(2))
+    console.log(`settled record contrast (${theme}):`, contrast?.toFixed(2))
     if (contrast !== null && contrast < 0.25) {
       throw new Error(
-        `the settled record is too faint to read in ${scheme} mode (${contrast.toFixed(2)})`,
+        `the settled record is too faint to read in the ${theme} theme (${contrast.toFixed(2)})`,
       )
     }
-    if (scheme === 'dark') {
-      await page.screenshot({ path: 'screenshots/pulse-accepted-dark.png' })
-    }
+    await page.screenshot({ path: `screenshots/pulse-accepted-${theme}.png` })
   }
-  await page.emulateMedia({ colorScheme: 'light' })
+  await page.evaluate(() => window.localStorage.removeItem('apollo.theme'))
 }
 
 const browser = await chromium.launch()
