@@ -40,6 +40,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -156,6 +157,13 @@ class Workspace(TimestampMixin, Base):
     pulse_runs: Mapped[list[PulseRun]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan"
     )
+    # Visual groups, and the archive among them. Cascade is what makes deleting
+    # a workspace take its arrangement with it -- the groups describe documents
+    # that are about to stop being known to the app, so keeping them would leave
+    # rows pointing at nothing.
+    groups: Mapped[list["Group"]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
 
 
 class Repository(TimestampMixin, Base):
@@ -224,6 +232,135 @@ class Repository(TimestampMixin, Base):
     @property
     def is_documentation(self) -> bool:
         return self.kind == "documentation"
+
+
+# ---------------------------------------------------------------------------
+# Visual grouping
+# ---------------------------------------------------------------------------
+#: A visual group is a *thinking space*, not a folder. It lives in the database
+#: and points at documents by (repository, path) rather than by moving them, so
+#: rearranging the groups never touches the filesystem. The physical structure
+#: is deliberately a separate, slower-moving layer: see services/placement.py.
+GROUP_SOURCES = ("ai", "user")
+GROUP_LAYOUTS = ("grid", "list")
+#: The fixed set of top-level categories the physical structure is built from.
+#: Kept here rather than in the prompt so the database, the API and the folder
+#: layout cannot drift apart.
+ARCHIVE_CATEGORY = "Archief"
+
+
+class Group(TimestampMixin, Base):
+    """A named cluster of documents, in the user's or Delphi's arrangement.
+
+    A group is a *view* over documents that stay where they are on disk. Nothing
+    about a group implies a directory: creating one, renaming it, or dragging a
+    document from one to another writes a row here and touches no file. That
+    separation is the whole point -- it lets the arrangement stay flexible while
+    the folders on disk stay stable and reviewable in Git.
+
+    ``source`` records who decided this grouping exists, so an arrangement the
+    user built themselves is never presented as something Delphi inferred, and
+    a Delphi group can be told apart from a deliberate one.
+    """
+
+    __tablename__ = "document_groups"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_document_groups_ws_name"),
+        _check("source", GROUP_SOURCES, "ck_document_groups_source"),
+        _check("layout", GROUP_LAYOUTS, "ck_document_groups_layout"),
+        # The sidebar lists a workspace's groups in a fixed order; without an
+        # index this is a sort over the whole table.
+        Index("ix_document_groups_workspace_position", "workspace_id", "position"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    #: One or two sentences on what belongs here, per Delphi or per the user.
+    description: Mapped[str | None] = mapped_column(Text)
+    #: "ai" if Delphi proposed it, "user" if the reader made it.
+    source: Mapped[str] = mapped_column(
+        String(20), default="ai", server_default="ai", nullable=False
+    )
+    #: Whether the group is a shelf of current documents or the archive.
+    #: Archival is a flag, never a deletion -- see ARCHIVE_CATEGORY.
+    is_archive: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    #: Manual ordering; ties break on id.
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    layout: Mapped[str] = mapped_column(
+        String(20), default="grid", server_default="grid", nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="groups")
+    placements: Mapped[list["GroupPlacement"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan", order_by="GroupPlacement.id"
+    )
+
+
+class GroupPlacement(Base):
+    """One document sitting in one visual group.
+
+    Membership is a join table rather than a column on the group because the
+    reading pane shows "related documents" across groups, and because a document
+    can be a member of more than one group without being moved: that is what
+    makes "put these two together" expressible without pretending a document
+    only ever belongs to one place.
+
+    The pair (repository_id, file_path) is the document's identity, exactly as
+    the rest of the app identifies documents. Deliberately *not* a path only:
+    two repositories can both hold ``architecture.md``, and a group that mixed
+    them up would show the wrong file.
+    """
+
+    __tablename__ = "group_placements"
+    __table_args__ = (
+        UniqueConstraint(
+            "group_id", "repository_id", "file_path", name="uq_group_placements_member"
+        ),
+        # The inverse lookup: "where does this document appear?" runs on every
+        # document selection to show the groups it belongs to.
+        Index(
+            "ix_group_placements_document",
+            "workspace_id",
+            "repository_id",
+            "file_path",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("document_groups.id", ondelete="CASCADE"), index=True
+    )
+    # Carried on the row rather than joined through the group, so a placement
+    # can be listed without loading its group and so the index above is usable.
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), index=True
+    )
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    #: Manual order within the group; ties break on id.
+    position: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    #: Why Delphi put it here, in one line. Null when a person dragged it.
+    placed_by: Mapped[str | None] = mapped_column(String(20))
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
+
+    group: Mapped[Group] = relationship(back_populates="placements")
 
 
 class Conversation(TimestampMixin, Base):
@@ -512,6 +649,25 @@ PULSE_MODES = ("suggest", "apply")
 PULSE_RUN_STATUSES = ("pending", "completed", "failed")
 PULSE_ITEM_DECISIONS = ("pending", "applied", "skipped")
 
+#: The signals Delphi can raise about a document's standing. These are
+#: suggestions about information, never actions: each one is something a person
+#: decides, and none of them is ever applied without that decision.
+#:
+#: - ``outdated``  -- superseded by a newer document, which is the only thing
+#:                    that justifies proposing the archive.
+#: - ``duplicate`` -- covers the same ground as another document.
+#: - ``new``       -- says something the rest of the corpus does not.
+#: - ``update``    -- relevant to a topic that already has a group.
+#: - ``conflict``  -- two documents disagree about the same subject.
+#:
+#: "new" is a statement about this corpus, not about another file, so it is the
+#: one signal that never carries a reference.
+PULSE_SIGNALS = ("outdated", "duplicate", "new", "update", "conflict")
+#: The signals that name another document. Anything outside this set is stored
+#: but not treated as a reference, so a hallucinated key cannot make the UI try
+#: to open a document that does not exist.
+PULSE_SIGNAL_REFS = ("outdated", "duplicate", "update", "conflict")
+
 
 class PulseRun(TimestampMixin, Base):
     """One AI Pulse scan over the documentation repository.
@@ -587,6 +743,29 @@ class PulseItem(Base):
     # reload: without it a half-accepted item would look untouched in the UI and
     # offer choices that are already on disk.
     applied_parts: Mapped[list | None] = mapped_column(JSONType, default=list)
+
+    # Signals Delphi raised about this document's *standing* rather than its
+    # connections: ["outdated", "duplicate", "new", "update", "conflict"].
+    #
+    # Kept apart from `connections` on purpose. A connection says "these two
+    # documents are related"; a signal says "this document's situation has
+    # changed" -- it is about the document relative to its peers and to the
+    # archive, and it is what justifies proposing to archive it. Collapsing the
+    # two would make "outdated" look like another way of being related.
+    #
+    # A list, not a status: a document can be both a duplicate of one thing and
+    # outdated relative to another, and a single value would have to drop one of
+    # those findings.
+    signals: Mapped[list | None] = mapped_column(JSONType, default=list)
+    # The document each signal points at, for the ones that name one:
+    # {"outdated": "planning-2026.pdf", "duplicate": "..."}. Null or absent for
+    # signals that are about the document alone ("new" is a statement about
+    # this corpus, not about another file).
+    signal_refs: Mapped[dict | None] = mapped_column(JSONType, default=dict)
+    # There is deliberately no `archived` column here. A document is archived by
+    # being placed in the archive group (see services/placement.py), which is one
+    # answer to "is this archived?"; a second flag on the pulse item would be
+    # another, and the two could disagree after a drag.
 
     run: Mapped[PulseRun] = relationship(back_populates="items")
 

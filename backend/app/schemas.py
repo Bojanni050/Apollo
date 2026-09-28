@@ -372,8 +372,123 @@ class ConversationDetailOut(ConversationOut):
     messages: list[MessageOut] = Field(default_factory=list)
 
 
+class DocumentLinkOut(BaseModel):
+    """One real Markdown link, as the author wrote it."""
+
+    path: str
+    text: str
+
+
+class ExternalReferenceOut(BaseModel):
+    """A link out of the repository. Reported, never fetched."""
+
+    target: str
+    text: str
+
+
+class DocumentLinksOut(BaseModel):
+    """The links into and out of one document.
+
+    Separate from `DocumentOut` because these are derived from the whole
+    repository, not from one file, and are worth requesting separately: the
+    reader usually wants the file, and the link graph only when the panel is
+    opened.
+    """
+
+    repository_id: int
+    path: str
+    outbound: list[DocumentLinkOut]
+    inbound: list[DocumentLinkOut]
+    external: list[ExternalReferenceOut]
+
+
+# ---------------------------------------------------------------------------
+# Visual groups
+# ---------------------------------------------------------------------------
+
+
+class GroupOut(BaseModel):
+    """A group as the UI sees it, with its size resolved.
+
+    ``source`` is on the wire rather than inferred from the UI: a group Delphi
+    proposed and a group the reader made look identical otherwise, and the whole
+    point of labelling relationships by origin applies to the arrangement too.
+    """
+
+    id: int
+    name: str
+    description: str | None = None
+    source: str
+    is_archive: bool
+    position: int
+    layout: str
+    document_count: int = 0
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    # Defaults to "user" because a group made through this endpoint is by
+    # definition made by the reader. Delphi's groups arrive through the pulse
+    # flow, which sets "ai" itself.
+    source: str = "user"
+    is_archive: bool = False
+    layout: str = "grid"
+
+
+class GroupUpdate(BaseModel):
+    """Every field optional, so a rename and a description edit are the same call."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    layout: str | None = None
+
+
+class GroupDocumentOut(BaseModel):
+    """A document as a group member.
+
+    ``repository_id`` travels with the path because that pair is the document's
+    identity: two repositories can both hold ``architecture.md``.
+    """
+
+    repository_id: int
+    path: str
+    position: int
+    placed_by: str | None = None
+
+
+class GroupPlacementRequest(BaseModel):
+    repository_id: int
+    path: str = Field(..., min_length=1, max_length=1000)
+    # "user" or "ai". Recorded so a placement can be attributed, and so the UI
+    # can show that a document was put somewhere rather than found there.
+    placed_by: str | None = None
+
+
+class GroupMoveRequest(GroupPlacementRequest):
+    """A drag between two groups.
+
+    ``from_group_id`` is optional so that a drop onto a group the document is
+    not in works without the caller having to check first. When it is given, the
+    document leaves that group in the same request.
+    """
+
+    to_group_id: int
+    from_group_id: int | None = None
+
+
+
 class SendMessageIn(BaseModel):
     content: str = Field(..., min_length=1)
+    # The document the reader was looking at when they asked. Optional, because
+    # a conversation can start from anywhere, and nullable on purpose: absent
+    # and empty both mean "no document in view", which is different from "a
+    # document named ''". A path is a hint for where to look, never content --
+    # the agent still has to read the file through its tools, so this cannot be
+    # used to smuggle text in ahead of the file's real contents.
+    document_path: str | None = Field(
+        default=None, max_length=500, description="Repo-relative path of the document in view"
+    )
 
 
 class SendMessageOut(BaseModel):

@@ -34,6 +34,7 @@ from app.api import (
     routes_chat,
     routes_decisions,
     routes_documents,
+    routes_groups,
     routes_inventory,
     routes_proposals,
     routes_pulse,
@@ -166,6 +167,10 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_auth.router, prefix="/api")
     application.include_router(routes_workspaces.router, prefix="/api")
     application.include_router(routes_documents.router, prefix="/api")
+    # Groups before proposals: a group is a view over documents, and the
+    # proposal flow is the only thing that moves a file. Keeping them apart here
+    # makes the boundary obvious in the route table.
+    application.include_router(routes_groups.router, prefix="/api")
     application.include_router(routes_proposals.router, prefix="/api")
     application.include_router(routes_chat.router, prefix="/api")
     application.include_router(routes_inventory.router, prefix="/api")
