@@ -182,7 +182,10 @@ def test_a_document_moves_between_groups_in_one_request(
         },
     )
 
-    assert response.status_code == 204
+    # 200 with a body, not 204: the response now says whether a *file* was
+    # proposed to move, which is the one thing a drag cannot leave ambiguous.
+    assert response.status_code == 200
+    assert response.json()["proposal_id"] is None
     assert client.get(f"{base}/{left}/documents").json() == []
     assert [d["path"] for d in client.get(f"{base}/{right}/documents").json()] == ["notes.md"]
 
@@ -273,9 +276,13 @@ def test_a_document_can_be_archived_and_brought_back(
         json={"repository_id": repo_id, "path": "notes.md",
               "from_group_id": current, "to_group_id": archive},
     )
-    assert to_archive.status_code == 204
+    assert to_archive.status_code == 200
+    # The archive stands for a folder, so archiving proposes a move rather than
+    # performing one. Dragging it in is not the same as having done it.
+    proposal_id = to_archive.json()["proposal_id"]
+    assert proposal_id is not None
 
-    # Kept, not deleted.
+    # Kept, not deleted -- and not yet moved either.
     assert _before(doc_repo) == before
     assert (doc_repo / "notes.md").is_file()
 
@@ -287,6 +294,36 @@ def test_a_document_can_be_archived_and_brought_back(
     )
     assert len(client.get(f"{base}/{current}/documents").json()) == 1
     assert client.get(f"{base}/{archive}/documents").json() == []
+
+
+def test_archived_and_accepted_actually_lands_in_the_archive_folder(
+    client: TestClient, workspace: dict, doc_repo: Path
+) -> None:
+    """The whole point of the archive folder, end to end.
+
+    Two steps, and the first one changes nothing on disk. That separation is
+    what keeps "archive" from quietly becoming a delete: the file is still there
+    to be read at its old path until somebody says otherwise.
+    """
+    base = f"/api/workspaces/{workspace['id']}/groups"
+    repo_id = _doc_repo_id(workspace)
+    archive = client.post(
+        base, json={"name": "Archief", "is_archive": True}
+    ).json()
+    assert archive["folder"] == "Archief"
+
+    proposal_id = client.post(
+        f"{base}/{archive['id']}/documents",
+        json={"repository_id": repo_id, "path": "notes.md"},
+    ).json()["proposal_id"]
+    assert proposal_id is not None
+    assert (doc_repo / "notes.md").is_file()
+
+    client.post(
+        f"/api/workspaces/{workspace['id']}/proposals/{proposal_id}/accept"
+    )
+    assert (doc_repo / "Archief" / "notes.md").is_file()
+    assert not (doc_repo / "notes.md").exists()
 
 
 def test_the_archive_is_listed_last(client: TestClient, workspace: dict) -> None:
