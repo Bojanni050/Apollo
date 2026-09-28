@@ -40,6 +40,7 @@ from app.api import (
     routes_proposals,
     routes_pulse,
     routes_questions,
+    routes_signals,
     routes_sources,
     routes_system,
     routes_workspaces,
@@ -179,6 +180,11 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_proposals.router, prefix="/api")
     application.include_router(routes_chat.router, prefix="/api")
     application.include_router(routes_inventory.router, prefix="/api")
+    # The analysis after the pulse: both read the same collection, and this one
+    # answers a different question -- what stands out, rather than what relates
+    # to what. Registered separately so the route table shows two passes rather
+    # than one pass with two names.
+    application.include_router(routes_signals.router, prefix="/api")
     application.include_router(routes_pulse.router, prefix="/api")
     application.include_router(routes_questions.router, prefix="/api")
     application.include_router(routes_decisions.router, prefix="/api")

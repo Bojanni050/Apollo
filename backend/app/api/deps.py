@@ -62,6 +62,45 @@ def get_storage_repository(db: Session, workspace_id: int) -> Repository | None:
     )
 
 
+def get_analysis_repository(db: Session, workspace_id: int) -> Repository:
+    """The collection Delphi analyses: the documentation, or else the inbox.
+
+    A pulse run asks a question about *documentation*, so it needs a documentation
+    repository and reports that it has none when there is not one. The analysis
+    asks a different question -- what stands out among the documents this
+    workspace actually has -- so it falls back to the inbox.
+
+    Without that fallback the most common workspace in the basis workflow (ten
+    files dropped in, nothing registered) would refuse the one button that gives
+    a collection any shape at all, which reads as "Analyseren does not work"
+    rather than as "you have not registered a folder".
+    """
+    repo = get_documentation_repository_or_none(db, workspace_id)
+    if repo is not None:
+        return repo
+    storage = get_storage_repository(db, workspace_id)
+    if storage is not None:
+        return storage
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        "This workspace has no documents yet. Add some before asking what stands "
+        "out among them.",
+    )
+
+
+def get_documentation_repository_or_none(
+    db: Session, workspace_id: int
+) -> Repository | None:
+    """The workspace's own documentation repository, or None."""
+    return db.scalar(
+        select(Repository).where(
+            Repository.workspace_id == workspace_id,
+            Repository.kind == "documentation",
+            Repository.is_storage.is_(False),
+        )
+    )
+
+
 def get_or_create_storage_repo(db: Session, workspace_id: int) -> Repository:
     """The repository the workspace's dropped-in documents live in.
 

@@ -945,3 +945,70 @@ class InboxUploadOut(BaseModel):
     #: false here is something the reader can act on, not a failed upload.
     readable: bool = True
     unreadable_reason: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Delphi's findings
+# --------------------------------------------------------------------------
+
+
+class SignalOut(BaseModel):
+    """One finding, as the reading pane shows it.
+
+    ``label`` is the name the reader reads and ``kind`` the one stored, so the
+    wording can be improved without a migration. ``why`` is never empty: a claim
+    without its evidence is refused at the boundary and never reaches here.
+    """
+
+    id: int
+    repository_id: int
+    file_path: str
+    kind: str
+    label: str
+    reference: str | None = None
+    why: str
+    confidence: float | None = None
+    status: str
+    created_at: dt.datetime
+
+
+class AnalyseRequest(BaseModel):
+    """Which collection to analyse.
+    Omitted, the workspace's documentation is analysed, falling back to the inbox
+    when there is no documentation. Named, it must be a documentation repository
+    or the inbox: a source repository holds code, and judging whether code is out
+    of date is not what this does.
+    """
+
+    repository_id: int | None = None
+
+
+class OpenSignalsOut(BaseModel):
+    """How many findings are still waiting for a decision.
+
+    Its own endpoint because the listing deliberately refuses to answer for a
+    whole workspace -- too much for a panel above one document -- and a badge
+    still has to know the total. Reporting it as its own number rather than as
+    the length of a listing is what keeps the badge true after a restart.
+    """
+
+    open_signals: int
+
+
+class AnalyseOut(BaseModel):
+    """What one pass found, in a sentence and in rows.
+
+    ``analysed`` is how many documents were actually read, which is not
+    necessarily ``documents``: a file that could not be read, or a batch that did
+    not fit the window, is a document the reader was not told about, and a
+    summary claiming full coverage would be a lie.
+    """
+
+    repository_id: int
+    documents: int
+    analysed: int
+    signals: list[SignalOut]
+    #: Findings still waiting for a decision, across the whole workspace.
+    open_signals: int
+    summary: str
+    errors: list[str] = Field(default_factory=list)
