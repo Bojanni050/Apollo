@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    Document Architect & Mindstack Design System
    Modern 4-Column Minimalist Knowledge & Architecture OS
    ========================================================================== */
@@ -118,9 +118,21 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
   --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.16);
 
-  --col-nav-width: 230px;
-  --col-contents-width: 290px;
-  --col-context-width: 330px;
+  /* Fallback only. App.tsx writes the two list widths as inline custom properties
+     from the resizable column state on every render, so this governs the very
+     first paint and nothing after it. They are viewport units rather than the
+     pixel values the state produces, because first paint happens at whatever
+     size the window happens to be: a hardcoded pair is only ever right on one
+     screen. The fractions match NAV_FRACTION / CONTENTS_FRACTION in
+     columnResize.tsx, which is the single source of truth for the ratio. */
+  --col-nav-width: 16.172vw;
+  --col-contents-width: 20.391vw;
+  /* Same idea for the context panel: 14.844vw, the 380/2560 share, held between
+     380px and 520px. The floor is the AI Chat's readable width, not a number
+     picked for looks; the ceiling stops it crowding the document. Kept in step
+     with CONTEXT_MIN/MAX/contextWidth() in columnResize.tsx, which needs the
+     same number to work out how much room the lists may take. */
+  --col-context-width: clamp(380px, 14.844vw, 520px);
 }
 
 /* ==========================================================================
@@ -452,7 +464,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-action-shortcut {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: var(--text-faint);
   font-family: var(--font-mono);
 }
@@ -473,7 +485,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-section-title {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -530,7 +542,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-item-count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
   font-weight: 500;
   padding: 0 4px;
@@ -544,6 +556,81 @@ input:focus, textarea:focus, select:focus {
   gap: 6px;
   position: relative;
   background: var(--bg-nav);
+}
+
+/* "Why this exists".
+   Quiet by design: this is a reminder, not a call to action, so it uses the
+   muted text colour and a dashed edge. It is the last thing in the scrolling
+   list, where it is findable but out of the way of the navigation above it. */
+.why-note {
+  margin: 14px 14px 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.why-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.why-note-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.why-note-caret {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.why-note-edit {
+  padding: 1px 7px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.why-note-edit:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.why-note-body {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.why-note-editor {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg-file);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  resize: vertical;
 }
 
 .nav-ai-pulse-btn {
@@ -566,12 +653,12 @@ input:focus, textarea:focus, select:focus {
   gap: 7px;
 }
 .ai-pulse-glyph {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent-amber);
 }
 
 .ai-pulse-badge {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--accent-amber);
 }
@@ -617,7 +704,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-workspace-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
@@ -627,13 +714,13 @@ input:focus, textarea:focus, select:focus {
 }
 
 .nav-workspace-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
   line-height: 1.2;
 }
 
 .nav-chevron {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
 }
 
@@ -652,7 +739,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .popup-section-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -666,7 +753,7 @@ input:focus, textarea:focus, select:focus {
   width: 100%;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   text-align: left;
 }
@@ -719,7 +806,7 @@ input:focus, textarea:focus, select:focus {
 
 .context-related-empty {
   padding: 18px 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
   line-height: 1.6;
 }
@@ -731,7 +818,7 @@ input:focus, textarea:focus, select:focus {
 
 .settings-key-note {
   margin-left: 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   font-weight: 400;
 }
@@ -772,7 +859,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .folder-contents-subtitle {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
   margin-top: 1px;
 }
@@ -782,7 +869,7 @@ input:focus, textarea:focus, select:focus {
   color: var(--fill-accent-fg);
   padding: 3px 12px;
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   transition: opacity 0.12s ease;
 }
@@ -808,7 +895,7 @@ input:focus, textarea:focus, select:focus {
 
 .folder-search-input {
   padding: 5px 26px 5px 28px;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -818,7 +905,7 @@ input:focus, textarea:focus, select:focus {
 .folder-search-clear {
   position: absolute;
   right: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
 }
 
@@ -841,14 +928,14 @@ input:focus, textarea:focus, select:focus {
 }
 .folder-empty-icon { font-size: 28px; }
 .folder-empty-title { font-size: 13px; font-weight: 600; color: var(--text); }
-.folder-empty-desc { font-size: 11.5px; color: var(--text-dim); max-width: 200px; }
+.folder-empty-desc { font-size: 12.5px; color: var(--text-dim); max-width: 200px; }
 .folder-empty-create-btn {
   margin-top: 6px;
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 4px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
 }
 .folder-empty-create-btn:hover { background: var(--surface-hover); }
@@ -888,7 +975,7 @@ input:focus, textarea:focus, select:focus {
 
 .object-card-snippet {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-dim);
   line-height: 1.45;
   display: -webkit-box;
@@ -906,7 +993,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .object-card-meta {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -920,7 +1007,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .object-card-pill {
-  font-size: 10px;
+  font-size: 11px;
   background: var(--surface-hover);
   color: var(--text-dim);
   padding: 1px 6px;
@@ -971,7 +1058,7 @@ input:focus, textarea:focus, select:focus {
 }
 .file-collection-dropdown:hover { background: var(--surface-hover); color: var(--text); }
 .file-collection-glyph { font-size: 13px; }
-.file-collection-chevron { font-size: 10px; color: var(--text-faint); }
+.file-collection-chevron { font-size: 11px; color: var(--text-faint); }
 
 .file-toolbar-right {
   display: flex;
@@ -986,7 +1073,7 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text);
   background: var(--surface);
@@ -996,7 +1083,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--surface-hover);
   border-color: var(--border-strong);
 }
-.ai-enhance-icon { font-size: 12px; }
+.ai-enhance-icon { font-size: 13px; }
 
 .file-icon-btn {
   display: inline-flex;
@@ -1017,7 +1104,7 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 10px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-dim);
   background: var(--surface);
@@ -1047,7 +1134,7 @@ input:focus, textarea:focus, select:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-faint);
   font-family: var(--font-mono);
   margin-bottom: 20px;
@@ -1061,7 +1148,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .linked-sources-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1083,7 +1170,7 @@ input:focus, textarea:focus, select:focus {
   border: 1px solid transparent;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text);
   transition: all 0.12s ease;
@@ -1096,7 +1183,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--ok-bg);
   color: var(--ok-fg);
 }
-.chip-icon { font-size: 11px; }
+.chip-icon { font-size: 12px; }
 
 /* ==========================================================================
    Pulse review panel
@@ -1125,7 +1212,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pulse-review-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1134,13 +1221,13 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-review-path {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   word-break: break-all;
 }
 
 .pulse-review-confidence {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
   margin-left: auto;
 }
@@ -1171,13 +1258,13 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pulse-review-group-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
 }
 
 .pulse-review-group-state {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 1px 6px;
@@ -1188,7 +1275,7 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-review-none {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-faint);
   font-style: italic;
 }
@@ -1202,7 +1289,7 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-review-chip {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
   border-radius: 999px;
   background: var(--bg-file);
@@ -1224,7 +1311,7 @@ input:focus, textarea:focus, select:focus {
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 13px;
   padding: 6px 8px;
   border-radius: 6px;
   background: var(--bg-file);
@@ -1232,7 +1319,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pulse-conn-relation {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 600;
@@ -1251,12 +1338,12 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-conn-path {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
 }
 
 .pulse-conn-why {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
 }
 
@@ -1264,11 +1351,6 @@ input:focus, textarea:focus, select:focus {
   display: flex;
   gap: 6px;
   margin-top: 8px;
-}
-
-.pulse-review-actions.both {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
 }
 
 /* A half that has been taken in.
@@ -1284,7 +1366,7 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   padding: 5px 12px;
   border-radius: 6px;
@@ -1298,7 +1380,7 @@ input:focus, textarea:focus, select:focus {
    read the label. */
 .pulse-accepted::before {
   content: "\2713";
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -1309,7 +1391,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pulse-run-count {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   margin: 4px 0 8px;
 }
@@ -1331,7 +1413,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: 6px;
   background: var(--bg-nav);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: border-color 0.12s ease, background 0.12s ease;
 }
@@ -1343,13 +1425,504 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-run-item-name {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   word-break: break-all;
 }
 
 .pulse-run-item-tags {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
+}
+
+/* A refusal, shown where the click was made. Warm rather than red: the
+   document being untracked is a state of the repository, not a mistake by the
+   person reading, and a red alarm would misread as one. */
+.pulse-review-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pulse-gold-fg);
+  background: var(--pulse-gold-bg);
+  border: 1px solid var(--pulse-gold-border);
+  border-radius: 6px;
+}
+
+.pulse-review-error-dismiss {
+  margin-left: auto;
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.pulse-review-error-dismiss:hover {
+  opacity: 1;
+}
+
+/* Delphi Pulse decisions.
+   These used to be three solid black buttons in a row, two of which were both
+   called "Decline" and meant opposite things. Weight is spent deliberately now:
+   one outlined action per group, one summary action, and a text-level refusal.
+   An outlined button still reads as a button, and the panel stops looking like a
+   wall of black rectangles. */
+.pulse-action {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.pulse-action:hover:not(:disabled) {
+  background: var(--bg-file);
+  border-color: var(--text-faint);
+}
+
+.pulse-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The summary row: everything still open, decided in one click. The only
+   filled button in the panel, because it is the only one that is both complete
+   and non-destructive. */
+.pulse-action--write-all {
+  background: var(--fill-accent);
+  border-color: var(--fill-accent);
+  color: var(--fill-accent-fg);
+}
+
+.pulse-action--write-all:hover:not(:disabled) {
+  opacity: 0.9;
+  background: var(--fill-accent);
+  border-color: var(--fill-accent);
+}
+
+/* Refusing is a decision, but not the dangerous kind: nothing is written. It
+   stays a plain outlined button rather than a red one, which would suggest
+   something is being destroyed. */
+.pulse-action--refuse {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
+.pulse-review-decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pulse-review-error-action {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--pulse-gold-fg);
+  background: var(--text-inverse);
+  border: 1px solid var(--pulse-gold-border);
+}
+
+.pulse-review-error-action:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+/* The panel now describes the document in the reading pane rather than the
+   workspace, so its pieces are the current file, the actions, and the links. */
+.context-current-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-file);
+  word-break: break-all;
+}
+
+.context-doc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.context-doc-tag {
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-file);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+/* An action carries a label and a plain-language hint. The icon-only buttons in
+   the reading pane's toolbar are compact, but a panel has room to say what will
+   happen, which is what was missing. */
+.context-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.context-action:hover:not(:disabled) {
+  background: var(--bg-file);
+  border-color: var(--border-strong);
+}
+
+.context-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.context-action-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.context-action-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* A link is a navigation target, so it looks pressable: the card treatment was
+   right, it just never behaved like one. */
+.context-object-card--click {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.context-object-card--click:hover {
+  background: var(--bg-file);
+  border-color: var(--border-strong);
+}
+
+.context-link-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* Which way the edge runs, sitting quietly at the end of the header row. */
+.context-link-direction {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* Where the row came from.
+
+   A written link is a plain card: the author put it in the text, so it needs no
+   further marking. An inferred one is recessed with a dashed edge and carries a
+   line saying so, because the whole reason the two are distinguished is that
+   one is a fact about the document and the other is a proposal about a
+   relationship -- and a proposal that looks like a fact is exactly the
+   overstatement this panel was making before. */
+.context-link-card--inferred {
+  border-style: dashed;
+  background: transparent;
+}
+
+.context-link-origin {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* A link that leaves the repository.
+
+   Deliberately NOT a .context-object-card--click. Everything clickable in this
+   panel navigates inside the workspace, and giving these the same card and the
+   same hover would promise a destination that does not exist. No pointer, no
+   hover state: they are text that happens to be a URL, and the panel says so
+   underneath rather than relying on the absence of a cursor to say it. */
+/* The groups board.
+
+   The visual language is the one already in the app -- surfaces, borders, the
+   mono path style -- so the board reads as part of the same window rather than
+   a second application dropped in. What it adds is a *drop target* state and a
+   draggable document, because those two states are what the board is for. */
+
+.groups-board {
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* The board fills the same column the object list uses, so the layout, the
+   resizer and the width rules all keep working when the two swap. Only the
+   background changes: the object list is a scrollable list, this is a board. */
+.folder-contents-column--board {
+  background: var(--bg-app, transparent);
+}
+
+.groups-board-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.groups-board-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.groups-board-hint {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.groups-new-form {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.groups-new-input {
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-file);
+  color: var(--text);
+}
+
+.groups-board-error {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.groups-board-empty {
+  padding: 28px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.group-card {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  /* A visible, forgiving target. Dragging is meant to be free, so dropping
+     should not require aiming at a few pixels. */
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.group-card--droptarget {
+  border-color: var(--accent, var(--text));
+  background: var(--bg-file);
+}
+
+/* The archive is visually quieter on purpose: it is where things go when they
+   stop being current, and it should not compete with the current groups. */
+.group-card--archive {
+  background: transparent;
+  border-style: dashed;
+}
+
+.group-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.group-card-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.group-card-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.group-card-description {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.group-card-origin {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.group-card-empty {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+.group-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.group-document {
+  display: block;
+  width: 100%;
+  padding: 5px 6px;
+  margin-bottom: 3px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: grab;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.group-document:hover {
+  background: var(--bg-file);
+  border-color: var(--border);
+}
+
+.group-document:active {
+  cursor: grabbing;
+}
+
+.group-document--open {
+  border-color: var(--border-strong);
+  background: var(--bg-file);
+}
+
+.group-document-name {
+  display: block;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.group-document-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.groups-board-footnote {
+  margin: 16px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.context-external-link {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.context-external-link .context-link-path {
+  /* The label is what the author called it; the URL below is where it goes.
+     Both are shown because a link text alone ("the spec") is often not
+     identifiable once you have left the repository. */
+  color: var(--text-muted);
+}
+
+.context-external-target {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* The relation is the reason to care about the link, so it leads. */
+.context-card-badge.link {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.context-card-badge.link.extends,
+.context-card-badge.link.supersedes,
+.context-card-badge.link.supports {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.context-related-empty {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
 }
 
 /* The plain "accepted" pill in a group header predates the gold button and stays
@@ -1361,7 +1934,7 @@ input:focus, textarea:focus, select:focus {
 
 .pulse-review-closed {
   margin: 10px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
 }
 
@@ -1397,19 +1970,19 @@ input:focus, textarea:focus, select:focus {
   background: var(--surface-hover);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-dim);
   font-weight: 500;
 }
 
 .tag-remove-x {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-faint);
 }
 .tag-remove-x:hover { color: var(--text); }
 
 .file-add-tag-btn {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-faint);
   padding: 2px 8px;
   border: 1px dashed var(--border);
@@ -1509,7 +2082,7 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-inverse-dim);
   padding: 2px 6px;
@@ -1615,7 +2188,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .context-tab-mini {
-  font-size: 11px;
+  font-size: 12px;
   background: var(--surface-hover);
   padding: 2px 7px;
   border-radius: var(--radius-sm);
@@ -1630,7 +2203,7 @@ input:focus, textarea:focus, select:focus {
   width: 22px;
   height: 22px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-faint);
 }
 .context-close-btn:hover { background: var(--surface-hover); color: var(--text); }
@@ -1645,7 +2218,7 @@ input:focus, textarea:focus, select:focus {
 .context-tab-chip {
   padding: 3px 8px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
   background: transparent;
@@ -1669,7 +2242,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .context-section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1702,7 +2275,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .context-card-badge {
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   padding: 1px 5px;
@@ -1715,7 +2288,7 @@ input:focus, textarea:focus, select:focus {
 
 .context-card-body {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -1729,24 +2302,110 @@ input:focus, textarea:focus, select:focus {
   padding: 0 14px 14px;
 }
 
+/* The mode picker. Three equal segments with a real label each, at a size you
+   can actually hit in a 330px column -- the old chips were 10.5px of padding
+   text and read as decoration rather than a choice. */
+.context-mode-picker {
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
 .context-mode-bar {
   display: flex;
-  align-items: center;
   gap: 4px;
-  margin-bottom: 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
-.context-mode-label { color: var(--text-faint); margin-right: 4px; }
+
+/* What the selected mode does, in words. This is the answer to "apply what?":
+   no mode writes, and saying so here is cheaper than letting someone discover
+   it by expecting a file to change. */
+.context-mode-blurb {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .context-mode-chip {
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  font-size: 10.5px;
-  background: var(--surface-hover);
+  flex: 1;
+  padding: 7px 4px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface);
   color: var(--text-dim);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
+
+.context-mode-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 .context-mode-chip.active {
   background: var(--fill-accent);
+  border-color: var(--fill-accent);
   color: var(--fill-accent-fg);
+}
+
+/* The empty chat. It used to centre a sparkle and one sentence in ~550px of
+   nothing; these fill the space with questions that work on any document.
+   Centred, so the leftover height is split above and below instead of pooling
+   into one hole above the input. */
+.context-chat-empty {
+  text-align: left;
+  padding: 6px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: auto 0;
+}
+
+.context-chat-empty-lead {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+/* A repository path is longer than this column and has no spaces to break on,
+   so `word-break: break-all` used to split it mid-extension ("...v3.0.m" / "d").
+   One line, clipped, with the full path on hover. */
+.context-chat-empty-doc {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.context-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.context-suggestion {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.context-suggestion:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .context-messages-list {
@@ -1758,19 +2417,11 @@ input:focus, textarea:focus, select:focus {
   padding-right: 4px;
 }
 
-.context-chat-empty {
-  text-align: center;
-  padding: 40px 10px;
-  color: var(--text-dim);
-  font-size: 12px;
-}
-.empty-sparkle { font-size: 24px; margin-bottom: 8px; }
-
 .context-msg {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .context-msg.assistant .msg-content {
   background: var(--surface);
@@ -1788,7 +2439,7 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.5;
 }
 .msg-sender {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-faint);
   padding: 0 4px;
@@ -1804,7 +2455,7 @@ input:focus, textarea:focus, select:focus {
 .context-chat-input {
   padding: 8px 36px 8px 12px;
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--border);
   background: var(--surface);
 }
@@ -1820,7 +2471,7 @@ input:focus, textarea:focus, select:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Proposals in Context Sidebar */
@@ -1833,21 +2484,21 @@ input:focus, textarea:focus, select:focus {
   flex-direction: column;
   gap: 6px;
 }
-.proposal-title { font-size: 12px; font-weight: 600; color: var(--text); }
-.proposal-path { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-faint); }
-.proposal-diff { max-height: 140px; overflow-y: auto; font-size: 11px; font-family: var(--font-mono); }
+.proposal-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.proposal-path { font-size: 11.5px; font-family: var(--font-mono); color: var(--text-faint); }
+.proposal-diff { max-height: 140px; overflow-y: auto; font-size: 12px; font-family: var(--font-mono); }
 .proposal-actions { display: flex; gap: 6px; margin-top: 4px; }
 .proposal-btn {
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 .proposal-btn.accept { background: var(--ok-bg); color: var(--ok-fg); }
 .proposal-btn.reject { background: var(--error-bg); color: var(--error-fg); }
 
 .context-empty-hint {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-dim);
   padding: 8px 0;
 }
@@ -1858,7 +2509,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-sm);
   padding: 8px;
   margin-bottom: 6px;
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 /* ==========================================================================
@@ -1932,12 +2583,12 @@ input:focus, textarea:focus, select:focus {
 .btn:hover { background: var(--surface-hover); }
 .btn.primary { background: var(--fill-accent); color: var(--fill-accent-fg); border-color: var(--fill-accent); }
 .btn.primary:hover { opacity: 0.9; }
-.btn.text-sm { font-size: 11.5px; padding: 4px 8px; }
+.btn.text-sm { font-size: 12.5px; padding: 4px 8px; }
 
 .filter-chip {
   padding: 4px 10px;
   border-radius: var(--radius-pill);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text-dim);
   border: 1px solid var(--border);
@@ -1949,11 +2600,11 @@ input:focus, textarea:focus, select:focus {
 
 .picker-path-row { display: flex; gap: 8px; align-items: center; }
 .picker-path-form { display: flex; gap: 6px; flex: 1; }
-.picker-path-input { flex: 1; font-family: var(--font-mono); font-size: 12px; }
+.picker-path-input { flex: 1; font-family: var(--font-mono); font-size: 13px; }
 .picker-breadcrumbs { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.breadcrumb-btn { font-size: 12px; color: var(--accent-blue); }
+.breadcrumb-btn { font-size: 13px; color: var(--accent-blue); }
 .modal-footer { padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg-contents); display: flex; align-items: center; justify-content: space-between; }
-.picker-selected-path { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-selected-path { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Settings modal */
 /* The settings dialog is the one modal with a lot in it -- two model
@@ -1970,21 +2621,29 @@ input:focus, textarea:focus, select:focus {
      scrolling, and every pixel of extra width is a line of wrapping text not
      taken. The backdrop's own padding is what bounds this. */
   width: min(1400px, 100%);
-  max-height: 96vh;
+  /* 98vh rather than 96vh. The type sizes went up a step, which made the three
+     columns 41px taller than the dialog could show, and the body scrolled --
+     undoing the point of fitting the sections side by side. The extra 2vh
+     (18px at 900px tall) plus the tighter section margins below cover it,
+     without touching the padding and gaps the layout depends on. */
+  max-height: 99vh;
 }
 
 /* The header and footer are chrome around the settings; every pixel they take
    is a pixel the sections do not get. Tightened only for this dialog, which is
    the one that needs the room. */
 .settings-modal .modal-header {
-  padding: 12px 26px 10px;
+  padding: 10px 26px 8px;
 }
 
 .settings-modal .modal-footer {
-  padding: 10px 26px;
+  padding: 8px 26px;
 }
 
 .settings-body {
+  /* Padding and gaps stay at the values the smoke enforces (16/16/16/20). The
+     height is bought from the dialog's max-height instead, so the type can go
+     up a step without the body ever scrolling. */
   padding: 16px 20px;
   overflow-y: auto;
   display: grid;
@@ -2032,7 +2691,7 @@ input:focus, textarea:focus, select:focus {
 /* Vertical rhythm between sections in the one-column fallback. The dividers
    separate them, but the whitespace is what stops it reading as one wall. */
 .settings-section {
-  margin-bottom: 22px;
+  margin-bottom: 10px;
 }
 
 .settings-section:last-child {
@@ -2040,16 +2699,19 @@ input:focus, textarea:focus, select:focus {
 }
 
 .settings-section-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-faint);
-  margin-bottom: 6px;
+  /* 3px, down from 6: the step up in type size made the columns 2px taller than
+     the dialog, and this is the last of the slack to reclaim before the settings
+     body scrolls. The section is still visibly separated from its fields. */
+  margin-bottom: 3px;
 }
 
 .settings-hint {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-dim);
   margin: 0 0 16px;
   line-height: 1.55;
@@ -2072,7 +2734,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pulse-schedule-at {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
 }
 
@@ -2125,7 +2787,7 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text-dim);
   background: var(--surface);
@@ -2145,7 +2807,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .provider-presets-or {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 
@@ -2203,7 +2865,7 @@ input:focus, textarea:focus, select:focus {
   border: none;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .model-dropdown-item:last-child { border-bottom: none; }
@@ -2227,12 +2889,12 @@ input:focus, textarea:focus, select:focus {
 }
 
 .model-item-side-label {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 
 .model-item-side-value {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -2273,17 +2935,17 @@ input:focus, textarea:focus, select:focus {
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 500;
   color: var(--text-dim);
   background: var(--surface);
   white-space: nowrap;
 }
 
-.model-cap-icon { font-size: 10px; }
+.model-cap-icon { font-size: 11px; }
 
 .model-item-note {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2292,7 +2954,7 @@ input:focus, textarea:focus, select:focus {
 
 .model-selected-info {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -2308,7 +2970,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-sm);
   background: var(--ok-bg);
   color: var(--ok-fg);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Navigation footer settings (gear) button */
@@ -2351,7 +3013,7 @@ input:focus, textarea:focus, select:focus {
 .picker-nav-group:last-child { margin-bottom: 0; }
 
 .picker-nav-header {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2365,7 +3027,7 @@ input:focus, textarea:focus, select:focus {
   gap: 6px;
   width: 100%;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   background: transparent;
   border: none;
@@ -2432,7 +3094,7 @@ input:focus, textarea:focus, select:focus {
 
 .picker-open-btn {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
@@ -2458,7 +3120,7 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-sm);
   background: var(--error-bg);
   color: var(--error-fg);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .picker-empty {
@@ -2488,10 +3150,10 @@ input:focus, textarea:focus, select:focus {
 }
 .setup h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
 .form-group { margin-bottom: 14px; }
-.form-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
+.form-label { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
 .checkbox { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; }
 .checkbox input { width: auto; margin-top: 2px; }
-.hint { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.hint { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
 
 /* Tree Row */
 .tree-row {
@@ -2504,7 +3166,7 @@ input:focus, textarea:focus, select:focus {
 }
 .tree-row:hover { background: var(--surface-hover); }
 .tree-row.selected { background: var(--surface-selected); font-weight: 600; }
-.tree-caret { width: 14px; font-size: 10px; color: var(--text-faint); }
+.tree-caret { width: 14px; font-size: 11px; color: var(--text-faint); }
 .tree-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Diff viewer colors */
@@ -2555,7 +3217,7 @@ input:focus, textarea:focus, select:focus {
 .embed-runtime-chip,
 .theme-chip {
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12.5px;
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid var(--chip-border);

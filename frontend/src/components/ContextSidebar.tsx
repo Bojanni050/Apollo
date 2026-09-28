@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type {
   Conversation,
   ConversationDetail,
+  DocumentLinks,
   InventoryRun,
   Mode,
   Proposal,
@@ -36,15 +37,76 @@ interface Props {
   onAcceptPulseAll: () => void
   /** Open the document a suggestion is about, so the reader can judge it there. */
   onOpenPulseItem: (filePath: string) => void
+  /** Follow a link out of the panel into the reading pane. */
+  onOpenDocument: (path: string) => void
+  /**
+   * The document's real Markdown links, read from the repository.
+   *
+   * Null while loading or when the read failed, which is different from "this
+   * document has no links": the panel says so rather than showing an empty
+   * list, because a document with no links and a document whose links could not
+   * be read are not the same claim.
+   */
+  documentLinks: DocumentLinks | null
+  onOpenAiChat: () => void
+  /** Ask Delphi Pulse to review the open file. Optional: absent when unavailable. */
+  onRunPulse?: () => void
+  /**
+   * Bump to make the panel switch to the chat tab.
+   *
+   * The chat tab lives inside this component, so a button outside it (the
+   * reading pane's chat bubble) cannot switch tabs directly. Passing a counter
+   * rather than a boolean is deliberate: opening the panel twice must not look
+   * like a second request, and a boolean set to `true` twice does not re-fire.
+   */
+  chatNonce?: number
 }
 
 type Tab = 'related' | 'chat' | 'proposals'
+
+/* What each mode actually does, in one sentence.
+
+   The backend prompts are explicit that NO mode writes anything: Apply says
+   "You do not apply them yourself -- the human accepts each one". So a chip
+   labelled "apply" promises the one thing the system never does, and that is
+   what "apply what?" is really asking. The labels below name the behaviour, and
+   `propose` replaces `apply` on screen so nothing here overstates what a click
+   will do. The value sent to the API is unchanged. */
+const MODES: { value: Mode; label: string; blurb: string }[] = [
+  {
+    value: 'explore',
+    label: 'Explore',
+    blurb: 'Discuss ideas freely. Nothing is written and nothing is proposed.',
+  },
+  {
+    value: 'investigate',
+    label: 'Investigate',
+    blurb:
+      'Answer from evidence: reads documents and code, cites what it finds. Writes nothing.',
+  },
+  {
+    value: 'apply',
+    label: 'Propose',
+    blurb: 'Drafts change proposals for you to review. Never applies them itself.',
+  },
+]
+
+/* Filling the empty column with questions that work on any document beats a
+   sparkle and a sentence. Clicking one only fills the box -- it does not send,
+   because an unedited question sent on a single click is a decision made on the
+   reader's behalf. */
+const SUGGESTIONS = [
+  'What does this document assume that it never states?',
+  'Where does this contradict the rest of the architecture?',
+  'Summarise the decision this file records, and its consequences.',
+  'What is still undecided here?',
+]
 
 export function ContextSidebar({
   isOpen,
   onClose,
   repository: _repository,
-  documentPath: _documentPath,
+  documentPath,
   documentMarkdown: _documentMarkdown,
   inventoryRun,
   proposals,
@@ -63,9 +125,145 @@ export function ContextSidebar({
   pulseRun,
   onAcceptPulseAll,
   onOpenPulseItem,
+  onOpenDocument,
+  documentLinks,
+  onOpenAiChat,
+  onRunPulse,
+  chatNonce = 0,
 }: Props) {
   const [tab, setTab] = useState<Tab>('related')
   const [chatInput, setChatInput] = useState('')
+
+  // A chat request from outside the panel lands here. Depends on the counter
+  // rather than a flag, so every press counts, including two in a row.
+  useEffect(() => {
+    if (chatNonce > 0) setTab('chat')
+  }, [chatNonce])
+
+  /* Everything below is derived from the document in the reading pane, so the
+     panel describes what is on screen rather than the workspace as a whole.
+
+     Two sources, and the difference matters:
+
+     - The REAL links, read from the repository. These are what the author
+       wrote: `[the ADR](../decisions/x.md)`. They are the load-bearing ones, and
+       the panel led with them.
+     - Delphi Pulse's connections. These are the model's *inference* that two
+       documents are related, which is useful precisely because nobody wrote it
+       down -- but it is a proposal, not a fact, and it is labelled as one.
+
+     The panel used to show only the second kind under a heading that said
+     "linked articles", which read as if the author had linked them. It is now
+     the first thing listed, with the inferred ones clearly separate.
+
+     A link is matched on the path with and without its extension, because a
+     connection may name "architecture/architecture.md" while the item that owns
+     it is filed under the same name with a different suffix.
+
+     Both directions are collected into ONE list, each marked with where the
+     arrow points. They were separate sections before, which meant every inbound
+     link appeared twice: once as a link and again under "mentions this file". A
+     graph read in one direction is easier to follow than the same edges split
+     across two headings. */
+  const currentItem = pulseRun?.items.find((i) => i.file_path === documentPath)
+
+  const stripExt = (p: string) => p.replace(/\.[^./]+$/, '')
+
+  const links = useMemo(() => {
+    if (!documentPath) return []
+    const stem = stripExt(documentPath)
+    const out: {
+      path: string
+      relation: string
+      why: string | null
+      direction: 'out' | 'in'
+      /** 'written' = the author linked it. 'inferred' = Delphi Pulse proposed it. */
+      source: 'written' | 'inferred'
+    }[] = []
+
+    // Outbound: what this document actually links to.
+    for (const l of documentLinks?.outbound ?? []) {
+      out.push({
+        path: l.path,
+        relation: 'links to',
+        why: l.text || null,
+        direction: 'out',
+        source: 'written',
+      })
+    }
+
+    // Inbound: what links to this document. The author wrote those, in the
+    // other file.
+    for (const l of documentLinks?.inbound ?? []) {
+      out.push({
+        path: l.path,
+        relation: 'linked from',
+        why: l.text || null,
+        direction: 'in',
+        source: 'written',
+      })
+    }
+
+    // Pulse's inferred connections, outbound.
+    for (const c of currentItem?.connections ?? []) {
+      out.push({ path: c.path, relation: c.relation, why: c.why, direction: 'out', source: 'inferred' })
+    }
+
+    // Pulse's inferred connections, inbound.
+    for (const item of pulseRun?.items ?? []) {
+      if (item.file_path === documentPath) continue
+      for (const c of item.connections) {
+        if (c.path === documentPath || stripExt(c.path) === stem) {
+          out.push({
+            path: item.file_path,
+            relation: c.relation,
+            why: c.why,
+            direction: 'in',
+            source: 'inferred',
+          })
+        }
+      }
+      // An item that merely shares a folder is not a link, so it is not listed:
+      // a panel full of same-directory files is noise, not context.
+    }
+
+    // Two documents may link each other, which would list each twice. One row
+    // per document. A written link wins over an inferred one for the same
+    // document: if the author linked it, that is the stronger statement, and
+    // listing it twice would imply two independent findings.
+    const byPath = new Map<string, (typeof out)[number]>()
+    for (const l of out) {
+      const existing = byPath.get(l.path)
+      if (!existing) {
+        byPath.set(l.path, l)
+      } else if (existing.source === 'inferred' && l.source === 'written') {
+        byPath.set(l.path, l)
+      }
+    }
+    // Written links first, then by path: a stable, predictable order rather
+    // than whatever order the two sources happened to arrive in.
+    return [...byPath.values()].sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'written' ? -1 : 1
+      return a.path.localeCompare(b.path)
+    })
+  }, [documentPath, documentLinks, pulseRun, currentItem])
+
+  /* Links out of the repository, kept apart from `links` on purpose. They are
+     written by the author, so they belong to the document -- but they are not
+     navigable, and folding them into the same list would put rows in it that
+     cannot be opened. Separate list, separate heading, separate treatment.
+
+     Deduped on the target, because the same URL cited under three different
+     labels is one reference, not three. */
+  const externalLinks = useMemo(() => {
+    const byTarget = new Map<string, { target: string; text: string }>()
+    for (const ref of documentLinks?.external ?? []) {
+      if (!byTarget.has(ref.target)) byTarget.set(ref.target, ref)
+    }
+    return [...byTarget.values()].sort((a, b) => a.target.localeCompare(b.target))
+  }, [documentLinks])
+
+  const currentTags = currentItem?.tags ?? []
 
   const handleSend = async (e: FormEvent) => {
     e.preventDefault()
@@ -90,9 +288,9 @@ export function ContextSidebar({
               type="button"
               className="context-tab-mini"
               onClick={() => setTab(tab === 'chat' ? 'related' : 'chat')}
-              title={tab === 'chat' ? 'Switch to Related Objects' : 'Open AI Chat'}
+              title={tab === 'chat' ? 'Back to this document' : 'Open AI Chat'}
             >
-              {tab === 'chat' ? 'Related' : 'Chat'}
+              {tab === 'chat' ? 'This document' : 'Chat'}
             </button>
             <button
               type="button"
@@ -112,7 +310,7 @@ export function ContextSidebar({
             className={`context-tab-chip ${tab === 'related' ? 'active' : ''}`}
             onClick={() => setTab('related')}
           >
-            Related Objects
+            This document
           </button>
           <button
             type="button"
@@ -130,79 +328,244 @@ export function ContextSidebar({
           </button>
         </div>
 
-        {/* 3. Tab: Related Objects */}
+        {/* 3. Tab: This document
+            The tab used to list every applied item in the workspace, so it looked
+            identical no matter which document was open -- it could not answer
+            "what does this file link to?". It now describes the file in the
+            reading pane, and says so plainly when nothing is open yet. */}
         {tab === 'related' && (
           <div className="context-scroll-body">
-            <div className="context-section-label">RELATED OBJECTS</div>
+            {!documentPath ? (
+              <>
+                <div className="context-section-label">THIS DOCUMENT</div>
+                <div className="context-related-empty">
+                  Open a document and this panel fills with the articles it
+                  connects to, and the things you can do with it.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="context-section-label">THIS DOCUMENT</div>
+                <div className="context-current-doc">
+                  <span className="context-card-title">{documentPath}</span>
+                  {currentTags.length > 0 && (
+                    <div className="context-doc-tags">
+                      {currentTags.map((t) => (
+                        <span key={t} className="context-doc-tag">
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-            {(inventoryRun?.items.length ?? 0) === 0 && !pulseRun && (
-              <div className="context-related-empty">
-                Nothing here yet. Run Delphi Pulse or an inventory scan to
-                discover connections for this workspace.
-              </div>
+                {/* Actions, first: what you can DO with this file. The reading
+                    pane's own toolbar holds these too, and this is the same set
+                    with words instead of icons, so the panel is useful to someone
+                    who does not want to hunt the toolbar. */}
+                <div className="context-section-label" style={{ marginTop: 18 }}>
+                  ACTIONS
+                </div>
+                <div className="context-actions">
+                  <button
+                    type="button"
+                    className="context-action"
+                    onClick={onOpenAiChat}
+                    disabled={!documentPath}
+                  >
+                    <span className="context-action-label">Ask about this document</span>
+                    {/* The hint said "name this one if you want it to focus
+                        here", which meant the button did not do that by itself.
+                        It now sends the path with the next message, so the model
+                        is told which file "this" is and reads it. */}
+                    <span className="context-action-hint">
+                      Opens AI Chat with this file named, so &ldquo;this
+                      document&rdquo; means this one. It reads the file itself
+                      rather than working from a copy.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="context-action"
+                    onClick={onRunPulse}
+                    disabled={busy || !onRunPulse}
+                  >
+                    <span className="context-action-label">Suggest improvements</span>
+                    <span className="context-action-hint">
+                      Delphi Pulse reviews this file and offers tags and links
+                    </span>
+                  </button>
+                </div>
+
+                {/* The heading names what the list actually is. "Linked articles"
+                    read as though every row were a link the author wrote, when
+                    most of them were Delphi Pulse's inference. Splitting the two
+                    is the fix, not a relabelling: an inferred connection is a
+                    proposal about a relationship, and a written link is a fact
+                    about the text. */}
+                <div className="context-section-label" style={{ marginTop: 18 }}>
+                  LINKS
+                </div>
+                {links.length === 0 ? (
+                  <div className="context-related-empty">
+                    {documentLinks === null
+                      ? 'Links could not be read for this file.'
+                      : 'This file links to nothing, and nothing links to it. Delphi Pulse may still find relationships worth proposing.'}
+                  </div>
+                ) : (
+                  links.map((link) => (
+                    <button
+                      key={link.path}
+                      type="button"
+                      className={`context-object-card context-object-card--click context-link-card--${link.source}`}
+                      onClick={() => onOpenDocument(link.path)}
+                      title={link.why || `Open ${link.path}`}
+                    >
+                      <div className="context-card-header">
+                        <span
+                          className={`context-card-badge link ${link.relation}`}
+                        >
+                          {link.relation}
+                        </span>
+                        {/* Which way the edge runs, so "extends" is not read as
+                            this file extending the other one. */}
+                        <span className="context-link-direction">
+                          {link.direction === 'out' ? 'this file →' : '→ this file'}
+                        </span>
+                      </div>
+                      <span className="context-card-title context-link-path">
+                        {link.path}
+                      </span>
+                      {link.why && <p className="context-card-body">{link.why}</p>}
+                      {/* Says out loud where the row came from, rather than
+                          leaving the reader to guess from a colour. */}
+                      {link.source === 'inferred' && (
+                        <span className="context-link-origin">
+                          Delphi Pulse proposed this; the text does not link it
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+
+                {/* Links that leave the repository.
+
+                    These are real: the author wrote them, and a document that
+                    cites an ADR in another repository or a spec online is
+                    making a statement about its own context. The API has always
+                    returned them; the panel dropped them, so a document whose
+                    only links were external claimed to link to nothing.
+
+                    They are not rows you can click, and that is deliberate
+                    rather than a gap. Every row above navigates within this
+                    workspace, and these do not resolve to anything Apollo can
+                    open. Rendering them like the others -- same card, same
+                    press affordance -- would promise a destination that does
+                    not exist, which is the same overstatement this panel was
+                    corrected for. So they are listed as text, labelled as
+                    external, and never offered as a hit target. */}
+                {externalLinks.length > 0 && (
+                  <>
+                    <div className="context-section-label" style={{ marginTop: 18 }}>
+                      LINKS OUTSIDE THIS REPOSITORY
+                    </div>
+                    {externalLinks.map((ref) => (
+                      <div
+                        key={`${ref.target}|${ref.text}`}
+                        className="context-external-link"
+                        title={ref.target}
+                      >
+                        <span className="context-card-title context-link-path">
+                          {ref.text || ref.target}
+                        </span>
+                        <span className="context-external-target">{ref.target}</span>
+                        <span className="context-link-origin">
+                          Outside this repository; Apollo cannot open it
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
             )}
-
-            {inventoryRun?.items
-              .filter((item) => item.decision === 'applied')
-              .slice(0, 10)
-              .map((item) => (
-                <div key={`inv-${item.id}`} className="context-object-card">
-                  <div className="context-card-header">
-                    <span className="context-card-title">{item.source_path}</span>
-                    <span className="context-card-badge note">inventory</span>
-                  </div>
-                  <p className="context-card-body">
-                    {item.reason || item.purpose}
-                  </p>
-                </div>
-              ))}
-
-            {pulseRun?.items
-              .filter((item) => item.decision === 'applied')
-              .slice(0, 10)
-              .map((item) => (
-                <div key={`pulse-${item.id}`} className="context-object-card">
-                  <div className="context-card-header">
-                    <span className="context-card-title">{item.file_path}</span>
-                    <span className="context-card-badge spec">delphi pulse</span>
-                  </div>
-                  <p className="context-card-body">
-                    {item.tags.length > 0 && <>tags: {item.tags.join(', ')}<br /></>}
-                    {item.connections.length > 0 && (
-                      <>
-                        connected to: {item.connections.map((c) => c.path).join(', ')}
-                      </>
-                    )}
-                  </p>
-                </div>
-              ))}
           </div>
         )}
 
-        {/* 4. Tab: AI Chat */}
+        {/* 4. Tab: AI Chat
+
+            The empty state used to be a sparkle and a sentence, floating in
+            roughly 550px of nothing between it and the input at the bottom of a
+            330px column. That is the "cramped" feeling: a panel that shows very
+            little, very small, and says nothing about what the three modes do.
+
+            So the modes state their own behaviour, and the empty space carries
+            questions that are actually about the open file. */}
         {tab === 'chat' && (
           <div className="context-chat-body">
-            {/* Mode selection row */}
-            <div className="context-mode-bar">
-              <span className="context-mode-label">Mode:</span>
-              {(['explore', 'investigate', 'apply'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={`context-mode-chip ${(activeConversation?.mode ?? pendingMode) === m ? 'active' : ''}`}
-                  onClick={() => onModeChange(m)}
-                >
-                  {m}
-                </button>
-              ))}
+            <div className="context-mode-picker">
+              <div
+                className="context-mode-bar"
+                role="radiogroup"
+                aria-label="What AI weave should do"
+              >
+                {MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={
+                      (activeConversation?.mode ?? pendingMode) === m.value
+                    }
+                    className={`context-mode-chip ${
+                      (activeConversation?.mode ?? pendingMode) === m.value
+                        ? 'active'
+                        : ''
+                    }`}
+                    onClick={() => onModeChange(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              {/* One line saying what the selected mode will and will not do.
+                  Without it the chips are three words, and "apply" in particular
+                  implies a write that no mode performs. */}
+              <p className="context-mode-blurb">
+                {MODES.find(
+                  (m) => m.value === (activeConversation?.mode ?? pendingMode),
+                )?.blurb}
+              </p>
             </div>
 
             {/* Chat messages */}
             <div className="context-messages-list">
               {(activeConversation?.messages.length ?? 0) === 0 ? (
                 <div className="context-chat-empty">
-                  <div className="empty-sparkle">✨</div>
-                  <p>Ask anything about this document, its citations, or request architectural enhancements.</p>
+                  <p className="context-chat-empty-lead">
+                    {documentPath ? (
+                      <>
+                        Ask about{' '}
+                        <span className="context-chat-empty-doc">
+                          {documentPath}
+                        </span>
+                      </>
+                    ) : (
+                      'Open a document to ask about it, or start a general question.'
+                    )}
+                  </p>
+                  <div className="context-suggestions">
+                    {SUGGESTIONS.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="context-suggestion"
+                        onClick={() => setChatInput(s)}
+                        title="Put this in the box so you can edit it first"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 activeConversation?.messages.map((m) => (

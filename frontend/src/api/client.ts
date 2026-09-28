@@ -257,6 +257,62 @@ export interface Document {
   size: number
 }
 
+export interface DocumentLink {
+  path: string
+  text: string
+}
+
+export interface DocumentLinks {
+  repository_id: number
+  path: string
+  /** Links this document makes, resolved to repository paths. */
+  outbound: DocumentLink[]
+  /** Documents that link here. Markdown only records the forward direction,
+   *  so this is derived by scanning the corpus rather than read from the file. */
+  inbound: DocumentLink[]
+  /** Links that leave the repository. Shown, never fetched. */
+  external: { target: string; text: string }[]
+}
+
+// --- Visual groups ---------------------------------------------------------
+// A group is a *view* over documents. It does not correspond to a folder, and
+// no operation here moves a file: that separation is what lets the reader
+// rearrange freely while the folders on disk stay stable.
+
+export type GroupLayout = 'grid' | 'list'
+
+export interface Group {
+  id: number
+  name: string
+  description: string | null
+  /** 'ai' when Delphi proposed it, 'user' when the reader made it. */
+  source: 'ai' | 'user'
+  /** The archive. Kept, never deleted. */
+  is_archive: boolean
+  position: number
+  layout: GroupLayout
+  document_count: number
+}
+
+export interface GroupCreate {
+  name: string
+  description?: string
+  source?: 'ai' | 'user'
+  is_archive?: boolean
+  layout?: GroupLayout
+}
+
+export interface GroupDocument {
+  /**
+   * Travels with the path because that pair is the document's identity: two
+   * repositories can both hold `architecture.md`.
+   */
+  repository_id: number
+  path: string
+  position: number
+  placed_by: string | null
+}
+
 export interface SearchHit {
   path: string
   score: number
@@ -648,6 +704,24 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /**
+   * Record untracked documents in Git, which is what the write guard requires
+   * before it will touch a document. Omitting `paths` commits everything
+   * untracked; passing them commits only those.
+   */
+  commitRepository: (
+    workspaceId: number,
+    payload: { message?: string; paths?: string[] } = {},
+  ) =>
+    request<{
+      committed: string[]
+      revision: string | null
+      untracked_remaining: string[]
+    }>(`/workspaces/${workspaceId}/repositories/commit`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   tree: (workspaceId: number, repositoryId: number, path = '.') =>
     request<DocumentTree>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/tree?path=${encodeURIComponent(path)}`,
@@ -656,12 +730,85 @@ export const api = {
     request<Document>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/document?path=${encodeURIComponent(path)}`,
     ),
+  documentLinks: (workspaceId: number, repositoryId: number, path: string) =>
+    request<DocumentLinks>(
+      `/workspaces/${workspaceId}/repositories/${repositoryId}/document/links?path=${encodeURIComponent(path)}`,
+    ),
   search: (workspaceId: number, repositoryId: number, q: string) =>
     request<{ hits: SearchHit[] }>(
       `/workspaces/${workspaceId}/repositories/${repositoryId}/search?q=${encodeURIComponent(q)}`,
     ),
   git: (workspaceId: number, repositoryId: number) =>
     request<GitStatus>(`/workspaces/${workspaceId}/repositories/${repositoryId}/git`),
+
+  // --- Visual groups ------------------------------------------------------
+  // The arrangement, not the filesystem. Every call here writes a database row
+  // and no file, which is what makes dragging safe to do freely.
+  groups: (workspaceId: number) => request<Group[]>(`/workspaces/${workspaceId}/groups`),
+  createGroup: (workspaceId: number, payload: GroupCreate) =>
+    request<Group>(`/workspaces/${workspaceId}/groups`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateGroup: (
+    workspaceId: number,
+    groupId: number,
+    payload: { name?: string; description?: string; layout?: GroupLayout },
+  ) =>
+    request<Group>(`/workspaces/${workspaceId}/groups/${groupId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  // Removes the group only. There is deliberately no method here that deletes a
+  // document, because the application does not delete documents.
+  deleteGroup: (workspaceId: number, groupId: number) =>
+    request<void>(`/workspaces/${workspaceId}/groups/${groupId}`, { method: 'DELETE' }),
+  groupDocuments: (workspaceId: number, groupId: number) =>
+    request<GroupDocument[]>(`/workspaces/${workspaceId}/groups/${groupId}/documents`),
+  addToGroup: (
+    workspaceId: number,
+    groupId: number,
+    payload: { repository_id: number; path: string; placed_by?: string },
+  ) =>
+    request<GroupDocument>(`/workspaces/${workspaceId}/groups/${groupId}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  removeFromGroup: (
+    workspaceId: number,
+    groupId: number,
+    repositoryId: number,
+    path: string,
+  ) =>
+    request<void>(
+      `/workspaces/${workspaceId}/groups/${groupId}/documents?repository_id=${repositoryId}&path=${encodeURIComponent(path)}`,
+      { method: 'DELETE' },
+    ),
+  /**
+   * Move a document between groups, in one request.
+   *
+   * One request rather than a remove followed by an add, so a failure cannot
+   * leave the document in both groups or in neither. `from_group_id` is omitted
+   * when the document is not currently in a group.
+   */
+  moveInGroup: (
+    workspaceId: number,
+    payload: {
+      repository_id: number
+      path: string
+      to_group_id: number
+      from_group_id?: number
+    },
+  ) =>
+    request<void>(`/workspaces/${workspaceId}/groups/move`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** Which groups a document is in -- the sidebar's "where does this sit?". */
+  groupsOfDocument: (workspaceId: number, repositoryId: number, path: string) =>
+    request<Group[]>(
+      `/workspaces/${workspaceId}/documents/groups?repository_id=${repositoryId}&path=${encodeURIComponent(path)}`,
+    ),
 
   chatStatus: (workspaceId: number) =>
     request<ChatStatus>(`/workspaces/${workspaceId}/chat/status`),
@@ -684,10 +831,20 @@ export const api = {
     request<void>(`/workspaces/${workspaceId}/conversations/${conversationId}`, {
       method: 'DELETE',
     }),
-  sendMessage: (workspaceId: number, conversationId: number, content: string) =>
+  /**
+   * `documentPath` names the file the reader had open, so the model resolves
+   * "this document" to one file instead of guessing between several. Omitted
+   * when nothing is open.
+   */
+  sendMessage: (
+    workspaceId: number,
+    conversationId: number,
+    content: string,
+    documentPath?: string | null,
+  ) =>
     request<{ user_message: Message; assistant_message: Message }>(
       `/workspaces/${workspaceId}/conversations/${conversationId}/messages`,
-      { method: 'POST', body: JSON.stringify({ content }) },
+      { method: 'POST', body: JSON.stringify({ content, document_path: documentPath ?? null }) },
     ),
 
   listProposals: (workspaceId: number) =>

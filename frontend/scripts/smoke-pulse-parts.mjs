@@ -10,6 +10,38 @@ import { chromium } from 'playwright'
 
 const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 
+// The settled record is gold, and gold has one value per theme: the light-theme
+// value is unreadable on a dark background. Measuring the record against its own
+// panel in both schemes catches a colour that only works in the theme it was
+// tuned in, which is exactly the mistake the two values exist to prevent.
+async function checkSettledThemes(page) {
+  for (const scheme of ['dark', 'light']) {
+    await page.emulateMedia({ colorScheme: scheme })
+    await page.waitForTimeout(250)
+    const contrast = await page.evaluate(() => {
+      const el = document.querySelector('.pulse-accepted')
+      if (!el) return null
+      const panel = el.closest('.pulse-review') ?? document.body
+      const parse = (s) => (s.match(/[\d.]+/g) ?? [0, 0, 0]).map(Number)
+      const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+      return Math.abs(
+        lum(parse(getComputedStyle(el).color)) -
+          lum(parse(getComputedStyle(panel).backgroundColor)),
+      )
+    })
+    console.log(`settled record contrast (${scheme}):`, contrast?.toFixed(2))
+    if (contrast !== null && contrast < 0.25) {
+      throw new Error(
+        `the settled record is too faint to read in ${scheme} mode (${contrast.toFixed(2)})`,
+      )
+    }
+    if (scheme === 'dark') {
+      await page.screenshot({ path: 'screenshots/pulse-accepted-dark.png' })
+    }
+  }
+  await page.emulateMedia({ colorScheme: 'light' })
+}
+
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const errors = []
@@ -92,41 +124,96 @@ if (!(await pulseNav.count())) {
       if (!groups.some((g) => /connections/i.test(g))) {
         throw new Error('the review panel has no connections group')
       }
-      // Each group with something to decide has its own accept button, rather
-      // than one button that takes both.
-      const accepts = await page
-        .locator('.pulse-review-actions button', { hasText: /accept tags/i })
-        .count()
-      if (accepts < 1) {
-        throw new Error('there is no separate "Accept tags" button')
+      // Each group with something to decide offers its own write, rather than
+      // one button that takes both. The labels state the CONSEQUENCE ("write 5
+      // tags to this file") rather than the abstraction ("accept tags"): the
+      // click edits the document on disk, and the old wording did not say so.
+      //
+      // A half that was already taken in an earlier run shows its gold record
+      // instead of a button, so each group counts as correct if it offers EITHER
+      // a write OR a record. Requiring a button made the smoke fail on the
+      // second run against the same workspace, which is a test that only works
+      // once.
+      const settled = (re) =>
+        page
+          .locator('.pulse-review-group', { hasText: re })
+          .locator('.pulse-accepted')
+          .count()
+      const offered = (re) =>
+        page
+          .locator('.pulse-review-actions button.pulse-action--write', { hasText: re })
+          .count()
+
+      const tagWrites = await offered(/write \d+ tags?/i)
+      const tagRecords = await settled(/tags/i)
+      if (tagWrites + tagRecords < 1) {
+        throw new Error('the tags group neither offers a write nor records one')
       }
-      const connAccepts = await page
-        .locator('.pulse-review-actions button', { hasText: /accept connections/i })
-        .count()
-      if (connAccepts < 1) {
-        throw new Error('there is no separate "Accept connections" button')
+      const connWrites = await offered(/write \d+ connections?/i)
+      const connRecords = await settled(/connections/i)
+      if (connWrites + connRecords < 1) {
+        throw new Error('the connections group neither offers a write nor records one')
       }
-      // A one-click route for the reader who wants the lot, distinct from the
-      // two per-half buttons.
+      console.log(
+        'tags write/record, connections write/record:',
+        tagWrites, tagRecords, connWrites, connRecords,
+      )
+      // One route for the lot, in the summary row rather than beside a group.
+      // Absent once both halves are in -- at that point there is nothing left to
+      // offer, and the panel says so in words instead.
       const both = await page
-        .locator('.pulse-review-actions button', { hasText: /accept both/i })
+        .locator('.pulse-review-decide button.pulse-action--write-all', {
+          hasText: /write all \d+ changes/i,
+        })
         .count()
-      console.log('accept tags / connections / both:', accepts, connAccepts, both)
-      if (both < 1) {
-        throw new Error('there is no "Accept both" button for a pending suggestion')
+      const allRecords = await page.locator('.pulse-review-closed').count()
+      console.log('write all / already complete:', both, allRecords)
+      if (both + allRecords < 1) {
+        throw new Error(
+          'neither a "write all N changes" button nor a completion note is shown',
+        )
+      }
+
+      // The refusal used to appear as a second "Decline" under each group while
+      // actually refusing everything. There must be exactly one, and it must say
+      // what it does. Absent once the item is closed, since there is then
+      // nothing left to refuse.
+      const refusals = await page
+        .locator('.pulse-review-decide button.pulse-action--refuse')
+        .count()
+      if (refusals > 1) {
+        throw new Error(
+          `expected at most one refusal in the summary row, found ${refusals}`,
+        )
+      }
+      // And nothing outside that row may refuse anything.
+      const strayRefusals = await page
+        .locator('.pulse-review-group button')
+        .filter({ hasText: /write nothing|decline/i })
+        .count()
+      if (strayRefusals > 0) {
+        throw new Error(
+          `a group still offers its own refusal (${strayRefusals}); that is the duplication`,
+        )
       }
       // The last button row must be reachable: the floating pill bar sits over
       // the bottom of the pane, so the row has to clear it once scrolled into
       // view. Scrolled first, because a long panel legitimately starts below the
       // fold -- what matters is that nothing is permanently covered.
-      await page
-        .locator('.pulse-review-actions')
+      //
+      // Both row types count: the summary row is now the lowest one, so looking
+      // only at the per-group rows would measure a row that is not last and pass
+      // while the real one stays covered.
+      const lastRow = page
+        .locator('.pulse-review-actions, .pulse-review-decide')
         .last()
-        .scrollIntoViewIfNeeded()
+      await lastRow.scrollIntoViewIfNeeded()
       await page.waitForTimeout(300)
       const clearance = await page.evaluate(() => {
         const bar = document.querySelector('.file-floating-bottom-bar')
-        const rows = [...document.querySelectorAll('.pulse-review-actions')]
+        const rows = [
+          ...document.querySelectorAll('.pulse-review-actions, .pulse-review-decide'),
+        ]
         const last = rows[rows.length - 1]
         if (!bar || !last) return null
         return last.getBoundingClientRect().bottom <= bar.getBoundingClientRect().top
@@ -151,7 +238,9 @@ if (!(await pulseNav.count())) {
       // hidden, because "no gold record" then has a known cause instead of
       // looking like a broken button.
       const tagBtn = page
-        .locator('.pulse-review-actions button', { hasText: /^\s*accept tags\s*$/i })
+        .locator('.pulse-review-actions button.pulse-action--write', {
+          hasText: /write \d+ tags?/i,
+        })
         .first()
       if (await tagBtn.count()) {
         const goldBefore = await page.locator('.pulse-accepted').count()
@@ -187,9 +276,26 @@ if (!(await pulseNav.count())) {
             throw new Error('the accepted record is still an interactive control')
           }
           await page.screenshot({ path: 'screenshots/pulse-accepted.png' })
+          await checkSettledThemes(page)
         }
       } else {
-        console.log('note: no pending tags to accept, the fade was not exercised')
+        // Already settled by an earlier run: exercise the same guarantee on the
+        // record that is already there, so the theme check still runs.
+        console.log('note: tags already written, checking the existing record instead')
+        if (!(await page.locator('.pulse-accepted').count())) {
+          throw new Error(
+            'there is no write button and no gold record for a settled half',
+          )
+        }
+        const stillClickable = await page.evaluate(() =>
+          [...document.querySelectorAll('.pulse-accepted')].some((el) =>
+            el.matches('button, a, [role="button"]'),
+          ),
+        )
+        if (stillClickable) {
+          throw new Error('the accepted record is still an interactive control')
+        }
+        await checkSettledThemes(page)
       }
       // The panel must sit above the document, not replace it.
       const order = await page.evaluate(() => {
@@ -210,6 +316,13 @@ if (!(await pulseNav.count())) {
   }
 }
 
-if (errors.length) throw new Error(`console/page errors:\n${errors.join('\n')}`)
+// A 409 is the guarded write path turning a document down, which is a correct
+// answer rather than a failure -- on a repository whose documents are not
+// committed yet, that is the only answer it can give. The browser logs it as a
+// console error all the same, so it is filtered here; treating it as a defect
+// made this smoke fail on the very state most developers are in, and the
+// message shown next to the button is asserted separately above.
+const unexpected = errors.filter((e) => !/\b409\b/.test(e))
+if (unexpected.length) throw new Error(`console/page errors:\n${unexpected.join('\n')}`)
 console.log('OK: pulse review is in the reading pane with separate tags/connections accepts')
 await browser.close()

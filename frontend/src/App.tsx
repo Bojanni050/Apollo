@@ -13,6 +13,8 @@ import {
   type Proposal,
   type PulseItemPart,
   type PulseRun,
+  type DocumentLinks,
+  type Group,
   type Repository,
   type Workspace,
 } from './api/client'
@@ -21,6 +23,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { ContextSidebar } from './components/ContextSidebar'
 import { FileContentColumn } from './components/FileContentColumn'
 import { FolderContentsColumn, type ItemCard } from './components/FolderContentsColumn'
+import { GroupsBoard } from './components/GroupsBoard'
 import { LoginForm } from './components/LoginForm'
 import { NavigationColumn, type NavSection } from './components/NavigationColumn'
 import { ColumnResizer, useColumnResizers } from './columnResize'
@@ -70,9 +73,17 @@ export default function App() {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [pulseRun, setPulseRun] = useState<PulseRun | null>(null)
   const [pulseRunning, setPulseRunning] = useState(false)
+  // The visual arrangement, loaded here only so the navigation badge can show
+  // how many groups exist. The board itself loads its own members, because they
+  // change on every drag and re-fetching them here would make a drop appear to
+  // do nothing until something else happened to trigger a reload.
+  const [groups, setGroups] = useState<Group[]>([])
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
+  // Counts how often AI Chat was asked for, so the panel can switch to its chat
+  // tab in response. A counter, not a flag: opening chat twice must work twice.
+  const [chatNonce, setChatNonce] = useState(0)
   const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
   const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -153,7 +164,7 @@ export default function App() {
       }
 
       try {
-        const [status, convs, props, runs, qs, decs, pulseRuns] = await Promise.all([
+        const [status, convs, props, runs, qs, decs, pulseRuns, grps] = await Promise.all([
           api.chatStatus(ws.id).catch(() => null),
           api.listConversations(ws.id).catch(() => []),
           api.listProposals(ws.id).catch(() => []),
@@ -161,14 +172,27 @@ export default function App() {
           api.listQuestions(ws.id).catch(() => []),
           api.listDecisions(ws.id).catch(() => []),
           api.listPulseRuns(ws.id).catch(() => []),
+          // Caught rather than allowed to fail the whole load: a workspace whose
+          // groups cannot be read should still show its documents, and the board
+          // reports its own error when opened.
+          api.groups(ws.id).catch(() => []),
         ])
         setChatStatus(status)
         setConversations(convs)
         setProposals(props)
         setQuestions(qs)
         setDecisions(decs)
+        setGroups(grps)
         if (runs.length > 0) setInventoryRun(runs[0])
-        if (pulseRuns.length > 0) setPulseRun(pulseRuns[0])
+        // The newest Pulse run *with items*, not simply the newest run. A
+        // scheduled scan on a repository whose documents are not committed yet
+        // completes with nothing in it, and taking that run showed the reader an
+        // empty Delphi Pulse view -- every previously found document and every
+        // pending suggestion silently gone, with nothing on screen to explain
+        // why. An empty run carries no information the older one does not.
+        const usablePulse = pulseRuns.find((r) => (r.items?.length ?? 0) > 0)
+        if (usablePulse) setPulseRun(usablePulse)
+        else if (pulseRuns.length > 0) setPulseRun(pulseRuns[0])
         if (convs.length > 0) await openConversation(ws.id, convs[0].id)
         // No conversation is created just by looking at a workspace. The chat
         // creates one on the first message, so an unused workspace stays clean.
@@ -283,18 +307,42 @@ export default function App() {
     [selectWorkspace, workspace],
   )
 
+  /* The document's real Markdown links, from the repository rather than from
+     Delphi Pulse. Fetched per document, because they are the author's own
+     links and change whenever the file changes -- caching them would let the
+     panel describe relationships the text no longer contains. A failure leaves
+     this null and the panel shows what it has rather than an error: the
+     document is still readable without a link graph. */
+  const [documentLinks, setDocumentLinks] = useState<DocumentLinks | null>(null)
+
   // Document selection
+  //
+  // `repositoryId` is optional because most callers already know which
+  // repository they mean -- the reading pane, a link, a Pulse item. The groups
+  // board cannot assume it: a group can hold documents from any repository this
+  // workspace knows, and the active one is not necessarily where the dragged
+  // document came from. Opening the wrong repository's file of the same name
+  // would be a silent, plausible-looking wrong answer.
   const openDocument = useCallback(
-    async (path: string) => {
+    async (path: string, repositoryId?: number) => {
       if (!workspace || !repository) return
+      const repoId = repositoryId ?? repository.id
       setDocumentPath(path)
       setDocumentMarkdown(null)
+      setDocumentLinks(null)
+      // The document and its links are independent reads, so they are not
+      // awaited one after the other: the text appears as soon as it is ready.
+      const links = api
+        .documentLinks(workspace.id, repoId, path)
+        .then(setDocumentLinks)
+        .catch(() => setDocumentLinks(null))
       try {
-        const doc = await api.document(workspace.id, repository.id, path)
+        const doc = await api.document(workspace.id, repoId, path)
         setDocumentMarkdown(doc.raw_markdown)
       } catch (e) {
         report(e)
       }
+      await links
     },
     [workspace, repository],
   )
@@ -318,6 +366,16 @@ export default function App() {
         )
       } else if (item.rawConversation) {
         if (workspace) await openConversation(workspace.id, item.rawConversation.id)
+      } else if (item.rawPulseItem) {
+        /* A Pulse card is a real document, so it opens like one.
+
+           This branch was missing, so every Pulse card fell through to the demo
+           case below: documentPath became the card id ("pulse-1") instead of the
+           file path, and the reading pane showed an id where a path belongs.
+           Anything that reads documentPath -- the review panel, the context
+           panel's links -- then had nothing real to match on, which is why a
+           document with three known connections reported none. */
+        await openDocument(item.rawPulseItem.file_path)
       } else {
         // Demo card
         setDocumentPath(item.id)
@@ -340,7 +398,13 @@ export default function App() {
     setSending(true)
     setError(null)
     try {
-      await api.sendMessage(workspace.id, activeConvId, text)
+      /* The open document rides along with the message, not with the
+         conversation. It is a pointer for this turn only: the model is told
+         which file "this" means and then reads that file itself, so an answer
+         is grounded in what is on disk rather than in a copy the reading pane
+         might be holding stale. A conversation outlives many documents, so
+         pinning one to it would be wrong the moment the reader moves on. */
+      await api.sendMessage(workspace.id, activeConvId, text, documentPath)
       setConversation(await api.getConversation(workspace.id, activeConvId))
     } catch (e) {
       report(e)
@@ -478,14 +542,74 @@ export default function App() {
     [openDocument],
   )
 
+  /* Why the last Pulse click did not take effect, and a wording for the common
+     case. An untracked document is refused on purpose -- writing it would lose
+     the original, since there is no earlier revision to fall back on -- but the
+     server's sentence ("Refusing to overwrite an untracked document...") is a
+     note to an implementer. The reader needs the fix, not the rule.
+
+     Kept apart from the page-level error because it belongs next to the buttons
+     that were just pressed; `report` puts it at the top of the window, which is
+     why a refused accept looked like a dead button. */
+  const [pulseError, setPulseError] = useState<string | null>(null)
+  // Whether the last refusal was the "not in Git yet" one, which is the only
+  // refusal the reader can undo from the panel. Kept beside the message rather
+  // than re-derived from it, so the offered action and the words explaining it
+  // cannot drift apart.
+  const [pulseNeedsCommit, setPulseNeedsCommit] = useState(false)
+  const [pulseCommitting, setPulseCommitting] = useState(false)
+
+  const pulseFailure = (e: unknown) => {
+    const detail = e instanceof ApiError ? e.detail : 'Something went wrong.'
+    const untracked = /untracked|preserved through git/i.test(detail)
+    setPulseNeedsCommit(untracked)
+    setPulseError(
+      untracked
+        ? 'This document is not in Git yet, so writing to it would overwrite the original with no way back. Record the files first, then write.'
+        : detail,
+    )
+    report(e)
+  }
+
+  const commitDocuments = async () => {
+    if (!workspace) return
+    setPulseCommitting(true)
+    try {
+      const result = await api.commitRepository(workspace.id, {
+        message: 'Record current documentation state',
+      })
+      if (result.committed.length > 0) {
+        setPulseError(
+          `Recorded ${result.committed.length} file${
+            result.committed.length === 1 ? '' : 's'
+          } in Git. You can write the suggestion now.`,
+        )
+        setPulseNeedsCommit(false)
+      } else {
+        setPulseError('Everything is already recorded in Git. Try again.')
+        setPulseNeedsCommit(false)
+      }
+    } catch (e) {
+      report(e)
+    } finally {
+      setPulseCommitting(false)
+    }
+  }
+
   const applyPulsePart = (itemId: number, parts: PulseItemPart[]) =>
     pulseRun &&
     workspace &&
     withTreeRefresh(async () => {
       // The server records which halves are written, so there is nothing to
       // track here: reloading the run is the single source of truth.
-      await api.applyPulseItem(workspace.id, pulseRun.id, itemId, parts)
-      await refreshPulseRun(workspace.id, pulseRun.id)
+      setPulseError(null)
+      setPulseNeedsCommit(false)
+      try {
+        await api.applyPulseItem(workspace.id, pulseRun.id, itemId, parts)
+        await refreshPulseRun(workspace.id, pulseRun.id)
+      } catch (e) {
+        pulseFailure(e)
+      }
     })
 
   const skipPulseItem = (itemId: number) =>
@@ -493,11 +617,12 @@ export default function App() {
     workspace &&
     (async () => {
       setBusy(true)
+      setPulseError(null)
       try {
         await api.skipPulseItem(workspace.id, pulseRun.id, itemId)
         await refreshPulseRun(workspace.id, pulseRun.id)
       } catch (e) {
-        report(e)
+        pulseFailure(e)
       } finally {
         setBusy(false)
       }
@@ -545,6 +670,14 @@ export default function App() {
     setContextOpen(true)
   }
 
+  // Opening AI Chat means the chat tab, not merely the panel: both the bubble in
+  // the reading pane and the panel's own action go through here, so they cannot
+  // disagree about where the reader lands.
+  const openAiChat = () => {
+    setContextOpen(true)
+    setChatNonce((n) => n + 1)
+  }
+
   // Calculate object counts for Column 1
   const flatDocs = useMemo(() => flattenDocs(tree), [tree])
   // The folder picked while creating a workspace is registered as
@@ -556,6 +689,7 @@ export default function App() {
   const counts = useMemo(
     () => ({
       all: flatDocs.length,
+      groups: groups.length,
       docs: flatDocs.length,
       repos: workspace?.repositories.length || 0,
       decisions: decisions.length,
@@ -565,7 +699,7 @@ export default function App() {
       inventory: inventoryRun ? inventoryRun.items.length : 0,
       pulseWoven: pulseRun ? pulseRun.items.filter((i) => i.decision === 'pending').length : 0,
     }),
-    [flatDocs.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun, pulseRun],
+    [flatDocs.length, groups.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun, pulseRun],
   )
 
   // Auth & Wizard gates
@@ -634,26 +768,44 @@ export default function App() {
           onReset={resetColumnWidths}
         />
 
-        {/* Column 2: Folder Contents */}
-        <FolderContentsColumn
-          activeSection={activeSection}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          workspace={workspace}
-          repository={repository}
-          tree={tree}
-          selectedId={selectedItem?.id || documentPath}
-          onSelectItem={handleSelectItem}
-          onNewItem={() => setNewObjectModalOpen(true)}
-          decisions={decisions}
-          questions={questions}
-          conversations={conversations}
-          repositories={repositories}
-          pulseItems={pulseRun?.items || []}
-          pulseRunning={pulseRunning}
-          onRunPulse={runPulse}
-          onOpenPulseSettings={() => setSettingsOpen(true)}
-        />
+        {/* Column 2: the arrangement, or the object list for a section.
+
+            The board replaces the object list rather than sitting beside it: it
+            is a different thing to look at, not another filter of the same list,
+            and showing both would halve the width each gets for no gain. */}
+        {activeSection === 'groups' ? (
+          <div className="folder-contents-column folder-contents-column--board">
+            <GroupsBoard
+              workspaceId={workspace!.id}
+              onOpenDocument={(repositoryId, path) => void openDocument(path, repositoryId)}
+              activeDocument={
+                documentPath && repository
+                  ? { repositoryId: repository.id, path: documentPath }
+                  : null
+              }
+            />
+          </div>
+        ) : (
+          <FolderContentsColumn
+            activeSection={activeSection}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            workspace={workspace}
+            repository={repository}
+            tree={tree}
+            selectedId={selectedItem?.id || documentPath}
+            onSelectItem={handleSelectItem}
+            onNewItem={() => setNewObjectModalOpen(true)}
+            decisions={decisions}
+            questions={questions}
+            conversations={conversations}
+            repositories={repositories}
+            pulseItems={pulseRun?.items || []}
+            pulseRunning={pulseRunning}
+            onRunPulse={runPulse}
+            onOpenPulseSettings={() => setSettingsOpen(true)}
+          />
+        )}
 
         <ColumnResizer
           side="contents"
@@ -672,9 +824,15 @@ export default function App() {
           busy={busy}
           onApplyPulsePart={applyPulsePart}
           onSkipPulseItem={skipPulseItem}
-          onOpenAiChat={() => {
-            setContextOpen(true)
+          pulseError={pulseError}
+          onDismissPulseError={() => {
+            setPulseError(null)
+            setPulseNeedsCommit(false)
           }}
+          pulseNeedsCommit={pulseNeedsCommit}
+          pulseCommitting={pulseCommitting}
+          onCommitDocuments={commitDocuments}
+          onOpenAiChat={openAiChat}
           onToggleContext={() => setContextOpen((v) => !v)}
           contextOpen={contextOpen}
           onDelete={() => {
@@ -708,6 +866,11 @@ export default function App() {
           pulseRun={pulseRun}
           onAcceptPulseAll={applyPulseAll}
           onOpenPulseItem={openPulseItem}
+          onOpenDocument={(path) => void openDocument(path)}
+          documentLinks={documentLinks}
+          onOpenAiChat={openAiChat}
+          chatNonce={chatNonce}
+          onRunPulse={workspace ? runPulse : undefined}
         />
       </div>
 
@@ -747,7 +910,9 @@ export default function App() {
             setPulseRun(
               await api
                 .listPulseRuns(workspace.id)
-                .then((r) => r[0] ?? null)
+                // Same rule as on workspace load: the newest run with items in
+                // it, so saving the settings can never blank the Pulse view.
+                .then((runs) => runs.find((r) => (r.items?.length ?? 0) > 0) ?? null)
                 .catch(() => null),
             )
           } catch (e) {

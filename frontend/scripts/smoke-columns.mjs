@@ -1,4 +1,4 @@
-// Verifies the two column resizers and the dark scrollbar.
+﻿// Verifies the two column resizers and the dark scrollbar.
 //
 // A CSS-only check would not prove either: the scrollbar needs the real
 // pseudo-element to be painted, and the resizer needs a real pointer drag,
@@ -20,7 +20,7 @@ await page.waitForTimeout(1200)
 
 // Start from the defaults so a stored width from an earlier run cannot make
 // the first assertion pass or fail by accident.
-await page.evaluate(() => window.localStorage.removeItem('apollo.column-widths'))
+await page.evaluate(() => window.localStorage.removeItem('apollo.column-widths.v3'))
 await page.reload({ waitUntil: 'networkidle' })
 await page.waitForTimeout(800)
 
@@ -150,7 +150,15 @@ await page.waitForTimeout(250)
 
 const afterNav = await geom()
 console.log('after dragging nav +60:', afterNav)
-if (afterNav.nav <= before.nav + 40) {
+// The divider must either widen the column, or the pair must already be sitting
+// on the ceiling. On a narrow window the requested 1.8x defaults fill the whole
+// allowance, and there is genuinely nowhere to grow -- that is a correct refusal,
+// not a broken handle. What must never happen is the document losing its width.
+const atCeiling =
+  afterNav.nav + afterNav.contents >=
+  Math.floor(afterNav.viewport * 0.75) - 1 ||
+  afterNav.nav + afterNav.contents >= afterNav.viewport - 580 - 1
+if (afterNav.nav <= before.nav + 40 && !atCeiling) {
   throw new Error(`dragging the nav divider right did not widen it (${before.nav} -> ${afterNav.nav})`)
 }
 if (Math.abs(afterNav.contents - before.contents) > 2) {
@@ -178,7 +186,7 @@ if (afterContents.contents <= afterNav.contents + 20) {
 // half the screen, or the document column gets squeezed to a sliver. So far
 // both drags were well inside the limit -- now push far past it, in both
 // directions, and confirm the clamp actually holds.
-const ceiling = Math.floor(afterContents.viewport * 0.5)
+const ceiling = Math.min(Math.floor(afterContents.viewport * 0.75), afterContents.viewport - 580)
 console.log('combined ceiling:', ceiling, 'current combined:', afterContents.nav + afterContents.contents)
 
 // Shove the contents divider hard to the right, well past the ceiling.
@@ -193,7 +201,7 @@ const pushed = await geom()
 console.log('after shoving contents +1200:', pushed)
 if (pushed.nav + pushed.contents > ceiling + 1) {
   throw new Error(
-    `columns exceed half the screen: ${pushed.nav + pushed.contents} > ${ceiling}`,
+    `columns exceed the ceiling: ${pushed.nav + pushed.contents} > ${ceiling}`,
   )
 }
 if (pushed.document <= 0) {
@@ -225,11 +233,63 @@ if (squeezed.contents < 200) {
   throw new Error(`the contents column collapsed to ${squeezed.contents}px`)
 }
 
+// --- Proportional defaults --------------------------------------------------
+// The layout is a share of the viewport, not a fixed pixel count, so the
+// distribution must hold at every size. Cleared of any stored width first:
+// a dragged column is an absolute choice and is deliberately NOT rescaled.
+await page.evaluate(() => window.localStorage.removeItem('apollo.column-widths.v3'))
+await page.reload({ waitUntil: 'networkidle' })
+await page.waitForTimeout(600)
+
+const proportional = []
+for (const width of [1280, 1440, 1920, 2560]) {
+  await page.setViewportSize({ width, height: 900 })
+  await page.waitForTimeout(400)
+  const g = await geom()
+  proportional.push({
+    viewport: g.viewport,
+    navPct: r2((g.nav / g.viewport) * 100),
+    contentsPct: r2((g.contents / g.viewport) * 100),
+    context: g.tracks.split(' ')[3],
+    document: g.document,
+  })
+}
+console.log('proportional defaults:', proportional)
+
+// The shares are what must not move. 0.75px of slack is a rounding pixel or two
+// across a resize, not a layout change.
+for (const p of proportional) {
+  if (Math.abs(p.navPct - 16.17) > 0.75) {
+    throw new Error(`the navigation share drifted to ${p.navPct}% at ${p.viewport}px`)
+  }
+  if (Math.abs(p.contentsPct - 20.39) > 0.75) {
+    throw new Error(`the contents share drifted to ${p.contentsPct}% at ${p.viewport}px`)
+  }
+}
+// The 414:522 ratio between the two columns is the shape that was asked for; the
+// fractions above preserve it, and this is the check that they keep doing so.
+for (const p of proportional) {
+  const ratio = r2(p.navPct / p.contentsPct)
+  if (Math.abs(ratio - r2(414 / 522)) > 0.02) {
+    throw new Error(`the nav:contents ratio is ${ratio} at ${p.viewport}px, expected ${r2(414 / 522)}`)
+  }
+}
+// And the document must be the widest column at every size, since it is the one
+// the app exists for.
+for (const p of proportional) {
+  if (p.document <= p.viewport * 0.2) {
+    throw new Error(`the document column is only ${p.document}px at ${p.viewport}px`)
+  }
+}
+
+await page.setViewportSize({ width: 1440, height: 900 })
+await page.waitForTimeout(400)
+
 // --- Persistence -----------------------------------------------------------
 // Asserted on a realistic set, not the shoved-to-the-limit one, so a failure
 // here means persistence broke rather than that the clamp changed.
 await page.evaluate(() => {
-  window.localStorage.removeItem('apollo.column-widths')
+  window.localStorage.removeItem('apollo.column-widths.v3')
 })
 await page.reload({ waitUntil: 'networkidle' })
 await page.waitForTimeout(700)
@@ -272,12 +332,20 @@ if (Math.abs(afterKey.contents - (keyBefore - 16)) > 2) {
 
 // Home restores the defaults, so a layout wrecked by a stray drag is one
 // keystroke from recoverable.
+//
+// Compared against the widths a clean load produced at THIS viewport, not
+// against 414/522 directly: the defaults are clamped to leave the document
+// readable, so on a 1440px window the real default is narrower than the nominal
+// one. Hardcoding the nominal pair made this fail on exactly the windows where
+// the clamp had done its job.
 await page.keyboard.press('Home')
 await page.waitForTimeout(200)
 const afterHome = await geom()
-console.log('after Home:', afterHome.nav, afterHome.contents)
-if (afterHome.nav !== 230 || afterHome.contents !== 290) {
-  throw new Error(`Home did not restore the defaults (${afterHome.nav}, ${afterHome.contents})`)
+console.log('after Home:', afterHome.nav, afterHome.contents, '(defaults were', before.nav, before.contents, ')')
+if (afterHome.nav !== before.nav || afterHome.contents !== before.contents) {
+  throw new Error(
+    `Home did not restore the defaults (${afterHome.nav}, ${afterHome.contents}, expected ${before.nav}/${before.contents})`,
+  )
 }
 
 // --- Context sidebar closed ------------------------------------------------
@@ -312,7 +380,7 @@ if (await hideCtx.count()) {
 await page.setViewportSize({ width: 820, height: 900 })
 await page.waitForTimeout(500)
 const narrow = await geom()
-const narrowCeiling = Math.floor(narrow.viewport * 0.5)
+const narrowCeiling = Math.floor(narrow.viewport * 0.75)
 console.log('at 820px wide:', narrow, 'ceiling', narrowCeiling)
 if (narrow.nav + narrow.contents > narrowCeiling + 1) {
   throw new Error(
@@ -328,7 +396,7 @@ await page.waitForTimeout(400)
 // --- Screenshots -----------------------------------------------------------
 await page.screenshot({ path: 'screenshots/columns-calm.png' })
 await page.evaluate(() => {
-  window.localStorage.removeItem('apollo.column-widths')
+  window.localStorage.removeItem('apollo.column-widths.v3')
   window.localStorage.setItem('apollo.theme', 'default')
 })
 await page.reload({ waitUntil: 'networkidle' })

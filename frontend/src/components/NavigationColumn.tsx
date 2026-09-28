@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { Workspace } from '../api/client'
+import { WhyNote } from './WhyNote'
 
 export type NavSection =
   | 'all'
+  | 'groups'
   | 'docs'
   | 'repos'
   | 'decisions'
@@ -14,6 +16,7 @@ export type NavSection =
 
 export interface ObjectCounts {
   all: number
+  groups: number
   docs: number
   repos: number
   decisions: number
@@ -117,6 +120,30 @@ export function NavigationColumn({
             </span>
             <span className="nav-item-count">{counts.all}</span>
           </button>
+        </div>
+
+        {/* Groups, above the object types.
+
+            This is the first thing the product is for, so it is the first
+            destination in the list: "which documents belong together" is the
+            question a reader brings to a pile of documents, and everything below
+            here is a way of looking at one of them. */}
+        <div className="nav-section-group">
+          <div className="nav-section-title">ARRANGEMENT</div>
+          <div className="nav-list">
+            <button
+              type="button"
+              className={`nav-item ${activeSection === 'groups' ? 'active' : ''}`}
+              onClick={() => onSelectSection('groups')}
+              title="Which documents belong together"
+            >
+              <span className="nav-item-left">
+                <span className="nav-item-glyph">▦</span>
+                <span>Groups</span>
+              </span>
+              <span className="nav-item-count">{counts.groups}</span>
+            </button>
+          </div>
         </div>
 
         {/* Section: Object Types */}
@@ -226,6 +253,11 @@ export function NavigationColumn({
             </button>
           </div>
         </div>
+
+        {/* Why this exists. Last in the scrolling list rather than pinned to the
+            bottom, so it is present without competing with the navigation it
+            sits under, and can be collapsed out of the way once it has been read. */}
+        <WhyNote />
       </div>
 
       {/* 4. Bottom Pinned Section */}

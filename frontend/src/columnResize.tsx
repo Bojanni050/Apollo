@@ -1,35 +1,117 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-/** Where the widths are kept. A layout preference, like the theme. */
-const STORAGE_KEY = 'apollo.column-widths'
+/** Where the widths are kept. A layout preference, like the theme.
+
+ * Versioned (`v3`) because the defaults changed shape. v2 stored a fixed pixel
+ * pair (414/522) and v1 an older one; either would pin the layout to those exact
+ * pixels on load and make the new proportional defaults look like they had not
+ * taken effect -- a silent failure that reads as a broken change. Discarding the
+ * stored pair once is cheaper than debugging it.
+ *
+ * v3 also records whether the widths were chosen by hand; see `customised`.
+ */
+const STORAGE_KEY = 'apollo.column-widths.v3'
 
 export const MIN_NAV = 170
 export const MIN_CONTENTS = 220
 
 /**
+ * Narrowest the document column may be squeezed to.
+ *
+ * The document is the reason the app exists, so it is the one column that is
+ * never allowed to become a sliver. Every other width here is measured against
+ * what this has to keep.
+ */
+export const MIN_DOCUMENT = 200
+
+/**
+ * The context panel as a share of the viewport: 380/2560, the width it had as a
+ * fixed 380px on the 2560px layout this is modelled on.
+ *
+ * It scales with the window like the list columns do, but between a floor and a
+ * ceiling. The floor is CONTEXT_MIN = 380, not something smaller, because the
+ * panel is also the AI Chat: its mode names, their explanations and the
+ * suggested prompts need 380px to stay readable, and at 300px they wrapped into
+ * short stubs. The ceiling stops the panel competing with the document once it
+ * is wide enough to be comfortable.
+ *
+ * So the distribution is proportional down to about 2560px and floored below
+ * that. That floor is the one deliberate exception, and it costs the document
+ * 80px on a 1440 screen -- a trade made knowingly, because a chat pane nobody
+ * can read is worse than a slightly narrower article.
+ */
+export const CONTEXT_FRACTION = 0.14844
+export const CONTEXT_MIN = 380
+export const CONTEXT_MAX = 520
+
+/** The context panel's width at this viewport. Mirrors the CSS clamp() in app.css. */
+export function contextWidth(viewportWidth: number): number {
+  return Math.round(Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, viewportWidth * CONTEXT_FRACTION)))
+}
+
+/**
+ * Width the two list columns must leave alone on the right: the context panel
+ * plus a document column wide enough to actually read.
+ *
+ * Both parts move with the viewport now that the context panel scales too. At
+ * 1440 this is 380 + 200 = 580, so the lists may take at most 860px between
+ * them -- the context panel keeps its readable width and the document keeps a
+ * readable one, and the two list columns get what is left.
+ */
+export function reservedRight(viewportWidth: number): number {
+  return contextWidth(viewportWidth) + MIN_DOCUMENT
+}
+
+/**
  * Ceiling for the two list columns COMBINED, as a fraction of the viewport.
  *
- * The document column is the reason the app exists, and it is the only
- * flexible one (1fr). If the two lists could be dragged arbitrarily wide they
- * could squeeze the document down to a sliver, so they are capped together at
- * half the screen and the document always keeps the rest.
- *
- * The minimums can outvote the ceiling on a very narrow window: below roughly
- * 780px wide there is not enough room for both minimums and a usable document
- * column. The minimums win there, since a column too narrow to read is worse
- * than a document column that has collapsed, and the layout is not designed for
- * that width in the first place.
+ * The document column is the reason the app exists, and it is the only flexible
+ * one (1fr), so the two lists are capped both as a share of the screen and by
+ * the space they must leave on the right.
  */
-export const MAX_COMBINED_FRACTION = 0.5
+export const MAX_COMBINED_FRACTION = 0.75
 
 export interface ColumnWidths {
   nav: number
   contents: number
 }
 
-export const DEFAULT_WIDTHS: ColumnWidths = { nav: 230, contents: 290 }
+/**
+ * The two list columns as shares of the viewport, taken from the 2560px layout:
+ * 414/2560 and 522/2560.
+ *
+ * Fractions rather than pixels, so the distribution is the same at every
+ * resolution instead of the same pixel count. Fixed 414/522 gave the right
+ * balance on a 2560 screen, a 124px sliver for the document on 1440, and a
+ * comically wide pair on a 3440 screen. The ratio between the two columns is
+ * preserved exactly (414:522), so this changes the size, never the shape.
+ */
+const NAV_FRACTION = 0.16172
+const CONTENTS_FRACTION = 0.20391
 
-function readStored(): ColumnWidths | null {
+/** The default layout at this viewport. */
+export function defaultWidths(viewportWidth: number): ColumnWidths {
+  return clampWidths(
+    {
+      nav: Math.round(viewportWidth * NAV_FRACTION),
+      contents: Math.round(viewportWidth * CONTENTS_FRACTION),
+    },
+    viewportWidth,
+  )
+}
+
+interface StoredLayout {
+  widths: ColumnWidths
+  /**
+   * True once the user has dragged, nudged or reset a column. While this is
+   * false the layout is recomputed from the fractions on every resize, so
+   * changing resolution keeps the proportions; a hand-picked pixel width cannot
+   * scale like that, so from then on it is only re-clamped, never re-derived.
+   */
+  customised: boolean
+}
+
+function readStored(): StoredLayout | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
@@ -39,7 +121,10 @@ function readStored(): ColumnWidths | null {
     // clampWidths as NaN would poison the grid track and silently collapse the
     // layout on every load.
     if (!Number.isFinite(parsed?.nav) || !Number.isFinite(parsed?.contents)) return null
-    return { nav: parsed.nav, contents: parsed.contents }
+    return {
+      widths: { nav: parsed.nav, contents: parsed.contents },
+      customised: parsed.customised === true,
+    }
   } catch {
     return null
   }
@@ -55,7 +140,10 @@ function readStored(): ColumnWidths | null {
 export function clampWidths(widths: ColumnWidths, viewportWidth: number): ColumnWidths {
   const ceiling = Math.max(
     MIN_NAV + MIN_CONTENTS,
-    Math.floor(viewportWidth * MAX_COMBINED_FRACTION),
+    Math.min(
+      Math.floor(viewportWidth * MAX_COMBINED_FRACTION),
+      viewportWidth - reservedRight(viewportWidth),
+    ),
   )
   const nav = Math.max(MIN_NAV, Math.round(widths.nav))
   const contents = Math.max(MIN_CONTENTS, Math.round(widths.contents))
@@ -93,22 +181,50 @@ interface DragState {
  * handle still tracks.
  */
 export function useColumnResizers() {
+  // `customised` is kept in a ref, not state: it decides what a resize does, not
+  // what is painted, so toggling it must not trigger a render or a re-save.
+  const initial = useRef(readStored()).current
+  const customised = useRef(initial?.customised ?? false)
   const [widths, setWidths] = useState<ColumnWidths>(() =>
-    clampWidths(readStored() ?? DEFAULT_WIDTHS, window.innerWidth),
+    clampWidths(
+      initial?.customised ? initial.widths : defaultWidths(window.innerWidth),
+      window.innerWidth,
+    ),
   )
   const drag = useRef<DragState | null>(null)
 
-  // Re-clamp when the window changes: the ceiling is a fraction of the screen,
-  // so shrinking the window has to shrink the columns with it.
+  /** Record a width the user asked for, as opposed to one the fractions produced. */
+  const setChosen = useCallback(
+    (next: ColumnWidths | ((w: ColumnWidths) => ColumnWidths)) => {
+      customised.current = true
+      setWidths(next)
+    },
+    [],
+  )
+
+  // React to a window change. Two different things, and conflating them is what
+  // made fixed pixel defaults look wrong at every resolution except the one they
+  // were typed on:
+  //
+  //   - Not customised: re-derive from the fractions, so the distribution holds
+  //     at the new size instead of the columns keeping the same pixel count.
+  //   - Customised: only re-clamp. A width the user dragged to on a 3440 screen
+  //     is an absolute choice, and scaling it would silently undo their drag.
   useEffect(() => {
-    const onResize = () => setWidths((w) => clampWidths(w, window.innerWidth))
+    const onResize = () =>
+      setWidths((w) =>
+        clampWidths(customised.current ? w : defaultWidths(window.innerWidth), window.innerWidth),
+      )
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(widths))
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ...widths, customised: customised.current }),
+      )
     } catch {
       // Persisting is a nicety; a storage that refuses must not stop the drag.
     }
@@ -123,7 +239,7 @@ export function useColumnResizers() {
         d.handle === 'nav'
           ? { nav: d.startNav + delta, contents: d.startContents }
           : { nav: d.startNav, contents: d.startContents + delta }
-      setWidths(clampWidths(proposed, window.innerWidth))
+      setChosen(clampWidths(proposed, window.innerWidth))
     }
     const end = () => {
       if (!drag.current) return
@@ -155,16 +271,26 @@ export function useColumnResizers() {
 
   const nudge = useCallback(
     (handle: Handle, delta: number) =>
-      setWidths((w) =>
+      setChosen((w) =>
         clampWidths(
           handle === 'nav' ? { ...w, nav: w.nav + delta } : { ...w, contents: w.contents + delta },
           window.innerWidth,
         ),
       ),
-    [],
+    [setChosen],
   )
 
-  const reset = useCallback(() => setWidths(clampWidths(DEFAULT_WIDTHS, window.innerWidth)), [])
+  /**
+   * Back to the proportional layout for the current window.
+   *
+   * This also clears `customised`, so the columns track the viewport again from
+   * here on. Resetting to fixed pixels while still claiming to be "proportional"
+   * would leave the layout stuck at one size until the next manual drag.
+   */
+  const reset = useCallback(() => {
+    customised.current = false
+    setWidths(defaultWidths(window.innerWidth))
+  }, [])
 
   return { widths, startDrag, nudge, reset }
 }

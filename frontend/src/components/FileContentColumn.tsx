@@ -22,6 +22,20 @@ interface Props {
   busy?: boolean
   onApplyPulsePart?: (itemId: number, parts: PulseItemPart[]) => void
   onSkipPulseItem?: (itemId: number) => void
+  /**
+   * Why the last accept or decline did not happen, shown next to the buttons.
+   *
+   * A refusal is not a crash: the guarded write path turns down a document that
+   * is not in Git yet, because the original would not be preserved. Without a
+   * word about that right where the click was, the button simply does nothing
+   * and the reader concludes the UI is broken.
+   */
+  pulseError?: string | null
+  onDismissPulseError?: () => void
+  /** True when the refusal was "not in Git yet", which the reader can fix here. */
+  pulseNeedsCommit?: boolean
+  pulseCommitting?: boolean
+  onCommitDocuments?: () => void
 }
 
 export function FileContentColumn({
@@ -36,6 +50,11 @@ export function FileContentColumn({
   busy = false,
   onApplyPulsePart = () => {},
   onSkipPulseItem = () => {},
+  pulseError = null,
+  onDismissPulseError = () => {},
+  pulseNeedsCommit = false,
+  pulseCommitting = false,
+  onCommitDocuments = () => {},
 }: Props) {
   const [showRaw, setShowRaw] = useState(false)
   const [tags, setTags] = useState<string[]>(['pulse-weave'])
@@ -214,6 +233,43 @@ export function FileContentColumn({
                 <p className="pulse-review-summary">{pulseItem.summary}</p>
               )}
 
+              {/* Why the click did not take effect, in the place the click was.
+                  The page-level error sits far above this panel, which is why a
+                  refused accept used to look like a dead button.
+
+                  Above the groups, not after them: the tags button is the first
+                  one reached, so a message below it would land under the fold on
+                  a long panel and be missed, which is the same silence all over
+                  again.
+
+                  An untracked document is the one refusal the reader can fix
+                  from here, so it offers the fix instead of only describing the
+                  rule. */}
+              {pulseError && (
+                <div className="pulse-review-error" role="alert">
+                  <span>{pulseError}</span>
+                  {pulseNeedsCommit && (
+                    <button
+                      type="button"
+                      className="pulse-review-error-action"
+                      onClick={onCommitDocuments}
+                      disabled={busy || pulseCommitting}
+                    >
+                      {pulseCommitting ? 'Recording…' : 'Record these files in Git'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="pulse-review-error-dismiss"
+                    onClick={onDismissPulseError}
+                    aria-label="Dismiss"
+                    title="Dismiss"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
               <div className="pulse-review-groups">
                 {/* Tags: the part that is usually fair about a document, and
                     the part worth accepting on its own. */}
@@ -221,7 +277,7 @@ export function FileContentColumn({
                   <div className="pulse-review-group-head">
                     <span className="pulse-review-group-title">Suggested tags</span>
                     {pulseTagsDone && (
-                      <span className="pulse-review-group-state done">applied</span>
+                      <span className="pulse-review-group-state done">accepted</span>
                     )}
                   </div>
                   {pulseItem.tags.length === 0 ? (
@@ -239,29 +295,26 @@ export function FileContentColumn({
                           record of the click rather than removed. Keeping it in
                           place means the reader can see what happened without
                           re-reading; a disabled button would still invite a
-                          second click that the server answers with a 409. */}
+                          second click that the server answers with a 409.
+
+                          The label says what it will DO ("writes 5 tags to this
+                          file"), because "Accept" alone does not tell you that
+                          the next click edits the document on disk. */}
                       <div className="pulse-review-actions">
                         {pulseTagsDone ? (
-                          <span className="pulse-accepted">Tags accepted</span>
+                          <span className="pulse-accepted">
+                            {pulseItem.tags.length} tags written to this file
+                          </span>
                         ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="btn small primary"
-                              onClick={() => onApplyPulsePart(pulseItem.id, ['tags'])}
-                              disabled={busy}
-                            >
-                              Accept tags
-                            </button>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => onSkipPulseItem(pulseItem.id)}
-                              disabled={busy}
-                            >
-                              Decline
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="pulse-action pulse-action--write"
+                            onClick={() => onApplyPulsePart(pulseItem.id, ['tags'])}
+                            disabled={busy}
+                          >
+                            Write {pulseItem.tags.length} tag
+                            {pulseItem.tags.length === 1 ? '' : 's'} to this file
+                          </button>
                         )}
                       </div>
                     </>
@@ -269,16 +322,18 @@ export function FileContentColumn({
                 </div>
 
                 {/* Connections: inferences between documents, so these get their
-                    own accept, separately from the tags. */}
+                    own write, separately from the tags. */}
                 <div className="pulse-review-group">
                   <div className="pulse-review-group-head">
                     <span className="pulse-review-group-title">Suggested connections</span>
                     {pulseConnsDone && (
-                      <span className="pulse-review-group-state done">applied</span>
+                      <span className="pulse-review-group-state done">accepted</span>
                     )}
                   </div>
                   {pulseItem.connections.length === 0 ? (
-                    <p className="pulse-review-none">No connections suggested.</p>
+                    <p className="pulse-review-none">
+                      No connections suggested for this file.
+                    </p>
                   ) : (
                     <>
                       <ul className="pulse-review-conns">
@@ -295,56 +350,71 @@ export function FileContentColumn({
                       <div className="pulse-review-actions">
                         {pulseConnsDone ? (
                           <span className="pulse-accepted">
-                            Connections accepted
+                            {pulseItem.connections.length} connection
+                            {pulseItem.connections.length === 1 ? '' : 's'} written
                           </span>
                         ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="btn small primary"
-                              onClick={() => onApplyPulsePart(pulseItem.id, ['connections'])}
-                              disabled={busy}
-                            >
-                              Accept connections
-                            </button>
-                            <button
-                              type="button"
-                              className="btn small"
-                              onClick={() => onSkipPulseItem(pulseItem.id)}
-                              disabled={busy}
-                            >
-                              Decline
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="pulse-action pulse-action--write"
+                            onClick={() =>
+                              onApplyPulsePart(pulseItem.id, ['connections'])
+                            }
+                            disabled={busy}
+                          >
+                            Write {pulseItem.connections.length} connection
+                            {pulseItem.connections.length === 1 ? '' : 's'} to this
+                            file
+                          </button>
                         )}
                       </div>
                     </>
                   )}
                 </div>
-
-                {/* The one-click route. Shown whenever the item is not closed,
-                    so that after accepting it turns gold in place instead of
-                    disappearing under the reader's cursor. */}
-                {pulseItem.decision !== 'skipped' &&
-                  (pulseItem.tags.length > 0 || pulseItem.connections.length > 0) && (
-                    <div className="pulse-review-actions both">
-                      {pulseTagsDone && pulseConnsDone ? (
-                        <span className="pulse-accepted">
-                          All suggestions accepted
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn small"
-                          onClick={() => onApplyPulsePart(pulseItem.id, ['tags', 'connections'])}
-                          disabled={busy}
-                        >
-                          Accept both
-                        </button>
-                      )}
-                    </div>
-                  )}
               </div>
+
+              {/* The whole suggestion, decided in one place.
+                  It used to sit under each group as a "Decline" button, which
+                  put the same action in two spots while meaning something quite
+                  different from the accept above it: it refuses EVERYTHING,
+                  including the half you might want to keep. Two identical
+                  buttons that disagree with their neighbours is why the panel
+                  read as a wall of black rectangles.
+
+                  So the decisions are: write this half, write everything, or
+                  write nothing -- with the last one named for what it does. */}
+              {pulseItem.decision === 'pending' && (
+                <div className="pulse-review-decide">
+                  {!pulseTagsDone || !pulseConnsDone ? (
+                    <button
+                      type="button"
+                      className="pulse-action pulse-action--write-all"
+                      onClick={() =>
+                        onApplyPulsePart(pulseItem.id, ['tags', 'connections'])
+                      }
+                      disabled={busy}
+                    >
+                      Write all{' '}
+                      {pulseItem.tags.length + pulseItem.connections.length} changes
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="pulse-action pulse-action--refuse"
+                    onClick={() => onSkipPulseItem(pulseItem.id)}
+                    disabled={busy}
+                  >
+                    Write nothing
+                    {(pulseTagsDone || pulseConnsDone) && ' (keep what is written)'}
+                  </button>
+                </div>
+              )}
+
+              {pulseTagsDone && pulseConnsDone && (
+                <p className="pulse-review-closed">
+                  Everything Delphi Pulse suggested for this file is now in it.
+                </p>
+              )}
 
               {/* A closed item. Wording depends on how far it got: a suggestion
                   with no connections at all is finished once its tags are in, so
