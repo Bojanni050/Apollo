@@ -164,17 +164,26 @@ def storage_root() -> Path:
     return Path(settings.effective_storage_root)
 
 
-def workspace_storage(workspace_id: int) -> Path:
-    """Where one workspace's own documents live."""
+def workspace_storage(workspace_id: int, working_dir: str | Path | None = None) -> Path:
+    """Where one workspace's own documents live.
+
+    The folder the reader chose, when they chose one. Otherwise the folder this
+    application invents, which is what every workspace did before the choice
+    existed and still does by default: a workspace that has never been configured
+    keeps behaving exactly as it did, rather than being moved somewhere on the
+    strength of a column nobody filled in.
+    """
+    if working_dir:
+        return Path(working_dir)
     return storage_root() / f"workspace_{workspace_id}"
 
 
-def workspace_inbox(workspace_id: int) -> Path:
+def workspace_inbox(workspace_id: int, working_dir: str | Path | None = None) -> Path:
     """The workspace's inbox directory. May not exist yet."""
-    return workspace_storage(workspace_id) / INBOX_DIR
+    return workspace_storage(workspace_id, working_dir) / INBOX_DIR
 
 
-def ensure_inbox(workspace_id: int) -> Path:
+def ensure_inbox(workspace_id: int, working_dir: str | Path | None = None) -> Path:
     """Create the inbox directory, and nothing beside it.
 
     Creating the parent is unavoidable -- the workspace directory is part of the
@@ -182,13 +191,14 @@ def ensure_inbox(workspace_id: int) -> Path:
     category nobody has used is a claim about the reader's documents that the
     reader did not make.
     """
-    inbox = workspace_inbox(workspace_id)
+    inbox = workspace_inbox(workspace_id, working_dir)
     try:
         inbox.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        # A storage root the process cannot write to is a configuration problem
-        # the reader can act on (a wrong APOLLO_STORAGE_ROOT, a read-only disk),
-        # so it is reported as one rather than surfacing as a server error.
+        # A folder the process cannot write to is a configuration problem the
+        # reader can act on (a wrong path, a read-only disk, a folder that is
+        # really a file), so it is reported as one rather than surfacing as a
+        # server error.
         raise StorageError(f"Could not create the inbox folder: {exc}") from exc
     return inbox
 
@@ -272,13 +282,18 @@ def _atomic_write_bytes(target: Path, data: bytes) -> None:
         raise StorageError(f"Could not write {target.name}: {exc}") from exc
 
 
-def store_upload(workspace_id: int, filename: str, data: bytes) -> StoredDocument:
+def store_upload(
+    workspace_id: int,
+    filename: str,
+    data: bytes,
+    working_dir: str | Path | None = None,
+) -> StoredDocument:
     """Store one dropped-in document in the workspace's inbox.
 
     Raises :class:`StorageError` for everything that can be judged without
     writing: an unusable name, a format that is not a document, an empty file, or
     a file above the size ceiling. Nothing is created on disk in those cases, so
-    a refused drop leaves the storage root exactly as it was.
+    a refused drop leaves the working folder exactly as it was.
 
     Everything else is written and then read back. An unreadable file is
     *reported*, not removed: the bytes arrived, and throwing them away would
@@ -296,16 +311,24 @@ def store_upload(workspace_id: int, filename: str, data: bytes) -> StoredDocumen
             "folder as a repository instead."
         )
 
-    inbox = ensure_inbox(workspace_id)
+    inbox = ensure_inbox(workspace_id, working_dir)
     target = _unique_target(inbox, name)
     _atomic_write_bytes(target, data)
 
     rel = f"{INBOX_DIR}/{target.name}"
     readable, reason = True, None
     try:
-        read_document(workspace_storage(workspace_id), rel)
+        read_document(workspace_storage(workspace_id, working_dir), rel)
     except (DocumentError, PathSecurityError) as exc:
         readable, reason = False, str(exc)
+
+    # Recorded, so that a move of this document can ever be undone. Nothing when
+    # the folder is not a repository, which is the case for the default storage.
+    record_added(
+        workspace_storage(workspace_id, working_dir),
+        [rel],
+        f"Added by Apollo: {target.name}",
+    )
 
     return StoredDocument(
         path=rel,
@@ -316,7 +339,9 @@ def store_upload(workspace_id: int, filename: str, data: bytes) -> StoredDocumen
     )
 
 
-def list_inbox(workspace_id: int) -> list[InboxEntry]:
+def list_inbox(
+    workspace_id: int, working_dir: str | Path | None = None
+) -> list[InboxEntry]:
     """The documents in the inbox, by path.
 
     A missing directory is an empty inbox rather than an error: before the first
@@ -330,7 +355,7 @@ def list_inbox(workspace_id: int) -> list[InboxEntry]:
     the answer to "where do these belong", never a reason to throw away where they
     were.
     """
-    inbox = workspace_inbox(workspace_id)
+    inbox = workspace_inbox(workspace_id, working_dir)
     if not inbox.is_dir():
         return []
     entries: list[InboxEntry] = []
@@ -388,7 +413,9 @@ def _walk_documents(source: Path) -> list[Path]:
     return sorted(found, key=lambda p: p.relative_to(source).as_posix().lower())
 
 
-def import_folder(workspace_id: int, source: str | Path) -> FolderImport:
+def import_folder(
+    workspace_id: int, source: str | Path, working_dir: str | Path | None = None
+) -> FolderImport:
     """Copy an offered folder's documents into the inbox. The folder is read.
 
     The reader points at a folder they already have, and Apollo copies what is in
@@ -417,20 +444,29 @@ def import_folder(workspace_id: int, source: str | Path) -> FolderImport:
     origin = origin.resolve() if origin.is_absolute() else (Path.cwd() / origin).resolve()
 
     # The overlap checks come before the existence check, and that order is the
-    # point: pointing at Apollo's own storage is a real mistake, and "that folder
-    # does not exist" would be a confusing answer to it. The checks work on paths
-    # that do not exist yet, so the message is always the useful one.
-    storage_base = storage_root().resolve()
-    if _is_within(origin, storage_base):
-        raise StorageError(
-            "That is Apollo's own storage folder. Add the folder your documents "
-            "live in, not the one Apollo keeps them in."
-        )
-    if _is_within(storage_base, origin):
-        raise StorageError(
-            "That folder contains Apollo's own storage. Pick the folder your "
-            "documents are in, not one that happens to contain Apollo's."
-        )
+    # point: pointing at the workspace's own folder is a real mistake, and "that
+    # folder does not exist" would be a confusing answer to it. The checks work on
+    # paths that do not exist yet, so the message is always the useful one.
+    #
+    # Both places count, not just Apollo's storage: a workspace whose working
+    # folder is somewhere else entirely would otherwise be able to import itself.
+    for base, complaint in (
+        (storage_root().resolve(), "That is Apollo's own storage folder."),
+        (
+            workspace_storage(workspace_id, working_dir).resolve(),
+            "That is this workspace's own working folder.",
+        ),
+    ):
+        if _is_within(origin, base):
+            raise StorageError(
+                f"{complaint} Add the folder your documents live in, not the one "
+                "Apollo keeps them in."
+            )
+        if _is_within(base, origin):
+            raise StorageError(
+                "That folder contains Apollo's own storage. Pick the folder your "
+                "documents are in, not one that happens to contain Apollo's."
+            )
 
     if not origin.exists():
         raise StorageError(f"That folder does not exist: {raw}")
@@ -470,16 +506,18 @@ def import_folder(workspace_id: int, source: str | Path) -> FolderImport:
                 continue
 
             relative = candidate.relative_to(origin)
-            target_dir = ensure_inbox(workspace_id) / folder_name / relative.parent
+            target_dir = ensure_inbox(workspace_id, working_dir) / folder_name / relative.parent
             target_dir.mkdir(parents=True, exist_ok=True)
             target = _unique_target(target_dir, candidate.name)
             _atomic_write_bytes(target, data)
 
-            stored_rel = target.relative_to(workspace_inbox(workspace_id)).as_posix()
+            stored_rel = target.relative_to(
+                workspace_inbox(workspace_id, working_dir)
+            ).as_posix()
             rel = f"{INBOX_DIR}/{stored_rel}"
             readable, reason = True, None
             try:
-                read_document(workspace_storage(workspace_id), rel)
+                read_document(workspace_storage(workspace_id, working_dir), rel)
             except (DocumentError, PathSecurityError) as exc:
                 readable, reason = False, str(exc)
             copied.append(
@@ -497,6 +535,16 @@ def import_folder(workspace_id: int, source: str | Path) -> FolderImport:
         except OSError as exc:
             refused.append(RefusedFile(source_label, f"Could not copy it: {exc}"))
 
+    # One commit for the whole import rather than one per document: a folder of
+    # forty documents is one act by the reader, and a log of forty identical
+    # entries would bury everything else in it.
+    if copied:
+        record_added(
+            workspace_storage(workspace_id, working_dir),
+            [f.path for f in copied],
+            f"Added by Apollo: {len(copied)} documents from {folder_name}",
+        )
+
     return FolderImport(
         folder_name=folder_name,
         found=len(candidates),
@@ -505,6 +553,111 @@ def import_folder(workspace_id: int, source: str | Path) -> FolderImport:
         truncated=truncated,
     )
 
+
+def ensure_working_repo(root: str | Path) -> str | None:
+    """Make the reader's working folder a Git repository, once.
+
+    Why this exists at all, since nothing in the application commits: the move
+    engine refuses to relocate a file Git does not track, because the original
+    would then be unrecoverable. A folder the reader chose is almost never a Git
+    repository, so without this every move proposal for a dropped-in document
+    would be refused -- the proposal flow would be present and inert, and the
+    first person to try it would conclude the feature was broken.
+
+    So the folder gets a history of its own. The initial commit records the folder
+    as the reader left it, which is the point: from that moment on, every document
+    Apollo stores or moves here is recoverable with ``git log`` and ``git status``,
+    and the reader can see in a file manager *and* in a diff what has happened to
+    their documents. Nothing is pushed anywhere.
+
+    The identity is set on the *repository*, never globally: the commits in
+    somebody's folder are Apollo's work, and attributing them to that person's
+    Git configuration would be a small lie in a log they will read. It is also
+    what makes the commit work at all on a machine with no Git identity set, where
+    ``git commit`` fails outright and the history would silently never exist.
+
+    Idempotent, and it does not commit anything of its own once the repository
+    exists: only the very first call does.
+    """
+    from app.services import git
+
+    target = Path(root)
+    if git.is_repo(target):
+        return git.head_revision(target)
+    try:
+        # `init` is one of the few commands here that is not read-only, and it
+        # writes nothing but a .git directory into a folder that has none.
+        git._run(target, ["init", "--quiet", "--initial-branch=main"])
+        git._run(target, ["config", "user.name", "Apollo"])
+        git._run(target, ["config", "user.email", "apollo@localhost"])
+        target.mkdir(parents=True, exist_ok=True)
+        existing = _document_relatives(target)
+        if existing:
+            git.commit_paths(
+                target,
+                existing,
+                "The folder as it was when it was chosen to work in",
+            )
+        else:
+            # An empty commit on purpose, and not because nothing was left to do.
+            # It gives the history a starting point that exists from the first
+            # second, so there is always a revision to diff a later move against
+            # and "this folder has no history" is never the answer.
+            git._run(
+                target,
+                [
+                    "commit",
+                    "--quiet",
+                    "--allow-empty",
+                    "-m",
+                    "The folder as it was when it was chosen to work in: empty",
+                ],
+            )
+    except git.GitError:
+        # No history is a diminished guarantee, not a broken feature: the moves
+        # will be refused by the engine rather than performed unrecoverably, and
+        # the reader is told that where it matters.
+        return None
+    return git.head_revision(target)
+
+
+def _document_relatives(target: Path) -> list[str]:
+    """Every file under ``target``, repo-relative, excluding Git's own.
+
+    The ``.git`` directory is never committed to itself, and passing it to
+    ``git add`` is how a repository commits a path that cannot be committed.
+    """
+    return sorted(
+        p.relative_to(target).as_posix()
+        for p in target.rglob("*")
+        if p.is_file() and ".git" not in p.relative_to(target).parts
+    )
+
+
+def record_added(root: str | Path, relatives: list[str], what: str) -> None:
+    """Commit documents Apollo just wrote, so a later move can be undone.
+
+    This is the half of the history that has to happen *while* documents arrive.
+    ``apply_change`` refuses to relocate a file Git does not track, and a document
+    dropped in an hour ago is untracked until something commits it. Without this,
+    the first accepted move would be refused for the same reason the repository
+    was created in the first place, and the guarantee would be no better than
+    having no history at all.
+
+    Silent when the folder is not a repository: the fallback storage folder is
+    not one, and a failure to record a convenience must not fail the drop that
+    succeeded.
+    """
+    from app.services import git
+
+    if not relatives:
+        return
+    try:
+        if not git.is_repo(root):
+            return
+        git.commit_paths(root, relatives, what)
+    except git.GitError:
+        return
 
 
 __all__ = [
@@ -518,8 +671,10 @@ __all__ = [
     "StorageError",
     "StoredDocument",
     "ensure_inbox",
+    "ensure_working_repo",
     "import_folder",
     "list_inbox",
+    "record_added",
     "sanitize_filename",
     "storage_root",
     "store_upload",

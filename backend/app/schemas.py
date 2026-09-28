@@ -941,6 +941,35 @@ class InboxOut(BaseModel):
     files: list[InboxFileOut] = Field(default_factory=list)
 
 
+class WorkingDirIn(BaseModel):
+    """The folder to work in, or an empty string to go back to the default."""
+
+    path: str = Field(..., max_length=1000)
+
+
+class WorkingDirOut(BaseModel):
+    """Where this workspace keeps its own documents, and what is in there."""
+
+    #: Null when the reader has not chosen, and everything falls back to Apollo's
+    #: own storage. Reported rather than hidden, because "Apollo made this folder
+    #: up" and "you chose this one" are different answers.
+    working_dir: str | None = None
+    #: Whether the chosen folder is empty. Empty is the recommended state and this
+    #: is how the interface can say so before the reader commits to it.
+    empty: bool = True
+    #: How many entries a non-empty folder holds, so the warning can be concrete
+    #: rather than a shrug.
+    entries: int = 0
+    #: Set when the folder is not empty, saying what that means. A folder with
+    #: somebody's documents in it is a legitimate choice -- they may want Apollo to
+    #: work in a folder they already keep -- but it is a decision, not a default,
+    #: and it deserves saying once, out loud.
+    warning: str | None = None
+    #: The folder a document dropped in right now would end up in, so the reader
+    #: can see the consequence of the choice rather than infer it.
+    inbox_dir: str
+
+
 class InboxUploadOut(BaseModel):
     """What became of one dropped file."""
 

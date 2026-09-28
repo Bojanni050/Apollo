@@ -1,6 +1,8 @@
 """Shared helpers for resolving workspaces and repositories safely."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -101,6 +103,16 @@ def get_documentation_repository_or_none(
     )
 
 
+def workspace_working_dir(db: Session, workspace_id: int) -> str | None:
+    """The folder the reader chose to work in, or None when they have not.
+
+    A function rather than a column read at every call site, so that the "and when
+    they have not" case is one decision in one place instead of a fallback
+    repeated in the routes, the services and the tests.
+    """
+    return get_workspace(db, workspace_id).working_dir
+
+
 def get_or_create_storage_repo(db: Session, workspace_id: int) -> Repository:
     """The repository the workspace's dropped-in documents live in.
 
@@ -124,15 +136,17 @@ def get_or_create_storage_repo(db: Session, workspace_id: int) -> Repository:
 
     from app.services.storage import ensure_inbox, workspace_storage
 
-    ensure_inbox(workspace_id)
+    working_dir = workspace_working_dir(db, workspace_id)
+    ensure_inbox(workspace_id, working_dir)
     repo = Repository(
         workspace_id=workspace_id,
         name=_unique_repository_name(db, workspace_id, "Inbox"),
-        local_path=str(workspace_storage(workspace_id)),
+        local_path=str(workspace_storage(workspace_id, working_dir)),
         branch="main",
         kind="documentation",
-        # Writable because it is Apollo's own folder. Nothing here bypasses the
-        # proposal flow: that flow guards documents the *operator* registered.
+        # Writable because it is Apollo's own folder, in a place the reader chose.
+        # Nothing here bypasses the proposal flow: that flow guards documents the
+        # *operator* registered.
         writable=True,
         is_storage=True,
         description=(
@@ -177,8 +191,21 @@ def resolve_repo_root(repo: Repository) -> str:
     storage -- because the inbox repository is created by the application and
     would otherwise be refused by the rule that exists to keep unregistered
     directories out.
+
+    A *storage* repository skips that list entirely, and that is the exception
+    worth spelling out. The list answers "which folders may the operator point
+    this at", and the answer for a storage repository is that no operator did:
+    the reader picked the folder themselves, in the wizard or in Settings, and
+    the application created the inbox inside it. Asking for a folder on somebody
+    else's allow-list to use a folder the reader chose with their own hands is
+    the rule turning on the wrong person. It stays a *storage* repository, so
+    every other guarantee -- no deletion, proposal-gated writes, ``safe_path`` on
+    every read -- is unchanged.
     """
     from app.config import settings
+
+    if repo.is_storage:
+        return str(Path(repo.local_path))
 
     try:
         return str(
