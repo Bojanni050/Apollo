@@ -274,6 +274,37 @@ export interface DocumentLinks {
   external: { target: string; text: string }[]
 }
 
+// --- The inbox -------------------------------------------------------------
+// The one place documents come *from*, rather than being read where they
+// already are. Listing never creates anything; the first upload does.
+
+export interface InboxFile {
+  /** Repository-relative, e.g. `Inbox/verslag.pdf`, so the reading pane can
+   *  open it with the id this listing returns. */
+  path: string
+  name: string
+  size: number
+}
+
+export interface InboxListing {
+  /** Null until the first upload has created the storage repository: there is
+   *  nothing to open yet, which is different from an empty folder. */
+  repository_id: number | null
+  directory: string
+  files: InboxFile[]
+}
+
+export interface InboxUpload {
+  repository_id: number
+  path: string
+  name: string
+  size: number
+  /** False when Apollo stored the file but cannot read it back. The bytes are
+   *  there either way, so this is a warning rather than a failed upload. */
+  readable: boolean
+  unreadable_reason: string | null
+}
+
 // --- Visual groups ---------------------------------------------------------
 // A group is a *view* over documents. It does not correspond to a folder, and
 // no operation here moves a file: that separation is what lets the reader
@@ -740,6 +771,27 @@ export const api = {
     ),
   git: (workspaceId: number, repositoryId: number) =>
     request<GitStatus>(`/workspaces/${workspaceId}/repositories/${repositoryId}/git`),
+
+  // --- The inbox ----------------------------------------------------------
+  inbox: (workspaceId: number) =>
+    request<InboxListing>(`/workspaces/${workspaceId}/inbox`),
+  /**
+   * Drop one file into the inbox.
+   *
+   * FormData rather than JSON, and the Content-Type header is deliberately not
+   * set: only the browser knows the multipart boundary, and setting it by hand
+   * produces a request the server cannot parse. Everything else about the
+   * request -- the session cookie, the error handling -- is the shared one.
+   */
+  uploadToInbox: (workspaceId: number, file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request<InboxUpload>(`/workspaces/${workspaceId}/inbox/upload`, {
+      method: 'POST',
+      body,
+      headers: {},
+    })
+  },
 
   // --- Visual groups ------------------------------------------------------
   // The arrangement, not the filesystem. Every call here writes a database row

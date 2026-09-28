@@ -3,6 +3,7 @@ import type { Workspace } from '../api/client'
 import { WhyNote } from './WhyNote'
 
 export type NavSection =
+  | 'inbox'
   | 'all'
   | 'groups'
   | 'docs'
@@ -15,6 +16,8 @@ export type NavSection =
   | 'pulse'
 
 export interface ObjectCounts {
+  /** Documents waiting in the inbox. */
+  inbox: number
   all: number
   groups: number
   docs: number
@@ -102,6 +105,27 @@ export function NavigationColumn({
 
       {/* 3. Primary & Object Types Navigation */}
       <div className="nav-scroll-area">
+        {/* The inbox, above everything else.
+
+            Every other destination is a way of looking at what is already here;
+            this one is how documents arrive. It comes first because it is the
+            first thing the product asks of you -- drop things in -- and because
+            a reader who cannot find it is stuck at step zero. */}
+        <div className="nav-list">
+          <button
+            type="button"
+            className={`nav-item ${activeSection === 'inbox' ? 'active' : ''}`}
+            onClick={() => onSelectSection('inbox')}
+            title="Documents waiting to be understood"
+          >
+            <span className="nav-item-left">
+              <span className="nav-item-glyph">＋</span>
+              <span>Inbox</span>
+            </span>
+            <span className="nav-item-count">{counts.inbox}</span>
+          </button>
+        </div>
+
         {/* All Objects */}
         <div className="nav-list">
           <button

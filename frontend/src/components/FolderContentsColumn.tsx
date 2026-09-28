@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
-import type { Conversation, Decision, DocNode, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
+import type { Conversation, Decision, DocNode, InboxFile, OpenQuestion, PulseItem, Repository, Workspace } from '../api/client'
 import type { NavSection } from './NavigationColumn'
+import { InboxDropzone } from './InboxDropzone'
 
 export interface ItemCard {
   id: string
@@ -15,6 +16,15 @@ export interface ItemCard {
   rawConversation?: Conversation
   rawRepo?: Repository
   rawPulseItem?: PulseItem
+  /**
+   * A document in the inbox, with the repository it lives in.
+   *
+   * The repository travels with it because the inbox is Apollo's own folder and
+   * is not necessarily the repository the reader has open: opening the wrong
+   * repository's file of the same name would be a silent, plausible-looking
+   * wrong answer.
+   */
+  rawInboxFile?: { path: string; name: string; size: number; repositoryId: number }
 }
 
 interface Props {
@@ -37,6 +47,15 @@ interface Props {
   pulseRunning?: boolean
   onRunPulse?: () => void
   onOpenPulseSettings?: () => void
+  // The inbox: documents dropped in, and the repository they were stored in.
+  // Null until the first upload, which is how the column knows there is nothing
+  // to open yet rather than that the folder is empty.
+  inboxFiles: InboxFile[]
+  inboxRepositoryId: number | null
+  /** The workspace the drop zone stores into. */
+  workspaceId: number | null
+  /** Called after a drop, so the inbox list and the tree are re-read. */
+  onInboxStored: () => void
 }
 
 function flattenDocs(node: DocNode | null): DocNode[] {
@@ -71,6 +90,10 @@ export function FolderContentsColumn({
   pulseRunning = false,
   onRunPulse,
   onOpenPulseSettings,
+  inboxFiles,
+  inboxRepositoryId,
+  workspaceId,
+  onInboxStored,
 }: Props) {
   // Convert current items into standard ItemCard format
   const items = useMemo<ItemCard[]>(() => {
@@ -141,6 +164,32 @@ export function FolderContentsColumn({
       }))
     }
 
+    if (activeSection === 'inbox') {
+      // A file can only be listed once the storage repository exists, so the id
+      // is always there when there is an entry to show. The guard is for the
+      // type checker; if it ever fired, the listing and the repository would
+      // have got out of step.
+      if (inboxRepositoryId === null) return []
+      return inboxFiles.map((file) => {
+        const ext = file.name.split('.').pop()?.toLowerCase() || 'md'
+        return {
+          id: `inbox-${file.path}`,
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          snippet: file.path,
+          type: ext.toUpperCase(),
+          dateOrSize:
+            file.size < 1024 ? `${file.size} B` : `${Math.round(file.size / 1024)} KB`,
+          tags: ['inbox', ext],
+          rawInboxFile: {
+            path: file.path,
+            name: file.name,
+            size: file.size,
+            repositoryId: inboxRepositoryId,
+          },
+        }
+      })
+    }
+
     // Default: 'all' or 'docs' -> show document files from tree
     if (flatFiles.length === 0) {
       return []
@@ -163,7 +212,7 @@ export function FolderContentsColumn({
         rawNode: node,
       }
     })
-  }, [tree, activeSection, decisions, questions, conversations, repositories, pulseItems])
+  }, [tree, activeSection, decisions, questions, conversations, repositories, pulseItems, inboxFiles, inboxRepositoryId])
 
   // Filter based on search query
   const filteredItems = useMemo(() => {
@@ -180,6 +229,8 @@ export function FolderContentsColumn({
   // Header Title derivation
   const sectionTitle = useMemo(() => {
     switch (activeSection) {
+      case 'inbox':
+        return 'Inbox'
       case 'all':
         return 'All objects'
       case 'docs':
@@ -212,7 +263,11 @@ export function FolderContentsColumn({
           </span>
         </div>
 
-        {activeSection === 'pulse' ? (
+        {activeSection === 'inbox' ? null : activeSection === 'pulse' ? (
+          // No button here for the inbox, deliberately: the action in this
+          // section is the drop zone itself, and a "New" button would offer to
+          // create a decision or a conversation where what is wanted is
+          // dropping a file.
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {onOpenPulseSettings && (
               <button
@@ -273,9 +328,24 @@ export function FolderContentsColumn({
         </div>
       </div>
 
+      {/* A non-empty inbox still has to offer the same drop zone, or adding a
+          twelfth document would mean emptying the list to get at it. Slim
+          enough not to compete with the documents themselves. */}
+      {activeSection === 'inbox' && inboxFiles.length > 0 && workspaceId !== null && (
+        <div className="folder-contents-inbox-tools">
+          <InboxDropzone workspaceId={workspaceId} onStored={onInboxStored} compact />
+        </div>
+      )}
+
       {/* 3. Items List */}
       <div className="folder-contents-list">
-        {filteredItems.length === 0 ? (
+        {activeSection === 'inbox' && inboxFiles.length === 0 && workspaceId !== null ? (
+          /* An empty inbox has nothing to list and nothing to search, so the
+             empty state *is* the way in: not an icon with a "create new" button,
+             which would be an instruction to do something this section cannot
+             do. */
+          <InboxDropzone workspaceId={workspaceId} onStored={onInboxStored} />
+        ) : filteredItems.length === 0 ? (
           <div className="folder-contents-empty">
             <div className="folder-empty-icon">📂</div>
             <div className="folder-empty-title">No objects found</div>

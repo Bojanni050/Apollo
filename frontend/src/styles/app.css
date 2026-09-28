@@ -3288,3 +3288,113 @@ input:focus, textarea:focus, select:focus {
 }
 
 .diff-add { color: var(--diff-add-fg); background: var(--diff-add-bg); }
+
+/* The inbox: documents dropped in from the desktop.
+
+   A dashed border rather than a solid card, because the box is an invitation
+   that is usually empty. A filled panel would read as something that failed to
+   load; a dashed outline reads as "put something here". */
+.inbox-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.inbox-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 16px;
+  text-align: center;
+  background: var(--bg-contents);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.inbox-dropzone:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-faint);
+}
+.inbox-dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.inbox-dropzone--over {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  border-style: solid;
+}
+.inbox-dropzone--busy {
+  cursor: progress;
+  opacity: 0.65;
+}
+/* Hidden rather than display:none: this input is opened from the keyboard as
+   well as the mouse, and a display:none element cannot be focused. */
+.inbox-dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.inbox-dropzone-glyph {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+.inbox-dropzone-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.inbox-dropzone-hint {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* The slim variant, above a list that is already full: one line, no hint text,
+   so it stays an invitation rather than competing with the documents. */
+.inbox-drop--compact .inbox-dropzone {
+  flex-direction: row;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+}
+.inbox-drop--compact .inbox-dropzone-glyph { font-size: 13px; }
+.inbox-drop--compact .inbox-dropzone-title { font-size: 12px; font-weight: 500; }
+.inbox-drop--compact .inbox-dropzone-hint { display: none; }
+.folder-contents-inbox-tools {
+  padding: 0 10px 8px;
+}
+
+/* What happened to each dropped file.
+
+   One line per file rather than one summary: eleven stored and one refused is a
+   real outcome, and a single sentence would hide which was which. A refused file
+   is amber rather than red because nothing failed catastrophically -- the other
+   eleven are on disk. */
+.inbox-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-outcome {
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+  border-radius: var(--radius-sm);
+  word-break: break-word;
+}
+.inbox-outcome--warn {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}

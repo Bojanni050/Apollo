@@ -15,6 +15,7 @@ import {
   type PulseRun,
   type DocumentLinks,
   type Group,
+  type InboxFile,
   type Repository,
   type Workspace,
 } from './api/client'
@@ -56,7 +57,11 @@ export default function App() {
   const [selectedItem, setSelectedItem] = useState<ItemCard | null>(null)
 
   // Navigation State
-  const [activeSection, setActiveSection] = useState<NavSection>('all')
+  //
+  // The inbox is where a session starts, not "all objects". Every other section
+  // is a way of looking at what is already here; this one is how documents
+  // arrive, and a reader who cannot find it is stuck at step zero.
+  const [activeSection, setActiveSection] = useState<NavSection>('inbox')
   const [searchQuery, setSearchQuery] = useState('')
 
   // Questions, Decisions, Conversations, Proposals, Inventory
@@ -78,6 +83,15 @@ export default function App() {
   // change on every drag and re-fetching them here would make a drop appear to
   // do nothing until something else happened to trigger a reload.
   const [groups, setGroups] = useState<Group[]>([])
+
+  // Documents dropped in, and the repository they were stored in. Held here
+  // rather than in the column because the navigation badge, the inbox column and
+  // the reading pane all need the same answer, and three separate fetches could
+  // disagree about it.
+  const [inbox, setInbox] = useState<{ repository_id: number | null; files: InboxFile[] }>({
+    repository_id: null,
+    files: [],
+  })
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
@@ -123,6 +137,23 @@ export default function App() {
       setTree(res.root)
     } catch (e) {
       report(e)
+    }
+  }, [])
+
+  /* The inbox listing.
+
+     Refetched after a drop and on a workspace change rather than cached: the
+     folder is the truth, and a file the reader added or removed outside the app
+     has to show up here instead of in a list that quietly disagrees with the
+     disk. A failure leaves an empty inbox rather than an error, because the drop
+     zone beneath it reports its own failures and a listing that cannot be read
+     must not stop files being added. */
+  const refreshInbox = useCallback(async (ws: Workspace) => {
+    try {
+      const listing = await api.inbox(ws.id)
+      setInbox({ repository_id: listing.repository_id, files: listing.files })
+    } catch {
+      setInbox({ repository_id: null, files: [] })
     }
   }, [])
 
@@ -183,6 +214,7 @@ export default function App() {
         setQuestions(qs)
         setDecisions(decs)
         setGroups(grps)
+        await refreshInbox(ws)
         if (runs.length > 0) setInventoryRun(runs[0])
         // The newest Pulse run *with items*, not simply the newest run. A
         // scheduled scan on a repository whose documents are not committed yet
@@ -201,7 +233,7 @@ export default function App() {
         report(e)
       }
     },
-    [newConversation, openConversation, reloadTree],
+    [newConversation, openConversation, refreshInbox, reloadTree],
   )
 
   const refreshQuestions = useCallback(async () => {
@@ -376,6 +408,12 @@ export default function App() {
            panel's links -- then had nothing real to match on, which is why a
            document with three known connections reported none. */
         await openDocument(item.rawPulseItem.file_path)
+      } else if (item.rawInboxFile) {
+        /* An inbox document names its own repository, because it lives in
+           Apollo's storage rather than in whatever folder happens to be open in
+           the tree. Opening the wrong repository's file of the same name would
+           be a plausible-looking wrong answer. */
+        await openDocument(item.rawInboxFile.path, item.rawInboxFile.repositoryId)
       } else {
         // Demo card
         setDocumentPath(item.id)
@@ -678,6 +716,25 @@ export default function App() {
     setChatNonce((n) => n + 1)
   }
 
+  /* After a drop, three things may have changed at once: the inbox list, the
+     document tree, and the workspace's own repository list -- because the first
+     upload is what creates the storage repository. Re-reading all three is what
+     makes a document that was dropped a second ago openable straight away. */
+  const onInboxStored = useCallback(async () => {
+    if (!workspace) return
+    await refreshInbox(workspace)
+    const fresh = await api.getWorkspace(workspace.id).catch(() => workspace)
+    setWorkspaces((prev) => prev.map((w) => (w.id === fresh.id ? fresh : w)))
+    setWorkspace(fresh)
+    // Before the first drop this workspace may have had no documentation
+    // repository at all; now it has the storage one.
+    const repo = docsRepo(fresh) ?? repository
+    if (repo) {
+      if (repo.id !== repository?.id) setRepository(repo)
+      await reloadTree(fresh, repo)
+    }
+  }, [workspace, repository, refreshInbox, reloadTree])
+
   // Calculate object counts for Column 1
   const flatDocs = useMemo(() => flattenDocs(tree), [tree])
   // The folder picked while creating a workspace is registered as
@@ -688,6 +745,7 @@ export default function App() {
 
   const counts = useMemo(
     () => ({
+      inbox: inbox.files.length,
       all: flatDocs.length,
       groups: groups.length,
       docs: flatDocs.length,
@@ -699,7 +757,7 @@ export default function App() {
       inventory: inventoryRun ? inventoryRun.items.length : 0,
       pulseWoven: pulseRun ? pulseRun.items.filter((i) => i.decision === 'pending').length : 0,
     }),
-    [flatDocs.length, groups.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun, pulseRun],
+    [flatDocs.length, groups.length, workspace, decisions.length, questions.length, proposals.length, conversations.length, inventoryRun, pulseRun, inbox.files.length],
   )
 
   // Auth & Wizard gates
@@ -804,6 +862,10 @@ export default function App() {
             pulseRunning={pulseRunning}
             onRunPulse={runPulse}
             onOpenPulseSettings={() => setSettingsOpen(true)}
+            inboxFiles={inbox.files}
+            inboxRepositoryId={inbox.repository_id}
+            workspaceId={workspace?.id ?? null}
+            onInboxStored={onInboxStored}
           />
         )}
 
