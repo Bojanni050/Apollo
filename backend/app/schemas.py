@@ -33,6 +33,10 @@ class RepositoryOut(BaseModel):
     kind: str
     writable: bool
     description: str | None
+    #: True for the repository Apollo keeps itself: the inbox storage. Present so
+    #: a caller can tell the intake from the folder the operator registered
+    #: without having to compare paths.
+    is_storage: bool = False
     is_git_repo: bool = False
     current_branch: str | None = None
     head_revision: str | None = None
@@ -898,3 +902,46 @@ class SemanticSearchOut(BaseModel):
     lexical_hits: int = 0
     semantic_hits: int = 0
     hits: list[SemanticSearchHitOut] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# The inbox: documents dropped in from the desktop
+# --------------------------------------------------------------------------
+
+
+class InboxFileOut(BaseModel):
+    """One document in the inbox."""
+
+    #: Repository-relative, so the reading pane can open it directly.
+    path: str
+    name: str
+    size: int
+
+
+class InboxOut(BaseModel):
+    """The inbox listing.
+
+    ``repository_id`` is null until the first upload creates the storage
+    repository, and that is the point of returning it at all: listing must not
+    create one, because looking at a workspace is not a decision to keep
+    documents in it, and the folder would otherwise appear for every workspace
+    somebody merely opened. The null also tells the interface which reading pane
+    to use -- there is nothing to open yet.
+    """
+
+    repository_id: int | None = None
+    directory: str
+    files: list[InboxFileOut] = Field(default_factory=list)
+
+
+class InboxUploadOut(BaseModel):
+    """What became of one dropped file."""
+
+    repository_id: int
+    path: str
+    name: str
+    size: int
+    #: Whether Apollo can read the file back. The bytes are stored either way: a
+    #: false here is something the reader can act on, not a failed upload.
+    readable: bool = True
+    unreadable_reason: str | None = None

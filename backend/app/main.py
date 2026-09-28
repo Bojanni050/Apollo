@@ -35,6 +35,7 @@ from app.api import (
     routes_decisions,
     routes_documents,
     routes_groups,
+    routes_inbox,
     routes_inventory,
     routes_proposals,
     routes_pulse,
@@ -167,6 +168,10 @@ def create_app(config: Settings | None = None) -> FastAPI:
     application.include_router(routes_auth.router, prefix="/api")
     application.include_router(routes_workspaces.router, prefix="/api")
     application.include_router(routes_documents.router, prefix="/api")
+    # The inbox before the groups: it is the only route that can create a
+    # repository, and it is where the basis workflow starts -- documents get in
+    # first, and everything else is a way of looking at them.
+    application.include_router(routes_inbox.router, prefix="/api")
     # Groups before proposals: a group is a view over documents, and the
     # proposal flow is the only thing that moves a file. Keeping them apart here
     # makes the boundary obvious in the route table.

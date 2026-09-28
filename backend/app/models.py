@@ -227,6 +227,21 @@ class Repository(TimestampMixin, Base):
     status_message: Mapped[str | None] = mapped_column(Text)
     last_synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
+    #: True for the repository the application keeps itself: the workspace's
+    #: inbox storage (see services/storage.py). A documentation repository is
+    #: the folder the operator registered; this one holds only what was dropped
+    #: onto the inbox.
+    #:
+    #: Stored rather than inferred from the path, because the question it
+    #: answers -- "is this the workspace's own documentation, or Apollo's
+    #: intake?" -- is asked by the pulse and inventory runs, and comparing paths
+    #: would make the answer depend on where the storage root happens to be
+    #: configured. Getting it wrong means scanning an empty inbox instead of the
+    #: documentation, and reporting "nothing found" about the wrong folder.
+    is_storage: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+
     workspace: Mapped[Workspace] = relationship(back_populates="repositories")
 
     @property

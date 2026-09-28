@@ -29,10 +29,19 @@ def get_repository(db: Session, workspace_id: int, repository_id: int) -> Reposi
 
 
 def get_documentation_repository(db: Session, workspace_id: int) -> Repository:
+    """The workspace's *own* documentation repository.
+
+    Apollo's inbox storage is a documentation repository too -- the documents in
+    it are Markdown and text -- but it is not this one. Scanning the intake
+    instead of the documentation would report "nothing found" about an empty
+    inbox while the reader's real documentation sat unexamined, which is why the
+    storage repository is excluded here rather than being another candidate.
+    """
     repo = db.scalar(
         select(Repository).where(
             Repository.workspace_id == workspace_id,
             Repository.kind == "documentation",
+            Repository.is_storage.is_(False),
         )
     )
     if repo is None:
@@ -43,12 +52,92 @@ def get_documentation_repository(db: Session, workspace_id: int) -> Repository:
     return repo
 
 
+def get_storage_repository(db: Session, workspace_id: int) -> Repository | None:
+    """The workspace's inbox storage, or None when nothing has been dropped in."""
+    return db.scalar(
+        select(Repository).where(
+            Repository.workspace_id == workspace_id,
+            Repository.is_storage.is_(True),
+        )
+    )
+
+
+def get_or_create_storage_repo(db: Session, workspace_id: int) -> Repository:
+    """The repository the workspace's dropped-in documents live in.
+
+    Apollo keeps what the reader drops in, rather than writing it into the folder
+    they registered. That folder is read from and, at most, changed through the
+    approval-gated proposal flow; a drop zone is neither of those, so the intake
+    gets a home of its own. The consequence worth stating: the inbox exists
+    whether or not the workspace has a documentation repository at all, which is
+    the normal case the first time somebody opens the app.
+
+    Created on first use, never on a read. A workspace somebody merely looked at
+    must not gain a directory on disk, so only an upload reaches this.
+
+    The directory is created before the row, because a repository pointing at a
+    path that does not exist would be refused by the very check that authorizes
+    it (see ``services.paths.assert_authorized_root``).
+    """
+    existing = get_storage_repository(db, workspace_id)
+    if existing is not None:
+        return existing
+
+    from app.services.storage import ensure_inbox, workspace_storage
+
+    ensure_inbox(workspace_id)
+    repo = Repository(
+        workspace_id=workspace_id,
+        name=_unique_repository_name(db, workspace_id, "Inbox"),
+        local_path=str(workspace_storage(workspace_id)),
+        branch="main",
+        kind="documentation",
+        # Writable because it is Apollo's own folder. Nothing here bypasses the
+        # proposal flow: that flow guards documents the *operator* registered.
+        writable=True,
+        is_storage=True,
+        description=(
+            "Documents you added, kept by Apollo. This folder is never emptied "
+            "and nothing in it is ever deleted."
+        ),
+    )
+    db.add(repo)
+    db.commit()
+    db.refresh(repo)
+    return repo
+
+
+def _unique_repository_name(db: Session, workspace_id: int, desired: str) -> str:
+    """A repository name that is free in this workspace.
+
+    Names are unique per workspace, and a workspace that already registered a
+    folder called "Inbox" must not make an upload fail over a label. The name is
+    not how the storage repository is identified -- ``is_storage`` is.
+    """
+    taken = set(
+        db.scalars(
+            select(Repository.name).where(Repository.workspace_id == workspace_id)
+        ).all()
+    )
+    if desired not in taken:
+        return desired
+    index = 2
+    while f"{desired} {index}" in taken:
+        index += 1
+    return f"{desired} {index}"
+
+
 def resolve_repo_root(repo: Repository) -> str:
     """Validate the repository's local path, mapping errors to HTTP 400.
 
     Re-checked on every use, not just at registration: configuration may have
     tightened since the repository was recorded, and a path that is no longer
     authorized must stop being served immediately.
+
+    The check uses the *effective* roots -- the operator's list plus Apollo's own
+    storage -- because the inbox repository is created by the application and
+    would otherwise be refused by the rule that exists to keep unregistered
+    directories out.
     """
     from app.config import settings
 
@@ -56,7 +145,7 @@ def resolve_repo_root(repo: Repository) -> str:
         return str(
             assert_authorized_root(
                 repo.local_path,
-                settings.allowed_workspace_roots,
+                settings.effective_allowed_workspace_roots,
                 allow_unrestricted=settings.unrestricted_workspace_roots,
             )
         )
