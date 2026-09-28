@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.models import Repository
 from app.services import storage as storage_service
 from app.services.storage import (
     INBOX_DIR,
@@ -362,3 +363,254 @@ def test_the_history_is_apollos_work_not_the_readers(
 
     author = git._run(chosen, ["log", "-1", "--format=%an <%ae>"]).strip()
     assert "Apollo" in author
+
+
+# ---------------------------------------------------------------------------
+# A folder that was already a repository
+# ---------------------------------------------------------------------------
+
+
+def _existing_repo(tmp_path: Path, name: str = "eigen-map") -> Path:
+    """A folder the reader already keeps under version control, uncommitted.
+
+    This is the folder they are most likely to choose -- their own documents, in
+    a project they already track -- and it is the one the initial-commit path
+    never touches.
+    """
+    import subprocess
+
+    root = tmp_path / name
+    root.mkdir()
+    (root / "notities").mkdir()
+    (root / "notities" / "januari.md").write_text("# Januari\n", encoding="utf-8")
+    (root / "notities" / "februari.md").write_text("# Februari\n", encoding="utf-8")
+    for args in (
+        ["init", "-b", "main"],
+        ["config", "user.name", "Someone Else"],
+        ["config", "user.email", "someone@example.com"],
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    return root
+
+
+def test_choosing_a_folder_that_is_already_a_repository_leaves_its_documents_unrecorded(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """The dead end this button exists to get out of, stated as a fact.
+
+    ``ensure_working_repo`` returns immediately when the folder is already a
+    repository -- correctly, it must not touch somebody's history -- and so the
+    documents in it stay untracked. The move engine refuses to relocate an
+    untracked file, so a group with a folder proposes a move, the reader accepts,
+    and the engine says no. Pinned so the fix cannot quietly stop being needed,
+    and so nobody later reads it as a failure of the button.
+    """
+    from app.services import git
+
+    chosen = _existing_repo(tmp_path)
+
+    _choose(client, workspace["id"], chosen)
+
+    assert git.is_repo(chosen), "the folder is still a repository, untouched"
+    assert not git.is_tracked(chosen, "notities/januari.md")
+    # And the interface is expected to say so, rather than promising a history
+    # it does not have.
+    assert _working(client, workspace["id"])["untracked"] == 2
+
+
+def test_the_button_records_what_was_already_there(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    from app.services import git
+
+    chosen = _existing_repo(tmp_path)
+    _choose(client, workspace["id"], chosen)
+
+    adopted = client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    assert adopted.status_code == 200
+    assert adopted.json()["ok"] is True
+    assert adopted.json()["committed"] == 2
+    assert git.is_tracked(chosen, "notities/januari.md")
+    assert git.is_tracked(chosen, "notities/februari.md")
+    assert _working(client, workspace["id"])["untracked"] == 0
+
+
+def test_a_document_can_then_actually_be_moved(
+    client: TestClient,
+    workspace: dict,
+    tmp_path: Path,
+    db_session_factory,
+) -> None:
+    """The reason the button matters, end to end.
+
+    Without it this ends in a 409 that names Git rather than this application,
+    which reads as a bug in the product rather than as a folder that was never
+    made recoverable.
+    """
+    chosen = _existing_repo(tmp_path)
+    _choose(client, workspace["id"], chosen)
+    client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    # Point the workspace's documentation repository at the reader's own folder.
+    # It already has one -- every workspace does -- and the API deliberately does
+    # not offer to repoint it, so the row is set the way the rest of the system
+    # reads it. A second repository would be refused, correctly: two
+    # documentation repositories in one workspace is a state nothing expects.
+    repo_id = next(
+        r["id"] for r in workspace["repositories"] if r["name"] == "gaia-docs"
+    )
+    with db_session_factory() as db:
+        row = db.get(Repository, repo_id)
+        row.local_path = str(chosen)
+        db.commit()
+    group = client.post(
+        f"/api/workspaces/{workspace['id']}/groups",
+        json={"name": "Notities", "folder": "Archief-notities"},
+    ).json()
+    assert group["folder"] == "Archief-notities"
+
+    dropped = client.post(
+        f"/api/workspaces/{workspace['id']}/groups/{group['id']}/documents",
+        json={"repository_id": repo_id, "path": "notities/januari.md"},
+    ).json()
+    accepted = client.post(
+        f"/api/workspaces/{workspace['id']}/proposals/{dropped['proposal_id']}/accept"
+    )
+
+    assert accepted.status_code == 200
+    assert (chosen / "Archief-notities" / "januari.md").is_file()
+    assert not (chosen / "notities" / "januari.md").exists()
+
+
+def test_the_button_moves_nothing_and_rewrites_nothing(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """It writes a commit, and that is all.
+
+    The reader is being asked to point this at a folder of their own, so the
+    guarantee is measured rather than promised: every file, byte for byte, before
+    and after.
+    """
+    from app.services import git
+
+    chosen = _existing_repo(tmp_path)
+    before = {
+        p.relative_to(chosen).as_posix(): p.read_bytes()
+        for p in sorted(chosen.rglob("*"))
+        if p.is_file() and ".git" not in p.relative_to(chosen).parts
+    }
+    _choose(client, workspace["id"], chosen)
+
+    client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    after = {
+        p.relative_to(chosen).as_posix(): p.read_bytes()
+        for p in sorted(chosen.rglob("*"))
+        if p.is_file() and ".git" not in p.relative_to(chosen).parts
+    }
+    assert after == before, "recording the folder changed something in it"
+    assert not git.status(chosen), "the folder should be clean afterwards"
+
+
+def test_the_button_leaves_the_readers_git_identity_alone(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """Two promises, and the second is the subtle one.
+
+    The commit is Apollo's work, so it should *read* as Apollo's work. But the
+    folder is the reader's, and ``user.name`` in it is a setting they chose --
+    so it must not be rewritten to make the first promise come out right. The
+    author is therefore overridden for that one commit rather than stored.
+    """
+    from app.services import git
+
+    chosen = _existing_repo(tmp_path)
+    before = git._run(chosen, ["config", "--get", "user.name"]).strip()
+    _choose(client, workspace["id"], chosen)
+
+    client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    who = git._run(chosen, ["log", "-1", "--format=%an"]).strip()
+    after = git._run(chosen, ["config", "--get", "user.name"]).strip()
+    assert who == "Apollo", f"the commit should be Apollo's work, not {who!r}"
+    assert after == before == "Someone Else", "the reader's own identity was rewritten"
+
+
+def test_the_button_does_not_touch_existing_commits(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """Somebody else's history is not Apollo's to rewrite.
+
+    The reader may well have chosen a folder that already has real work in it, so
+    "add one commit" has to mean *add*, not amend or reset.
+    """
+    import subprocess
+
+    from app.services import git
+
+    chosen = _existing_repo(tmp_path)
+    subprocess.run(["git", "-C", str(chosen), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(chosen), "commit", "-q", "-m", "their own work"],
+        check=True,
+        capture_output=True,
+    )
+    original = subprocess.run(
+        ["git", "-C", str(chosen), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _choose(client, workspace["id"], chosen)
+
+    client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    subjects = [e.get("subject", "") for e in git.recent_log(chosen, 10)]
+    assert "their own work" in subjects
+    # The earlier revision is still reachable, so nothing was amended or reset.
+    still_there = subprocess.run(
+        ["git", "-C", str(chosen), "cat-file", "-e", f"{original}^{{commit}}"],
+        capture_output=True,
+    )
+    assert still_there.returncode == 0
+
+
+def test_the_button_is_idempotent(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """Pressing it twice says "nothing to record" rather than making a second
+    empty commit, and does not claim to have done anything it did not."""
+    chosen = _existing_repo(tmp_path)
+    _choose(client, workspace["id"], chosen)
+
+    first = client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt").json()
+    second = client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt").json()
+
+    assert first["committed"] == 2
+    assert second["committed"] == 0
+    assert second["ok"] is True
+
+
+def test_the_button_needs_a_folder_first(client: TestClient, workspace: dict) -> None:
+    """Refused rather than inventing a folder: there is nothing here to record, and
+    recording Apollo's own storage would be a claim nobody made."""
+    adopted = client.post(f"/api/workspaces/{workspace['id']}/working-dir/adopt")
+
+    assert adopted.status_code == 409
+    assert "Choose a working folder" in adopted.json()["detail"]
+
+
+def test_a_folder_with_nothing_to_record_does_not_need_the_button(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """The button is not offered when there is nothing to do.
+
+    A folder Apollo prepared already has a history, so every document in it is
+    recoverable and the card must not imply otherwise.
+    """
+    chosen = tmp_path / "leeg"
+    chosen.mkdir()
+    _choose(client, workspace["id"], chosen)
+
+    assert _working(client, workspace["id"])["untracked"] == 0
