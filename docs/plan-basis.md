@@ -305,9 +305,26 @@ alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
 een commit per geaccepteerde move (`commit_paths` bestond al), en een map
 toevoegen blijft een kopie die de bronmap niet aanraakt.
 
-**Wat er daarna nog ontbreekt:** de lezer kiest nog geen Git-repo; de werkmap
-wordt bij het kiezen al als repo aangemaakt, maar er staat nog geen knop om een
-bestaande map daarna aan Apollo over te dragen.
+**Wat er daarna nog ontbreekt:** niets voor deze fase.
+
+### Een map die al een repository is (afgerond)
+
+`ensure_working_repo` stopt zodra de map een git-repo ís — terecht, want die
+geschiedenis is van de gebruiker. Het gevolg was een dode straat: de documenten
+blijven ontracked, en `apply_change` weigert elk verplaatst bestand. Je kiest
+precies de map die je het waarschijnlijkst kiest — je eigen documentenmap, of een
+project — en dan weigert de engine om een voorstel te accepteren, met een reden
+die Git noemt in plaats van deze applicatie.
+
+De uitweg is één knop, `POST /working-dir/adopt`: één commit die de map vastlegt
+zoals hij is. Niets verplaatst, hernoemd of herschreven, bestaande commits blijven
+onveranderd, niets gepusht. De auteur wordt per aanroep overschreven met
+`git -c` in plaats van in de config van de gebruiker te worden geschreven — dat
+is de enige manier om beide beloften tegelijk te houden: de commit leest als het
+werk van Apollo, en de instelling die jij koos blijft staan.
+
+De kaart noemt het aantal en de reden, en de belofte *"Apollo keeps that history"*
+verdwijnt precies in het geval waarin ze onwaar zou zijn.
 
 ### De werkmap (klaar)
 

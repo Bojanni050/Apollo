@@ -350,6 +350,9 @@ export interface WorkingDir {
   /** Where a document dropped in right now would land, so the consequence of the
    *  choice is visible rather than inferred. */
   inbox_dir: string
+  /** Documents in the folder Git does not track yet, and so cannot be moved.
+   *  Non-zero means the move engine will refuse every move here. */
+  untracked: number
 }
 
 // --- Delphi's findings -----------------------------------------------------
@@ -1041,6 +1044,18 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ folder }),
     }),
+  /**
+   * Make the documents already in the working folder recoverable, in one commit.
+   *
+   * For a folder that was *already* a Git repository when it was chosen: its
+   * files are untracked, and a move of an untracked document is refused. The
+   * folder's own history is never rewritten -- this only adds a commit.
+   */
+  adoptWorkingFolder: (workspaceId: number) =>
+    request<{ ok: boolean; committed: number; message: string }>(
+      `/workspaces/${workspaceId}/working-dir/adopt`,
+      { method: 'POST' },
+    ),
   /** Which groups a document is in -- the sidebar's "where does this sit?". */
   groupsOfDocument: (workspaceId: number, repositoryId: number, path: string) =>
     request<Group[]>(

@@ -3814,6 +3814,30 @@ input:focus, textarea:focus, select:focus {
   color: var(--danger);
 }
 
+/* A folder whose documents are not yet recoverable.
+   A distinct block rather than another warning line, because this one carries an
+   action: the reader is being asked to let Apollo write a commit into a folder of
+   their own, and that deserves the space and the plain explanation. */
+.working-folder-adopt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--warn-bg);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.working-folder-adopt p {
+  margin: 0;
+}
+
+.working-folder-adopt .working-folder-detail {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
 /* The folder a group stands for.
    The board has to make one distinction visible: a group with a folder turns a
    drop into a proposal to move a file, and a group without one only rearranges

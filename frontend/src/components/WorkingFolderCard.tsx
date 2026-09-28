@@ -16,6 +16,13 @@ import { FolderPickerModal } from './FolderPickerModal'
  * the only thing Apollo owes them is saying plainly what it will and will not do
  * with what is already there. A refusal here would be Apollo deciding which of
  * the reader's own folders are allowed to exist.
+ *
+ * Which is why the card also says when a folder's documents are *not yet
+ * recoverable*. A folder that was already a Git repository when it was chosen is
+ * left exactly as it was -- rightly, since its history is somebody else's -- so
+ * its files are untracked and the move engine will refuse to touch them. Saying
+ * "Apollo keeps that history" there would be a lie, and the refusal that follows
+ * names Git rather than this application, so it reads as a bug in the product.
  */
 interface Props {
   workspaceId: number
@@ -72,9 +79,37 @@ export function WorkingFolderCard({ workspaceId, onChanged }: Props) {
     [workspaceId, onChanged],
   )
 
+  /** The reader takes the decision; this only carries it out. */
+  const adopt = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await api.adoptWorkingFolder(workspaceId)
+      setState(await api.workingDir(workspaceId))
+      // The server's own sentence, because it knows the count and whether there
+      // was anything to do; a second wording here would eventually disagree.
+      setNotice(result.message)
+      onChanged?.()
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.detail
+          : 'That folder could not be made recoverable. Is the backend running?',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [workspaceId, onChanged])
+
   if (state === null) return null
 
   const chosen = state.working_dir !== null
+  // Non-zero means the folder's documents are not recorded, so every move in it
+  // will be refused. Offering a button only then is the point: a folder Apollo
+  // prepared already has a history, and a card that always showed this would be
+  // asking the reader to fix something that is not broken.
+  const unrecorded = state.untracked
 
   return (
     <section className="working-folder-card" aria-label="Working folder">
@@ -99,9 +134,28 @@ export function WorkingFolderCard({ workspaceId, onChanged }: Props) {
       {chosen && (
         <p className="working-folder-detail">
           A document you drop in goes to <code>{state.inbox_dir}</code>.
-          {!state.empty &&
+          {!state.empty && unrecorded === 0 &&
             ' Apollo keeps that history, so nothing it moves can be lost without a trace.'}
         </p>
+      )}
+
+      {unrecorded > 0 && (
+        <div className="working-folder-adopt">
+          <p className="working-folder-warning" role="status">
+            This folder already held {unrecorded}{' '}
+            {unrecorded === 1 ? 'document' : 'documents'} when you chose it, and
+            they are not recorded yet. Apollo will not move a file it cannot
+            recover, so filing a document here would be refused.
+          </p>
+          <button type="button" onClick={() => void adopt()} disabled={busy}>
+            {busy ? 'Recording…' : 'Record what is already there'}
+          </button>
+          <p className="working-folder-detail">
+            One commit, adding nothing but the record. Nothing in the folder is
+            moved, renamed or rewritten, and your existing commits are left as
+            they are.
+          </p>
+        </div>
       )}
 
       {state.warning && chosen && (

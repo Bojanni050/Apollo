@@ -10,7 +10,7 @@
 // The folder is created in the system temp directory and removed afterwards. It
 // is never a real workspace folder and never left behind.
 import { chromium } from 'playwright'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
@@ -193,10 +193,96 @@ try {
     throw new Error('the earlier document was moved by a later choice; it must not be')
   }
 
+  // --- A folder that was already a repository ---------------------------
+  // The case the record button exists for. A folder the reader already keeps
+  // under version control is the one `ensure_working_repo` leaves alone --
+  // rightly, since its history is theirs -- so its documents are untracked and
+  // every move in it would be refused.
+  const own = join(root, 'eigen-map')
+  mkdirSync(join(own, 'notities'), { recursive: true })
+  writeFileSync(join(own, 'notities', 'januari.md'), '# Januari\n', 'utf8')
+  writeFileSync(join(own, 'notities', 'februari.md'), '# Februari\n', 'utf8')
+  for (const args of [
+    ['init', '-b', 'main'],
+    ['config', 'user.name', 'Someone Else'],
+    ['config', 'user.email', 'someone@example.com'],
+  ]) {
+    execFileSync('git', ['-C', own, ...args])
+  }
+
+  const untrackedOf = () =>
+    page.evaluate(
+      async () => (await (await fetch('/api/workspaces/1/working-dir')).json()).untracked,
+    )
+
+  console.log('untracked before choosing it:', await untrackedOf())
+  // The card says "Change" once a folder is chosen and "Choose a folder" before
+  // that. This run is whichever it happens to be, so the test opens the picker by
+  // the one thing both states share rather than by a label that moves.
+  await page.locator('.working-folder-card header button').first().click()
+  await page.waitForTimeout(400)
+  await pick(page, own)
+  await page.waitForTimeout(1500)
+
+  const offered = await page.locator('.working-folder-adopt').count()
+  const offeredText = await page
+    .locator('.working-folder-adopt')
+    .innerText()
+    .catch(() => null)
+  console.log('the button is offered:', offered === 1)
+  if (offered !== 1) {
+    throw new Error('the card does not offer to record a folder it cannot move files in')
+  }
+  if (!/2 documents/.test(offeredText ?? '')) {
+    throw new Error(`the card does not say how many: ${JSON.stringify(offeredText)}`)
+  }
+  if (!/will not move a file it cannot recover/i.test(offeredText ?? '')) {
+    throw new Error(`the card does not say why this matters: ${JSON.stringify(offeredText)}`)
+  }
+  // The promise about history must not be made while this is true.
+  const promised = await page
+    .locator('.working-folder-detail')
+    .filter({ hasText: 'keeps that history' })
+    .count()
+  if (promised !== 0) {
+    throw new Error('the card promises a history it does not have for this folder')
+  }
+  await page.screenshot({ path: 'screenshots/working-folder-untracked.png' })
+
+  await page.locator('.working-folder-adopt button').click()
+  await page.waitForTimeout(1800)
+
+  const untrackedAfter = await untrackedOf()
+  const stillOffered = await page.locator('.working-folder-adopt').count()
+  console.log('untracked after the button:', untrackedAfter, '| still offered:', stillOffered)
+  if (untrackedAfter !== 0) {
+    throw new Error(`pressing the button left ${untrackedAfter} documents unrecorded`)
+  }
+  if (stillOffered !== 0) {
+    throw new Error('the button is still offered after it has done its work')
+  }
+
+  // Nothing in the folder moved, and the reader's own commits are intact.
+  const contents = readdirSync(join(own, 'notities')).sort()
+  console.log('the folder still holds:', contents.join(', '))
+  if (contents.join(',') !== 'februari.md,januari.md') {
+    throw new Error(`recording the folder changed what is in it: ${contents.join(', ')}`)
+  }
+  const commitAuthor = execFileSync('git', ['-C', own, 'log', '-1', '--format=%an'], {
+    encoding: 'utf8',
+  }).trim()
+  console.log('the commit is attributed to:', commitAuthor)
+  if (!/Apollo/.test(commitAuthor)) {
+    throw new Error(
+      `the commit should be Apollo's work, not the reader's: ${commitAuthor}`,
+    )
+  }
+
   if (errors.length) {
     throw new Error(`browser errors: ${errors.slice(0, 3).join(' | ')}`)
   }
   console.log('OK: the chosen folder is where documents go, and it keeps their history')
+  console.log('OK: a folder Apollo cannot move files in says so, and can be fixed')
 } finally {
   if (browser) await browser.close()
   // Put the workspace back the way it was found, before the folder goes away --

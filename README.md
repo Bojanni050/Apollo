@@ -402,6 +402,7 @@ usable default and not one you ever looked at.
 ```
 plan   PUT    /working-dir     -> choose the folder to work in
 read   GET    /working-dir     -> where documents go, and what is in there
+plan   POST   /working-dir/adopt -> record what is already in it
 plan   POST   /inbox/upload    -> store one dropped file
 plan   POST   /inbox/import-folder -> copy a whole folder in
 read   GET    /inbox           -> what is waiting
@@ -454,6 +455,21 @@ folder as you left it — that is the baseline everything later is diffed agains
 and every document Apollo stores there is committed as it arrives. If a folder
 you chose is later deleted by hand, the card says so rather than letting it
 reappear unexplained on your next drop.
+
+**A folder that was already a repository is left exactly as it is** — rightly,
+since its history is yours and Apollo has no business rewriting it. The
+consequence is that its documents are untracked, and so *cannot be moved*: a
+group with a folder proposes a move, you accept, and the engine refuses. The
+card says so up front, with a count and the reason, and offers one button:
+
+> **Record what is already there** — one commit, adding nothing but the record.
+
+Nothing in the folder is moved, renamed or rewritten, your existing commits are
+left alone, and nothing is pushed. The author is overridden for that one commit
+rather than written into your repository, so the entry reads as Apollo's work
+without changing a setting you chose. The button is only offered when there is
+something to record: a folder Apollo prepared already has a history, and a card
+that always showed this would be asking you to fix something that is not broken.
 
 ## The analysis
 
