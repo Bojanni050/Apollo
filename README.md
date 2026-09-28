@@ -428,6 +428,51 @@ Markdown, text, PDF and Word, up to 25 MB — the same ceiling as reading, so a
 document that can be stored can always be opened. Anything else is refused with a
 message that names the accepted formats.
 
+## The analysis
+
+What Delphi makes of a collection. One button, one pass: press **Analyseren**
+and Apollo says, in ordinary sentences with its evidence attached, which
+document looks older than another, which two disagree, and which one says
+something nothing else does.
+
+```
+plan   POST   /delphi/analyze             -> read the collection, record findings
+read   GET    /signals?repository_id&path -> findings for one document
+       GET    /signals?group_id           -> findings for everything in a group
+       GET    /signals/count              -> how many are still open
+hide   POST   /signals/{id}/dismiss       -> not this one
+```
+
+Five properties, each of them a rule rather than a detail:
+
+- **A claim without evidence never reaches you.** Every finding carries a `why`
+  of one or two sentences naming what in the documents supports it. A signal
+  that arrives without one is dropped at the boundary, because a verdict the
+  reader cannot check is worse than no verdict: it asks for the check without
+  saying what to check.
+- **A reference is a document that exists.** Delphi's output is validated
+  against the actual file list; a path that is not there, or that tries to
+  escape the collection, loses the reference and keeps the finding.
+- **A dismissed finding stays dismissed.** Re-analysing refreshes the evidence
+  and leaves your decision alone — otherwise "not this one" would quietly expire
+  and the finding would come back on its own. Nothing is ever removed instead:
+  a suggestion silently disappearing between two passes would be
+  indistinguishable from one that was never made.
+- **The pass changes nothing.** There is no file operation anywhere in the code
+  path, and the test that checks this reads the route table: no PUT, PATCH or
+  DELETE exists next to a finding. Archiving a document is a decision the reader
+  makes later, through the proposal flow.
+- **"Nothing stood out" and "nobody looked" do not read the same way.** With no
+  model configured the button refuses with a 503 rather than returning a clean,
+  empty, confident result. A collection of one document is refused too, with
+  the reason: a signal is a judgement about a document relative to its peers.
+
+Which collection is analysed: the workspace's documentation, or the inbox when
+there is none — so a workspace that is nothing but ten dropped files still has
+a button that works. Named explicitly, it must be a documentation repository or
+the inbox; a source repository holds code, and "is this code out of date" is a
+different question.
+
 ## Groups
 
 The arrangement. A **group** is a named cluster of documents that exist only in
@@ -550,6 +595,7 @@ backend/
       routes_workspaces.py
       routes_documents.py
       routes_inbox.py
+      routes_signals.py
       routes_proposals.py
       routes_chat.py
       routes_inventory.py
@@ -564,7 +610,8 @@ backend/
       agent.py          the tool-calling loop
       inventory.py      content-based document classification
       placement.py      visual groups and the archive; touches no files
-      signals.py        Delphi's information signals, validated on the way out
+      signals.py        Delphi's signal vocabulary, validated on the way out
+      delphi.py         the analysis: read a collection, keep what it found
       pulse.py          Delphi Pulse: tags, connections, partial acceptance
   tests/                103 tests + a mock LLM server for manual runs
 frontend/

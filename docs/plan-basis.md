@@ -2,7 +2,7 @@
 
 Vervangt `apollo-basis-plan.md` en `fase1-2-concreet.md`. Die twee beschreven de
 situatie van vóór de visuele groepen; deze versie is nagelopen tegen de echte code
-op 2026-09-28 (testsuite: 635 passed, 8 skipped).
+op 2026-09-28 (testsuite: 673 passed, 8 skipped).
 
 ## De kern
 
@@ -37,6 +37,11 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Inbox: UI | `components/InboxDropzone.tsx`, Inbox als eerste sectie in `NavigationColumn`, Inbox-kolom in `FolderContentsColumn` | klaar (Fase 1) |
 | Intake ≠ documentatie | `repositories.is_storage` (migratie `0010`) + filter in `get_documentation_repository` | klaar (Fase 1) |
 | Tests inbox | `tests/test_storage.py` + `tests/test_inbox_api.py` (37) | klaar |
+| Analyse: motor | `services/delphi.py` — `analyse`, `record_signals`, `signals_for_document/group`, `dismiss_signal` | klaar (Fase 2) |
+| Analyse: API | `api/routes_signals.py` — `/delphi/analyze`, `/signals`, `/signals/count`, `/signals/{id}/dismiss` | klaar (Fase 2) |
+| Analyse: bewaarplaats | `DocSignal` (migratie `0011`) met verplichte `why` en status `new/confirmed/dismissed` | klaar (Fase 2) |
+| Analyse: UI | `Analyseren`-knop met teller, rapportbalk, signaalbalk boven het document | klaar (Fase 2) |
+| Tests analyse | `tests/test_delphi.py` (14), `tests/test_signals_api.py` (15), `tests/test_signals.py` (28) | klaar |
 
 ### Wat ontbreekt
 
@@ -44,10 +49,12 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | --- | --- |
 | Upload en Inbox | **geregeld in Fase 1** — zie hierboven |
 | Alleen `Inbox/` bestaat fysiek | `Projecten/`, `Administratie/`, `Referentie/` en `Archief/` komen in Fase 4; een lege map per categorie is een bewering die de lezer niet heeft gedaan |
-| De signaal-motor wordt nooit aangeroepen | geen enkele verwijzing naar signalen in `services/pulse.py`; `parse_signals` en `signals_prompt_instruction` worden nergens geïmporteerd |
-| Signalen zijn onzichtbaar in de API | geen signaalvelden in `PulseItemOut`, geen route onder `/signals` |
-| Geen reden per signaal | `Signal` bestaat uit `kind` + `reference`; de eis "elk met waarom" is nog niet gehaald |
-| Geen dismiss-status | er is geen `dismissed`; een signaal kan alleen maar blijven staan |
+| De signaal-motor wordt nooit aangeroepen | **geregeld in Fase 2** — `services/delphi.py` roept het model zelf, via het bestaande budget en de bestaande woordenschat |
+| Signalen zijn onzichtbaar in de API | **geregeld in Fase 2** — `/signals` per document, per groep, plus `/signals/count` voor de teller |
+| Geen reden per signaal | **geregeld in Fase 2** — `why` is verplicht; zonder reden wordt de bevinding bij de grens weggegooid |
+| Geen dismiss-status | **geregeld in Fase 2** — `doc_signals.status`; een weggezette bevinding blijft weggezet na een nieuwe pass |
+| Nog geen groepen uit de analyse | Fase 3: Delphi stelt groepen voor; `services/delphi_grouping.py` staat nog niet |
+| Archiveren doet nog niets met een map | Fase 4: het signaal is er, de actie niet — nog bewust |
 | Delphi maakt geen groepen | `create_group(..., source="ai")` komt alleen in tests voor |
 | De sidebar kent geen groepen of signalen | `client.groupsOfDocument()` bestaat maar wordt door geen enkel component gebruikt |
 | Geen app-beheerde opslagroot | **geregeld in Fase 1**: `effective_storage_root` en `effective_allowed_workspace_roots` in `config.py`. Een lege operatorlijst blijft leeg, want in development betekent leeg "alles toegestaan" en er zou anders één map overblijven |
@@ -148,8 +155,51 @@ in de bestandsnaam, naamconflict.
 
 ## Fase 2 — Delphi zegt wat het ziet (2–3 dagen)
 
+**Status: klaar (2026-09-28).** `services/delphi.py`, `api/routes_signals.py`,
+migratie `0011`, signaalbalk en `Analyseren`-knop, 57 nieuwe en herziene tests.
+Echte proef met drie documenten in de Inbox: drie bevindingen met reden en
+verwijzing, teller 3 → 2 na één verberging, bestanden byte-identiek.
+
 Doel: één knop **Analyseren** → per document 0..n signalen in gewone taal, elk
 met een reden en een aanklikbare verwijzing. Nog géén groepen.
+
+**Wat er anders ging dan gepland, en waarom:**
+
+1. **Eigen motor in plaats van de pulse-scans aanroepen.** Het plan wilde
+   `run_pulse()` en `run_inventory()` hergebruiken. De pulse-scan is
+   hash-gedreven, schrijft `PulseItem`-rijen en kent een eigen
+   suggest/apply-modus; de inventory gebruikt de architectuur-mapwoorden
+   (`foundation/`, `architecture/`), niet de mapwoorden van iemands eigen
+   verzameling. `services/delphi.py` gebruikt wél het contextbudget, de
+   structurele representatie en de woordenschat, maar vraagt in één keer om
+   signalen — en dat is ook de enige manier om het Later te kunnen uitbreiden met
+   groepvoorstellen in Fase 3.
+2. **De bevindingen leven in een eigen tabel** (`doc_signals`, migratie 0011),
+   niet in de JSON-kolommen van `pulse_items`. Een signaal moet een `why` hebben
+   die niet leeg is, een status die een beslissing van de lezer vastlegt, en op
+   document én groep opvraagbaar zijn. Dat is een CHECK-constraint en een join
+   waard, geen JSON-lijst.
+3. **De teller heeft een eigen eindpunt** (`/signals/count`). De lijst weigert
+   terecht een hele workspace, maar een badge die "0" zegt terwijl er drie open
+   staan, is precies de leugen die dit product moet vermijden.
+4. **De analyse valt terug op de inbox.** Een workspace met alleen gedropt
+   werk heeft geen documentation-repository, en de knop zou daar weigeren — dus
+   de meest voorkomende situatie in de basisworkflow zou falen op stap één.
+5. **Eén bevinding die niet meer gevonden wordt, blijft staan.** Weggooien zou
+   het ononderscheidbaar maken van een bevinding die nooit gemaakt is.
+
+**Let op bij de volgende migratie:** `init_db()` roept `create_all` aan op
+SQLite (`app/db.py:219`), dus het starten van de dev-server maakt een ontbrekende
+tabel aan *zonder* de alembic-stempel. Daarna lukt `alembic upgrade head` niet
+meer met "table already exists". De oplossing is `alembic stamp head` — het
+schema is dan immers al correct. Zelfde waarheid als in
+`tests/test_migrations.py::test_existing_create_all_database_is_adopted_by_stamping`.
+Een testrun zelf raakt `apollo_dev.db` niet: gecontroleerd, byte-identiek
+voor en na.
+
+**Klaar als:** met een key heeft elk nieuw document 0..n signalen met reden en
+werkende link; zonder key is de knop uitgeschakeld met uitleg; dismiss verbergt en
+verwijdert niets; de bestandshashes vóór en na de analyse gelijk zijn.
 
 - Signaalvorm uitbreiden naar `{kind, reference, why}`: `why` is verplicht en mag
   niet leeg zijn, zodat een claim zonder reden de UI niet haalt.
@@ -248,10 +298,10 @@ daar staan; ze komen niet in de weg van de basisworkflow.
 
 ## Eerstvolgende stap
 
-Fase 2 — Delphi zegt wat het ziet. `parse_signals` aansluiten op de bestaande
-pulse-motor (geen nieuwe LLM-infrastructuur), de signaalvorm uitbreiden met `why`
-zodat elke bewering een reden heeft, en de signalen in een eigen tabel
-`doc_signals` zetten zodat ze te volgen en te verbergen zijn. Plus de signaalbalk
-boven het leesvenster. Nog géén groepen.
+Fase 3 — Delphi stelt groepen voor. Uit de bevindingen en de bestaande
+pulse-connecties clusters maken en die wegschrijven als `create_group(source="ai")`
++ `place_document(placed_by="ai")`, waarbij `placed_by="user"` altijd wint bij een
+nieuwe pass. Eén knop doet dan signalen én groepen, want de lezer vroeg om één
+ding. `services/delphi_grouping.py` staat nog niet.
 
 
