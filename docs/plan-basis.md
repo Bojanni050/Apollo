@@ -2,7 +2,7 @@
 
 Vervangt `apollo-basis-plan.md` en `fase1-2-concreet.md`. Die twee beschreven de
 situatie van vóór de visuele groepen; deze versie is nagelopen tegen de echte code
-op 2026-09-28 (testsuite: 598 passed, 8 skipped).
+op 2026-09-28 (testsuite: 635 passed, 8 skipped).
 
 ## De kern
 
@@ -32,19 +32,25 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Signalen: tests | `tests/test_signals.py` (20) | klaar, maar zie hieronder |
 | Fysiek verplaatsen (motor) | `proposals.plan_move(..., allow_missing_dir=True)`, al gebruikt door `routes_inventory.py` | klaar |
 | Map-vocabulaire (architectuurrepo) | `services/inventory.py` — `TARGET_STRUCTURE`, `LOW_CONFIDENCE_THRESHOLD` | klaar |
+| Inbox: opslag | `services/storage.py` — `store_upload`, `list_inbox`, `ensure_inbox`; `APOLLO_STORAGE_ROOT` + `effective_allowed_workspace_roots` in `config.py` | klaar (Fase 1) |
+| Inbox: API | `api/routes_inbox.py` — `GET /inbox`, `POST /inbox/upload`; `get_or_create_storage_repo` in `api/deps.py` | klaar (Fase 1) |
+| Inbox: UI | `components/InboxDropzone.tsx`, Inbox als eerste sectie in `NavigationColumn`, Inbox-kolom in `FolderContentsColumn` | klaar (Fase 1) |
+| Intake ≠ documentatie | `repositories.is_storage` (migratie `0010`) + filter in `get_documentation_repository` | klaar (Fase 1) |
+| Tests inbox | `tests/test_storage.py` + `tests/test_inbox_api.py` (37) | klaar |
 
 ### Wat ontbreekt
 
 | Gat | Bewijs |
 | --- | --- |
-| Upload en Inbox bestaan niet | `UploadFile`/`multipart` komt alleen in `pyproject.toml` voor; geen `APOLLO_STORAGE_ROOT`, geen `routes_inbox.py`, geen dropzone |
+| Upload en Inbox | **geregeld in Fase 1** — zie hierboven |
+| Alleen `Inbox/` bestaat fysiek | `Projecten/`, `Administratie/`, `Referentie/` en `Archief/` komen in Fase 4; een lege map per categorie is een bewering die de lezer niet heeft gedaan |
 | De signaal-motor wordt nooit aangeroepen | geen enkele verwijzing naar signalen in `services/pulse.py`; `parse_signals` en `signals_prompt_instruction` worden nergens geïmporteerd |
 | Signalen zijn onzichtbaar in de API | geen signaalvelden in `PulseItemOut`, geen route onder `/signals` |
 | Geen reden per signaal | `Signal` bestaat uit `kind` + `reference`; de eis "elk met waarom" is nog niet gehaald |
 | Geen dismiss-status | er is geen `dismissed`; een signaal kan alleen maar blijven staan |
 | Delphi maakt geen groepen | `create_group(..., source="ai")` komt alleen in tests voor |
 | De sidebar kent geen groepen of signalen | `client.groupsOfDocument()` bestaat maar wordt door geen enkel component gebruikt |
-| Geen app-beheerde opslagroot | `config.py` `allowed_workspace_roots` + `paths.py` `assert_authorized_root`; development werkt alleen via `ALLOW_UNRESTRICTED_WORKSPACE_ROOTS` |
+| Geen app-beheerde opslagroot | **geregeld in Fase 1**: `effective_storage_root` en `effective_allowed_workspace_roots` in `config.py`. Een lege operatorlijst blijft leeg, want in development betekent leeg "alles toegestaan" en er zou anders één map overblijven |
 | Bevriezen is niet gedaan | `NavigationColumn.tsx` toont nog 10 secties, inclusief repos, inventory en pulse |
 
 ### Waar de oude plannen van uitgingen die niet meer klopten
@@ -65,6 +71,10 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 
 ## Fase 0 — Vastzetten (halve dag)
 
+**Status: klaar (2026-09-28).** `3c66257` → `ed43486`, zeven commits, `PulseItem.archived`
+verwijderd, plan in `docs/plan-basis.md`. Suite 598 passed / 8 skipped, `npm run build`
+schoon, gepusht naar `main`.
+
 Doel: een punt waarop terugvallen mogelijk is. Niets bouwen op een ongecommitte
 staat.
 
@@ -81,6 +91,9 @@ staat.
 `git status` geen werk meer verbergt.
 
 ## Fase 1 — Erin krijgen: drag & drop → Inbox (1–2 dagen)
+
+**Status: klaar (2026-09-28).** `services/storage.py`, `api/routes_inbox.py`,
+`InboxDropzone.tsx`, migratie `0010`, 37 nieuwe tests.
 
 Doel: tien bestanden van het bureaublad slepen en ze in Apollo kunnen lezen.
 
@@ -107,6 +120,31 @@ Doel: tien bestanden van het bureaublad slepen en ze in Apollo kunnen lezen.
 `Inbox/` staan, in de lijst verschijnen, openen in het leesvenster, en niets
 verplaatst of verwijderd is. Tests: happy path, verkeerd type, te groot, traversal
 in de bestandsnaam, naamconflict.
+
+**Wat er anders ging dan gepland, en waarom:**
+
+1. **De Inbox is een eigen repository, niet de geregistreerde map.** Het plan
+   legde de opslag in de bestaande docs-repository. Dat zou schrijven in een map
+   die van de lezer is, terwijl de regel is dat die map alleen via voorstellen
+   wordt geschreven. Gevolg: twee documentation-repositories per workspace, dus
+   een manier nodig om ze te onderscheiden. Migratie `0010` voegt
+   `repositories.is_storage` toe en `get_documentation_repository` slaat de
+   intake over — anders draaide een pulse- of inventory-run over de lege Inbox en
+   rapporteerde "niets gevonden" over het verkeerde.
+2. **Opslaan maakt de repository aan, opvragen niet.** `GET /inbox` op een
+   workspace die nog niets heeft geeft `repository_id: null` en een lege lijst,
+   en legt niets op schijf. Een workspace die alleen bekeken wordt hoort geen map
+   achter te laten.
+3. **Een onleesbaar bestand wordt bewaard en gemeld, niet geweigerd.** De bytes
+   zijn aangekomen; weggooien laat de lezer zonder bestand én zonder reden
+   achter. De response zegt `readable: false` met de reden erbij.
+4. **Alleen `Inbox/` wordt aangemaakt.** `Projecten/`, `Administratie/`,
+   `Referentie/` en `Archief/` blijven Fase 4.
+5. **De opdrachtregel is per bestand, niet per map.** Twaalf documenten samen
+   gedropt slagen of falen niet als één: elf opgeslagen en één geweigerd is een
+   beter resultaat dan niets, en de lezer moet zien welke welke was.
+6. **De Inbox is de eerste sectie, en de app start daar.** Een sessie begint met
+   iets toevoegen, niet met een lijst objecten doorlopen.
 
 ## Fase 2 — Delphi zegt wat het ziet (2–3 dagen)
 
@@ -210,7 +248,10 @@ daar staan; ze komen niet in de weg van de basisworkflow.
 
 ## Eerstvolgende stap
 
-Fase 1: `services/storage.py`, `routes_inbox.py` en `InboxDropzone.tsx`, zodat er
-voor het eerst echt iets in Apollo te gooien is.
+Fase 2 — Delphi zegt wat het ziet. `parse_signals` aansluiten op de bestaande
+pulse-motor (geen nieuwe LLM-infrastructuur), de signaalvorm uitbreiden met `why`
+zodat elke bewering een reden heeft, en de signalen in een eigen tabel
+`doc_signals` zetten zodat ze te volgen en te verbergen zijn. Plus de signaalbalk
+boven het leesvenster. Nog géén groepen.
 
 

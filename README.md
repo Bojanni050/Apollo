@@ -392,6 +392,42 @@ The inventory may create a target folder that does not exist yet (that is how
 the structure gets established), but a *manually* requested move into a
 non-existent folder is still refused, because that is more likely a typo.
 
+## The inbox
+
+Where documents come *from*. Drag them in from the desktop and they land in
+`<APOLLO_STORAGE_ROOT>/workspace_<id>/Inbox/`, a folder Apollo keeps for you and
+never empties.
+
+```
+plan   POST   /inbox/upload   -> store one dropped file
+read   GET    /inbox          -> what is waiting
+```
+
+Four decisions worth knowing, because each is a rule rather than an
+implementation detail:
+
+- **The intake is Apollo's folder, not yours.** A repository you registered is
+  read from, and written to only through the approval-gated proposal flow. A
+  drop zone is neither of those, so it gets a home of its own
+  (`APOLLO_STORAGE_ROOT`, `./apollo_storage` by default). It is registered as a
+  documentation repository of its own, marked `is_storage` — which is how a scan
+  tells your documentation from your intake, and why a workspace holding only an
+  inbox reports "no documentation repository" instead of analysing an empty
+  folder and calling it "nothing found".
+- **Listing creates nothing.** The first *upload* is what creates the storage
+  repository; opening a workspace must not put a folder on disk.
+- **Nothing is overwritten and nothing is removed.** A name that is taken gets a
+  number (`verslag.md`, then `verslag-2.md`) — the alternative to a second copy is
+  a lost first document. There is no delete route here, and no `unlink` in the
+  service.
+- **A file Apollo cannot read is still kept.** It is stored and reported as
+  unreadable, because the bytes arrived and discarding them would leave you with
+  neither the document nor a reason.
+
+Markdown, text, PDF and Word, up to 25 MB — the same ceiling as reading, so a
+document that can be stored can always be opened. Anything else is refused with a
+message that names the accepted formats.
+
 ## Groups
 
 The arrangement. A **group** is a named cluster of documents that exist only in
@@ -513,12 +549,14 @@ backend/
       deps.py           workspace/repository resolution + Git status
       routes_workspaces.py
       routes_documents.py
+      routes_inbox.py
       routes_proposals.py
       routes_chat.py
       routes_inventory.py
     services/
       paths.py          PATH SANDBOX â€” security boundary
       documents.py      read-only document access
+      storage.py        where documents dropped in on the inbox are kept
       search.py         lexical search (no vector store, by design)
       git.py            read-only Git helpers
       proposals.py      planning + the single apply path
@@ -539,6 +577,7 @@ frontend/
     components/
       NavigationColumn.tsx      left: sections, workspace switcher, counts
       GroupsBoard.tsx          centre: the arrangement, with drag and drop
+      InboxDropzone.tsx        centre: drop files from the desktop
       FolderContentsColumn.tsx centre: the object list for a section
       FileContentColumn.tsx    right: the selected object
       ContextSidebar.tsx       far right: chat, proposals, inventory
