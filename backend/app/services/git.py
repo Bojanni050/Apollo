@@ -1,9 +1,16 @@
-"""Thin, read-only Git helpers.
+"""Thin Git helpers.
 
-Only a fixed set of non-destructive commands is ever constructed here, each
-with an argument list (never a shell string), so an AI-generated value can
-never become a shell command. Nothing in this module commits, checks out,
-resets, or otherwise mutates history.
+Read-only by default: only a fixed set of non-destructive commands is ever
+constructed here, each with an argument list (never a shell string), so an
+AI-generated value can never become a shell command. Nothing here checks out,
+resets, or otherwise rewrites history.
+
+The single exception is :func:`commit_paths`, added because the write path
+refuses to overwrite a document Git does not track -- correctly, since the
+original would be unrecoverable -- and a repository with no commits yet had no
+way out of that refusal from inside the app. It is deliberately narrow: an
+explicit list of paths, no ``-A``/``.`` wildcards, no amend, no push, and the
+caller states which paths it wants recorded.
 """
 from __future__ import annotations
 
@@ -115,6 +122,56 @@ def is_tracked(repo: str | Path, path: str) -> bool:
         return True
     except GitError:
         return False
+
+
+def untracked_paths(repo: str | Path) -> list[str]:
+    """Every file in the working tree that Git does not track yet.
+
+    Used to offer "commit these" where a refusal would otherwise be a dead end.
+    Includes ignored files? No -- ``--others`` without ``--exclude-standard``
+    would list node_modules and build output, which nobody wants committed by
+    accident. Standard exclusions apply, so this is the set a human would stage.
+    """
+    out = _run(repo, ["ls-files", "--others", "--exclude-standard"])
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+# ---------------------------------------------------------------------------
+# Recording the current state
+# ---------------------------------------------------------------------------
+
+
+def commit_paths(repo: str | Path, paths: list[str], message: str) -> str | None:
+    """Stage exactly ``paths`` and commit them. Returns the new revision.
+
+    This is the one function here that writes history, and the narrowness is
+    the whole point:
+
+    * only the given paths are staged -- never ``-A``/``.``, so committing the
+      open document cannot quietly sweep in a build directory or a stray editor
+      backup;
+    * no ``--amend``, so an existing commit is never rewritten;
+    * no ``push``, so nothing leaves the machine;
+    * a message is required, so no commit is ever left with Git's default
+      "Update file" prose.
+
+    Returns None when there is nothing to commit -- the caller treats that as
+    "already recorded" rather than as a failure, because the user's intent
+    (keep the original recoverable) is satisfied either way.
+    """
+    if not paths:
+        return None
+    if not message.strip():
+        raise GitError("A commit needs a message.")
+
+    # `--` before the paths ends option parsing, so a path beginning with a dash
+    # is a path and not a flag.
+    _run(repo, ["add", "--", *paths])
+    staged = _run(repo, ["diff", "--staged", "--name-only"])
+    if not staged.strip():
+        return None
+    _run(repo, ["commit", "--quiet", "-m", message, "--", *paths])
+    return head_revision(repo)
 
 
 # ---------------------------------------------------------------------------

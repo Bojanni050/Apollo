@@ -1,11 +1,20 @@
 """Workspace and repository configuration endpoints."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_repository, get_workspace, repository_status, resolve_repo_root
+from app.api.deps import (
+    get_documentation_repository,
+    get_repository,
+    get_workspace,
+    repository_status,
+    resolve_repo_root,
+)
 from app.config import settings
 from app.db import get_db
 from app.models import Repository, Workspace
@@ -18,7 +27,7 @@ from app.schemas import (
     WorkspaceUpdate,
 )
 from app.services import git
-from app.services.paths import PathSecurityError, assert_authorized_root
+from app.services.paths import PathSecurityError, assert_authorized_root, safe_path
 
 router = APIRouter(tags=["workspaces"])
 
@@ -173,3 +182,104 @@ def remove_repository(
     db.delete(get_repository(db, workspace_id, repository_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class RepoCommitIn(BaseModel):
+    """Ask the backend to record documents in Git.
+
+    The write path refuses to overwrite a document Git does not track, because
+    the original would be unrecoverable. On a repository with no commits yet that
+    refusal had no way out from inside the app, so this offers the missing step
+    -- explicitly, never as a side effect of a suggestion being accepted.
+    """
+
+    message: str = "Record current documentation state"
+    #: Empty means "every untracked file that Git would not ignore". It is
+    #: expanded to an explicit list server-side rather than passed to git as -A,
+    #: so the set that gets committed is always visible before it happens.
+    paths: list[str] = Field(default_factory=list)
+
+
+class RepoCommitOut(BaseModel):
+    committed: list[str]
+    #: None when everything was already recorded, which is a success, not a fault.
+    revision: str | None
+    untracked_remaining: list[str] = Field(default_factory=list)
+
+
+@router.post(
+    "/workspaces/{workspace_id}/repositories/commit",
+    response_model=RepoCommitOut,
+)
+def commit_repository_documents(
+    workspace_id: int,
+    payload: RepoCommitIn,
+    db: Session = Depends(get_db),
+) -> RepoCommitOut:
+    """Record untracked documentation in Git, so writes stop being refused.
+
+    Every write Apollo makes goes through a guard that refuses to overwrite a
+    document Git does not track, because the original would be unrecoverable.
+    That guard is right, and it is also a dead end on a repository whose first
+    commit has not been made yet -- the app could show the refusal but not offer
+    the missing step. This is that step, and deliberately:
+
+    * only the *documentation* repository is affected; a source repository is
+      evidence and stays read-only;
+    * the root is re-validated through ``assert_authorized_root`` here rather
+      than trusting the stored path, because this call runs git on it;
+    * the set of paths goes through ``safe_path``, so a caller cannot name
+      something outside the repository and have git stage it;
+    * nothing is pushed and no commit is rewritten.
+    """
+    repo = get_documentation_repository(db, workspace_id)
+    if not repo.writable:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This documentation repository is not writable, so it cannot be committed to.",
+        )
+
+    root = resolve_repo_root(repo)
+    try:
+        # Not a mere existence check: a path outside the authorized roots must be
+        # refused even if it happens to resolve to a real directory. Re-validated
+        # with the same arguments as registration, since this call runs git.
+        assert_authorized_root(
+            root,
+            settings.allowed_workspace_roots,
+            allow_unrestricted=settings.unrestricted_workspace_roots,
+        )
+    except PathSecurityError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+
+    if not git.is_repo(root):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This documentation folder is not a Git repository, so originals cannot be preserved.",
+        )
+
+    def _rel(p: Path) -> str:
+        return str(p.relative_to(root)).replace("\\", "/")
+
+    try:
+        if payload.paths:
+            candidates = [safe_path(root, p) for p in payload.paths]
+        else:
+            candidates = [safe_path(root, p) for p in git.untracked_paths(root)]
+
+        if not candidates:
+            # Nothing untracked: the originals are already recoverable, which is
+            # the state the caller wanted. Not an error.
+            return RepoCommitOut(
+                committed=[], revision=git.head_revision(root), untracked_remaining=[]
+            )
+
+        revision = git.commit_paths(root, [_rel(c) for c in candidates], payload.message)
+    except (PathSecurityError, git.GitError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    return RepoCommitOut(
+        committed=[_rel(c) for c in candidates],
+        revision=revision,
+        untracked_remaining=git.untracked_paths(root),
+    )
