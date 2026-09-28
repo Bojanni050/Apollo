@@ -132,6 +132,14 @@ class Workspace(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    #: The folder the reader chose to work in, and where their intake lives.
+    #:
+    #: Null means no choice was made, and then everything falls back to Apollo's
+    #: own storage -- which is the behaviour this project shipped with, kept so a
+    #: workspace that never chose anything behaves exactly as before. A chosen
+    #: folder is stored absolute and resolved, because a path that means something
+    #: different after a move is worse than no choice at all.
+    working_dir: Mapped[str | None] = mapped_column(Text)
 
     repositories: Mapped[list[Repository]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan"
