@@ -32,7 +32,7 @@ from app.llm.context import (
     history_turns,
 )
 from app.models import Conversation, Message, Repository
-from app.prompts import system_prompt
+from app.prompts import DocumentFocus, system_prompt
 from app.services.tools import ToolContext, run_tool, tool_schemas
 
 logger = logging.getLogger("apollo")
@@ -63,6 +63,7 @@ class Agent:
         conversation: Conversation,
         user_message: str,
         repositories: list[Repository],
+        focus: DocumentFocus | None = None,
     ) -> AgentResult:
         # Persist the user's turn first so the transcript survives a provider
         # failure or a dropped connection.
@@ -83,7 +84,7 @@ class Agent:
             db=db,
         )
 
-        system = system_prompt(conversation.mode)
+        system = system_prompt(conversation.mode, focus)
         tools = tool_schemas([r.name for r in repositories])
         budget = self._budget()
         executed: list[dict[str, Any]] = []

@@ -1,8 +1,28 @@
-"""System prompts per conversation mode.
+from __future__ import annotations
 
-The prompts encode the product's core discipline: the AI is a thinking partner,
-and discussing a possibility is never the same as approving a decision.
-"""
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DocumentFocus:
+    """The document a question was asked from.
+
+    A pointer, never content. The agent still has to read the file through
+    `read_document`, which keeps the model citing what is actually on disk
+    rather than a summary handed to it by the client -- otherwise a stale
+    reading pane could be answered as if it were current.
+
+    `repository` is not decoration. `path` alone is repository-relative, and a
+    workspace can hold two repositories that both contain `architecture.md`.
+    Naming only the path would let the model read a different file than the one
+    on screen and cite it as this one. The repository name is what makes the
+    pointer resolvable to exactly one file.
+    """
+
+    path: str
+    title: str | None = None
+    repository: str | None = None
+
 
 BASE_PERSONA = """\
 You are the architectural thinking partner for Gaia, a software ecosystem made up \
@@ -94,5 +114,44 @@ MODE_PROMPTS = {
 VALID_MODES = tuple(MODE_PROMPTS)
 
 
-def system_prompt(mode: str) -> str:
-    return f"{BASE_PERSONA}\n\n{MODE_PROMPTS.get(mode, EXPLORE_MODE)}"
+DOCUMENT_FOCUS = """\
+DOCUMENT IN VIEW
+
+The reader is looking at this document right now:
+
+    {location}
+    {title}
+
+They asked you a question while reading it, so "this", "it" and "the above" in \
+their question mean this document and no other. Read it with `read_document` \
+before answering if you have not already -- the path alone tells you where to \
+look, not what it says.
+
+Anchor the answer to it: cite it by path, and say so plainly if the document \
+does not settle what they asked. If the question turns out to be about \
+something else, answer that instead rather than forcing it back onto this file.
+"""
+
+
+def system_prompt(mode: str, document: DocumentFocus | None = None) -> str:
+    """The system prompt for one turn.
+
+    `document` is the file the reader has open, when there is one. It is a
+    pointer, not a summary: naming the file lets the model resolve "this
+    document" without guessing which of several files is meant, which was the
+    whole point of the button that sends it.
+    """
+    parts = [BASE_PERSONA, MODE_PROMPTS.get(mode, EXPLORE_MODE)]
+    if document is not None:
+        parts.append(
+            DOCUMENT_FOCUS.format(
+                # The repository is what makes the path unambiguous. Quoting both
+                # in one line lets the model pass the pair straight to
+                # `read_document`, which is keyed on exactly these two values.
+                location=f"{document.repository}: {document.path}"
+                if document.repository
+                else document.path,
+                title=document.title or "(untitled)",
+            )
+        )
+    return "\n\n".join(parts)

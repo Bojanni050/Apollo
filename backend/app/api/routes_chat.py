@@ -3,24 +3,36 @@
 Conversations persist across restarts and stay bound to their workspace. Mode
 switching updates only the mode -- it never discards messages, so a discussion
 can move from Explore to Investigate to Apply without losing its context.
+
+A message may name the document the reader was looking at. That is a pointer,
+not content: it tells the model which file "this" means so it reads that file
+rather than guessing between several, and it is applied to that one turn. The
+document's text is not sent -- the agent has to read it through its own tools,
+so an answer is always grounded in what is on disk at the time.
+
+The pointer carries the repository as well as the path, because the path alone
+is repository-relative and cannot say which of two registered repositories a
+file belongs to.
 """
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_workspace
+from app.api.deps import get_workspace, resolve_repo_root
 from app.config import settings
 from app.db import get_db
 from app.llm import available_providers, get_provider, is_configured
 from app.llm.base import LLMError, LLMNotConfigured
 from app.llm.context import ContextBudgetError
 from app.models import Conversation, Message, OpenQuestion, Repository
-from app.prompts import VALID_MODES
+from app.prompts import VALID_MODES, DocumentFocus
+from app.services.paths import PathSecurityError, safe_path, to_rel_path
 from app.schemas import (
     ChatStatusOut,
     ConversationCreate,
@@ -31,6 +43,7 @@ from app.schemas import (
     SendMessageOut,
 )
 from app.services.agent import Agent
+from app.services.documents import DOC_SUFFIXES, TEXT_DOC_SUFFIXES
 
 logger = logging.getLogger("apollo")
 
@@ -60,6 +73,92 @@ def _validate_mode(mode: str) -> None:
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"Unknown mode {mode!r}. Valid modes: {', '.join(VALID_MODES)}.",
         )
+
+
+def _resolve_focus(
+    db: Session,
+    workspace_id: int,
+    repositories: list[Repository],
+    document_path: str | None,
+) -> DocumentFocus | None:
+    """Turn a client-supplied path into a validated focus pointer, or None.
+
+    The path comes from the browser, so it is treated as untrusted input and
+    resolved the same way any other repository path is: through
+    :func:`safe_path`, against a repository this workspace has actually
+    registered. A path that escapes the root, names a directory, is not a
+    format the agent can read, does not exist, or lives in no registered
+    repository is refused with a 400 rather than quietly dropped -- the reader
+    asked a question about a specific file, and answering it about a different
+    file is the failure this prevents.
+
+    The resolved repository name travels with the path. The path alone is
+    repository-relative, so two registered repositories that both hold
+    ``architecture.md`` would otherwise resolve to whichever was tried first,
+    and the model would read a different file than the one on screen.
+
+    Documentation repositories are tried first, then the others in id order, so
+    a workspace with both a docs repo and source repos resolves the common case
+    without ambiguity.
+    """
+    if not document_path or not document_path.strip():
+        return None
+
+    candidate = document_path.strip().replace("\\", "/")
+    ordered = sorted(repositories, key=lambda r: (r.kind != "documentation", r.id))
+
+    for repo in ordered:
+        try:
+            root = resolve_repo_root(repo)
+            target = safe_path(root, candidate)
+        except (HTTPException, PathSecurityError):
+            # An unauthorized root or an escaping path: this repository cannot
+            # serve it. Try the next one, and refuse if none can.
+            continue
+        if not target.is_file():
+            continue
+        # The same set `read_document` accepts. Without this the focus could name
+        # a file the agent is then unable to read -- a .py, a .png -- which
+        # reintroduces exactly the "answering about a different file" failure
+        # this function exists to prevent.
+        if target.suffix.lower() not in DOC_SUFFIXES:
+            continue
+        return DocumentFocus(
+            path=to_rel_path(root, target),
+            title=_title_of_path(target),
+            repository=repo.name,
+        )
+
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        f"{candidate!r} is not a readable document in this workspace's repositories.",
+    )
+
+
+def _title_of_path(target: Path) -> str | None:
+    """The document's own first heading, for the prompt.
+
+    Read cheaply and best-effort: an unreadable file still has a valid path, and
+    the path is what the model needs. A missing title is a worse prompt, not an
+    error.
+
+    Only text documents are read. A PDF or DOCX decoded as UTF-8 with
+    replacement characters yields a title of mojibake, which is worse than no
+    title at all -- it puts a confident-looking wrong string in the prompt.
+    """
+    if target.suffix.lower() not in TEXT_DOC_SUFFIXES:
+        return None
+    try:
+        head = target.read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return None
+    for line in head.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            title = stripped.lstrip("#").strip()
+            if title:
+                return title
+    return None
 
 
 @router.get("/chat/status", response_model=ChatStatusOut)
@@ -183,6 +282,12 @@ def send_message(
     """Send a message and run the agent to completion.
 
     The agent holds read-only tools only; it cannot modify any file.
+
+    `document_path` names the file the reader had open. It is validated against
+    the workspace's own repositories before use, and a path that does not
+    resolve is refused rather than passed on: a focus pointer the agent cannot
+    follow is worse than none, because the model would then answer "this
+    document" from a guess.
     """
     conversation = _get_conversation(db, workspace_id, conversation_id)
     if conversation.archived:
@@ -197,6 +302,8 @@ def send_message(
             "This workspace has no repositories registered, so there is nothing to discuss.",
         )
 
+    focus = _resolve_focus(db, workspace_id, repositories, payload.document_path)
+
     # Only now check the provider: a workspace with nothing to discuss is a
     # workspace problem (409), not a missing-LLM problem (503).
     try:
@@ -208,7 +315,7 @@ def send_message(
 
     before = set(db.scalars(select(Message.id).where(Message.conversation_id == conversation.id)))
     try:
-        Agent(provider).run(db, conversation, payload.content, list(repositories))
+        Agent(provider).run(db, conversation, payload.content, list(repositories), focus)
     except ContextBudgetError as exc:
         # The request could not be made to fit the configured context window.
         # That is the user's situation to fix (shorter message, or a model with

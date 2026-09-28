@@ -1,6 +1,8 @@
 """API tests for the chat endpoints, with the LLM provider mocked."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -155,3 +157,255 @@ def test_workspace_without_repositories_cannot_chat(client: TestClient) -> None:
     response = client.post(f"{base}/{cid}/messages", json={"content": "hi"})
     assert response.status_code == 409
     assert "repositories" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# The document in view
+#
+# "Ask about this document" was a button that opened a chat window and nothing
+# more: the path never left the browser, so "this document" meant whatever the
+# model decided it meant. These pin the part that had to change.
+# ---------------------------------------------------------------------------
+
+
+def _system_text(provider: ScriptedProvider) -> str:
+    return " ".join(m.get("content", "") for m in provider.calls[0] if m.get("role") == "system")
+
+
+def test_a_named_document_reaches_the_system_prompt(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "what does this assume?", "document_path": "notes.md"},
+    )
+    system = _system_text(provider)
+    assert "notes.md" in system
+    assert "DOCUMENT IN VIEW" in system
+
+
+def test_the_focus_names_the_documents_own_title(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    # The path alone says where to look; the title says what the reader is
+    # looking at, which is what makes the difference between "this document" and
+    # whichever of the forty similar files the model would otherwise pick.
+    # The fixture file is headed "# Memory component", not "memory.md".
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(
+        f"{base}/{cid}/messages",
+        json={
+            "content": "why?",
+            "document_path": "architecture/components/memory.md",
+        },
+    )
+    assert "Memory component" in _system_text(provider)
+
+
+def test_no_document_means_no_focus(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(f"{base}/{cid}/messages", json={"content": "general question"})
+    assert "DOCUMENT IN VIEW" not in _system_text(provider)
+
+
+def test_the_focus_is_a_pointer_and_not_the_documents_text(
+    client: TestClient, workspace: dict, mock_llm, doc_repo
+) -> None:
+    # The file's contents are deliberately NOT sent. The agent has to read it
+    # through read_document, so an answer is grounded in what is on disk rather
+    # than in a copy the reading pane may be holding stale.
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "read it", "document_path": "notes.md"},
+    )
+    secret_line = (doc_repo / "notes.md").read_text(encoding="utf-8").splitlines()[0]
+    assert secret_line not in _system_text(provider)
+
+
+def test_a_document_path_that_does_not_exist_is_refused(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    # A focus the agent cannot follow is worse than none: the model would answer
+    # "this document" from a guess while the reader believed it had been named.
+    mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "what does this say?", "document_path": "nope/missing.md"},
+    )
+    assert response.status_code == 400
+    assert "nope/missing.md" in response.json()["detail"]
+
+
+def test_a_document_path_escaping_the_repository_is_refused(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "read this", "document_path": "../../../etc/passwd"},
+    )
+    assert response.status_code == 400
+
+
+def test_a_directory_is_not_a_document(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "read this", "document_path": "architecture"},
+    )
+    assert response.status_code == 400
+
+
+def test_the_conversation_records_the_question_not_the_focus(
+    client: TestClient, workspace: dict, mock_llm, session
+) -> None:
+    """The transcript stays the reader's own words.
+
+    The focus is a per-turn instruction to the model, not something the reader
+    said. Prepending it to the stored message would put text in their mouth in
+    every later export.
+    """
+    from app.models import Message
+
+    mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "what does this assume?", "document_path": "notes.md"},
+    )
+    rows = session.query(Message).filter_by(conversation_id=cid, role="user").all()
+    assert [m.content for m in rows] == ["what does this assume?"]
+
+
+def test_the_focus_names_the_repository_the_path_belongs_to(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """A repository-relative path is not a file until you say which repository.
+
+    Both fixtures hold a README.md, so "README.md" alone names two different
+    files. The prompt has to carry the one the reader actually had open,
+    otherwise the model resolves "this document" to whichever it looks at first
+    and cites that as the thing on screen.
+    """
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "what does this assume?", "document_path": "README.md"},
+    )
+    system = _system_text(provider)
+    # gaia-docs is registered first and is the documentation repository, so
+    # that is the one this path must resolve to -- and it must be named.
+    assert "gaia-docs: README.md" in system
+    assert "gaia-service" not in system
+
+
+def test_a_path_that_exists_only_in_another_repository_names_that_repository(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """Resolution keeps looking, and reports the repository it landed in.
+
+    `src/memory.py` is not a document, but the point here is the repository
+    attribution: the file lives in the source repository, so that is the name
+    that must accompany the path.
+    """
+    provider = mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    # README.md exists in both repositories; name one that does not, so the
+    # assertion is about attribution rather than about first-match ordering.
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "read it", "document_path": "docs/only-here.md"},
+    )
+    assert response.status_code == 400
+
+    # And the documented repository does resolve, with its own name attached.
+    client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "and this", "document_path": "notes.md"},
+    )
+    assert "gaia-docs: notes.md" in _system_text(provider)
+
+
+def test_a_file_the_agent_cannot_read_is_not_accepted_as_a_focus(
+    client: TestClient, workspace: dict, mock_llm
+) -> None:
+    """A focus must be followable.
+
+    `src/memory.py` exists, is inside a registered repository, and is not a
+    directory -- so before the suffix check it was accepted. But `read_document`
+    refuses it, so the model would be told to read a file its only tool cannot
+    open: the prompt would name a document and the answer would come from a
+    guess. Refusing up front is the same rule as refusing a missing path.
+    """
+    mock_llm([LLMResponse(content="ok")])
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "what does this do?", "document_path": "src/memory.py"},
+    )
+    assert response.status_code == 400
+    assert "src/memory.py" in response.json()["detail"]
+
+
+def test_a_binary_document_gets_no_title_rather_than_mojibake(
+    client: TestClient, workspace: dict, mock_llm, doc_repo: Path
+) -> None:
+    """A PDF is a valid focus, but its bytes are not a heading.
+
+    Decoding a PDF as UTF-8 with replacement characters produces a confident,
+    wrong "title" in the system prompt. The path is still enough to identify
+    the file, so the title is simply omitted for non-text documents.
+    """
+    provider = mock_llm([LLMResponse(content="ok")])
+    pdf = doc_repo / "whitepaper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\ntrailer\n")
+
+    base = f"/api/workspaces/{workspace['id']}/conversations"
+    cid = client.post(base, json={}).json()["id"]
+
+    response = client.post(
+        f"{base}/{cid}/messages",
+        json={"content": "summarise this", "document_path": "whitepaper.pdf"},
+    )
+    assert response.status_code == 201
+    system = _system_text(provider)
+    assert "whitepaper.pdf" in system
+    assert "(untitled)" in system
+    # The replacement character is what a mis-decoded binary looks like.
+    assert "\ufffd" not in system
