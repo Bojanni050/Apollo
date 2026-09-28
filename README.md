@@ -502,13 +502,14 @@ different question.
 
 ## Groups
 
-The arrangement. A **group** is a named cluster of documents that exist only in
-the database — a view, not a folder.
+The arrangement. A **group** is a named cluster of documents. Most are a view
+in the database; a group may also name a **folder**, and that is the one thing
+here that has a consequence on disk.
 
 ```
 list   GET    /groups                            -> every group, archive last
 make   POST   /groups                            -> an empty group
-edit   PATCH  /groups/{id}                       -> rename, re-describe
+edit   PATCH  /groups/{id}                       -> rename, re-describe, set the folder
 drop   DELETE /groups/{id}                       -> the view, never the files
 
 open   GET    /groups/{id}/documents
@@ -519,15 +520,37 @@ move   POST   /groups/move                       -> between groups, one request
 where  GET    /documents/groups?repository_id=&path=
 ```
 
-**No operation here moves a file.** Not one, and not as a side effect: the
-service that implements them has no filesystem call in it. Dragging rearranges
-the view; the folders on disk stay where they are and stay reviewable in Git.
+**A group without a folder moves nothing.** Not as a side effect: the service
+behind these endpoints has no filesystem call in it. Dragging rearranges the
+view, and the folders on disk stay where they are and stay reviewable in Git.
 That separation is what makes the arrangement safe to edit constantly — you are
 not asking the reader to trust a move before they correct a grouping.
 
-There is deliberately **no endpoint that deletes a document**. Deleting a group
-removes the view; every file it held is untouched, on disk and readable. The
-test suite asserts this against the route table rather than trusting review, so
+**A group *with* a folder proposes one.** Putting a document into it does not
+move the file; it files a **proposal** naming where the document would go, and
+the move happens only when you accept it. The response carries the proposal's id
+so the board can say so immediately. The folder itself is created by accepting,
+so a group nobody has filed anything into has no directory — which is correct.
+
+A move re-points everything that named the old path: group memberships, the
+signals about that document, signals that *referenced* it, the search index and
+the pulse findings. A placement left on the old path is a card that opens to an
+error, and that is indistinguishable from a lost document.
+
+The folder is written down by you and never derived from the group's name — a
+Delphi group with a generated name should not become a generated directory. It
+is one plain name, one level, and `Inbox` is refused. Clearing it is an explicit
+`null`, so a rename never wipes a folder you set up.
+
+The **archive** is a group that stands for the fixed folder `Archief`, and it
+cannot be pointed anywhere else. Archiving is therefore a move with the same
+approval as any other, which is what keeps it from becoming the way around the
+rule below.
+
+**No operation here deletes a document.** Not one, and not as a side effect.
+Deleting a group removes the view; every file it held is untouched, on disk and
+readable. The test suite asserts this against the route table rather than
+trusting review, so
 a future route that could remove a document fails the build.
 
 **A document can be in several groups at once.** That is not a contradictory

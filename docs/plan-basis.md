@@ -55,13 +55,13 @@ knowledge graph, pipeline of agent; die blijven onder de motorkap.
 | Gat | Bewijs |
 | --- | --- |
 | Upload en Inbox | **geregeld in Fase 1** — zie hierboven |
-| Alleen `Inbox/` bestaat fysiek | `Projecten/`, `Administratie/`, `Referentie/` en `Archief/` komen in Fase 4; een lege map per categorie is een bewering die de lezer niet heeft gedaan |
+| Alleen `Inbox/` bestaat fysiek | **geregeld in Fase 4** — een map ontstaat pas als je een voorstel accepteert; `Projecten/`, `Administratie/` en `Referentie/` worden daarom niet aangemaakt, alleen `Archief/` als je iets archiveert. Een lege map per categorie is een bewering die de lezer niet heeft gedaan |
 | De signaal-motor wordt nooit aangeroepen | **geregeld in Fase 2** — `services/delphi.py` roept het model zelf, via het bestaande budget en de bestaande woordenschat |
 | Signalen zijn onzichtbaar in de API | **geregeld in Fase 2** — `/signals` per document, per groep, plus `/signals/count` voor de teller |
 | Geen reden per signaal | **geregeld in Fase 2** — `why` is verplicht; zonder reden wordt de bevinding bij de grens weggegooid |
 | Geen dismiss-status | **geregeld in Fase 2** — `doc_signals.status`; een weggezette bevinding blijft weggezet na een nieuwe pass |
 | Nog geen groepen uit de analyse | **geregeld in Fase 3** — `services/delphi_grouping.py`; één knop doet signalen én groepen |
-| Archiveren doet nog niets met een map | Fase 4: het signaal is er, de actie niet — nog bewust |
+| Archiveren doet nog niets met een map | **geregeld in Fase 4** — het archief is een groep die voor de vaste map `Archief` staat, en archiveren levert een move-voorstel dat je accepteert. Het is dus nog steeds geen delete: het bestand blijft leesbaar tot je ja zegt |
 | Delphi maakt geen groepen | **geregeld in Fase 3** — `create_group(..., source="ai")` wordt nu door de analyse zelf geschreven, niet alleen door tests |
 | De sidebar kent geen groepen of signalen | **geregeld in Fase 5** — `GroupPanel` toont leden en bevindingen van de gekozen groep; een document toont "BELONGS TO". Chat stond al op de tweede plek, dus al secundair |
 | Geen app-beheerde opslagroot | **geregeld in Fase 1**: `effective_storage_root` en `effective_allowed_workspace_roots` in `config.py`. Een lege operatorlijst blijft leeg, want in development betekent leeg "alles toegestaan" en er zou anders één map overblijven |
@@ -256,29 +256,58 @@ bewijzen niet dragen. De pass mag falen zonder de bevindingen mee te nemen.
 gewone namen en elk lid met een reden; één foute groep met één drag gecorrigeerd
 is en gecorrigeerd blijft na opnieuw analyseren.
 
-## Fase 4 — Fysiek & archief (1–2 dagen) — **voorbereiding af, mappingen nog niet**
+## Fase 4 — Fysiek & archief — **afgerond**
 
-- De eerste toewijzing aan een groep levert een **voorstel** via
+- Een groep kan een **map** noemen (`document_groups.folder`, migratie `0013`).
+  Toewijzen aan zo'n groep levert een **voorstel** via
   `plan_move(..., allow_missing_dir=True)`, geaccepteerd in het bestaande
   voorstellenscherm. Daarna is de map stabiel en zijn latere groepsveranderingen
   visueel.
-- Archiveren is naar de `Archief`-groep plus een voorstel om fysiek naar
-  `Archief/` te gaan: één woord, één constante (`ARCHIVE_CATEGORY`).
+- Het archief is een groep die voor de vaste map `Archief` staat, en archiveren
+  levert hetzelfde voorstel. Eén woord, één constante (`ARCHIVE_CATEGORY`).
 - Geen delete-endpoint en geen `unlink` in nieuwe code.
 
 **Klaar als:** archiveren bewaart, de verplaatsing als voorstel verschijnt, weigeren
 alles ongemoeid laat, en alleen de aangeboden move in `git status` staat.
 
-**Drie beslissingen, alle drie van de gebruiker:**
-1. Eén map per groep, met de groepsnaam (`Planning 2026` → `Planning 2026/`), en
-   het archief als `Archief/`. Geen categorie-veld, geen extra UI.
-2. De app-opslag wordt een Git-repository: één initiële commit, en één commit per
-   geaccepteerde move. Zonder dat weigert `apply_change` élke verplaatsing van een
-   Inbox-bestand, en die weigering is terecht.
-3. Een map toevoegen is een **kopie**. De bronmap wordt nooit geschreven.
+**Waar het plan van afweek, en waarom:**
 
-**Wat klaarstaat:** stap 3, de map-import, en stap 1 en 2, de werkmap die de
-gebruiker kiest. De groepsmappen en de move-voorstellen kunnen pas daarna.
+1. **De map is een apart veld, niet de groepsnaam.** Het plan wilde
+   `Planning 2026` → `Planning 2026/`. Een map is dan iets wat de *generator*
+   beslist, dus elke groep die Delphi voorstelt krijgt automatisch een map — en
+   een gegenereerde naam is bij benadering de naam die jij had willen typen, dus
+   de eerste plaatsing maakt hem aan met iets dat je niet hebt getypt. Nu schrijf
+   je hem zelf neer, één keer, en hij is nullable. Een groep zonder map is dus
+   gewoon een weergave — wat de meeste groepen zijn.
+2. **Een move herwijst alles wat het oude pad kende.** Het plan had het over
+   place_document; in de praktijk noemt vijf tabellen een document bij zijn pad
+   (placements, signalen, signalen die ernaar verwijzen, de zoekindex, de
+   pulse-bevindingen). Alleen de placement herwijzen laat de andere vier op een
+   pad wijzen dat niet meer bestaat, en dat is op het bord niet te onderscheiden
+   van een verdwenen document. Zie `repoint_after_move`.
+3. **De zoekindex-sleutel wordt herberekend, niet alleen het pad meegenomen.**
+   `DocumentChunk.identifier` is een hash over pad, sectie en inhoud, met een
+   unieke-constraint erop. Alleen `file_path` meenemen laat een rij achter waar
+   de eigen sleutel niet meer bij hoort, en de volgende indexerun zet er een
+   tweede rij naast in plaats van hem bij te werken.
+4. **`CodeChunk` is met opzet niet meegenomen.** Die hoort bij bronrepositories,
+   die nooit schrijfbaar zijn; er kan dus geen move tegen worden ingediend.
+5. **Het archief krijgt zijn map in `create_group`, niet in
+   `get_or_create_archive` alleen.** Anders bestaan er twee manieren om een
+   archief te maken en heeft de ene geen map — en een archief zonder map gedraagt
+   zich als een gewone weergave: archiveren levert dan geen voorstel en het
+   bestand verhuist nooit.
+6. **`/groups/move` geeft 200 met een body in plaats van 204.** De response moet
+   kunnen zeggen of er een voorstel is blijven liggen; dat is het enige wat een
+   sleepactie niet mag laten raden.
+
+**Bestaande beslissingen, ongewijzigd:** de app-opslag is een Git-repository met
+een commit per geaccepteerde move (`commit_paths` bestond al), en een map
+toevoegen blijft een kopie die de bronmap niet aanraakt.
+
+**Wat er daarna nog ontbreekt:** de lezer kiest nog geen Git-repo; de werkmap
+wordt bij het kiezen al als repo aangemaakt, maar er staat nog geen knop om een
+bestaande map daarna aan Apollo over te dragen.
 
 ### De werkmap (klaar)
 
