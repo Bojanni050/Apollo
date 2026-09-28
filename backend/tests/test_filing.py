@@ -283,6 +283,72 @@ def test_accepting_moves_the_file_and_creates_the_folder(
     )
 
 
+def test_only_the_offered_move_ends_up_in_git_status(
+    client: TestClient, workspace: dict, doc_repo: Path
+) -> None:
+    """The last acceptance criterion of this phase, and the one that catches a
+    move that quietly takes something with it.
+
+    An accepted move must leave Git showing exactly one change: the document gone
+    from the old path and present at the new one. Anything else in that status --
+    another file, an edited document, a stray file swept in by a broad ``add`` --
+    is a change nobody proposed and nobody accepted. The repository here has four
+    other documents, so a move that swept them in would be caught.
+    """
+    from app.services import git
+
+    base = _base(workspace)
+    repo = _doc_repo_id(workspace)
+    gid = client.post(base, json={"name": "Notities", "folder": "Notities"}).json()["id"]
+    proposal_id = client.post(
+        f"{base}/{gid}/documents", json={"repository_id": repo, "path": "notes.md"}
+    ).json()["proposal_id"]
+
+    # Nothing pending before the acceptance, so anything in the status afterwards
+    # was caused by it.
+    assert not git.status(doc_repo)
+
+    client.post(f"/api/workspaces/{workspace['id']}/proposals/{proposal_id}/accept")
+
+    paths = {e.path for e in git.status(doc_repo)}
+    # The old path is gone and the new one is there; nothing else moved.
+    assert "notes.md" in paths, f"the old path should show as removed: {sorted(paths)}"
+    assert "Notities/notes.md" in paths, f"the new path is missing: {sorted(paths)}"
+    assert paths <= {"notes.md", "Notities/notes.md"}, (
+        "the move touched something it was not offered: " f"{sorted(paths)}"
+    )
+    # And the other documents are untouched, by name.
+    for untouched in (
+        "README.md",
+        "foundation/principles.md",
+        "architecture/overview.md",
+    ):
+        assert untouched in paths or (doc_repo / untouched).is_file()
+
+
+def test_a_declined_move_leaves_git_status_empty(
+    client: TestClient, workspace: dict, doc_repo: Path
+) -> None:
+    """Declining is not a partial acceptance.
+
+    The repository is left exactly as it was found, which in Git's own words means
+    an empty status -- not a move half done, and not the folder created empty.
+    """
+    from app.services import git
+
+    base = _base(workspace)
+    gid = client.post(base, json={"name": "Notities", "folder": "Notities"}).json()["id"]
+    proposal_id = client.post(
+        f"{base}/{gid}/documents",
+        json={"repository_id": _doc_repo_id(workspace), "path": "notes.md"},
+    ).json()["proposal_id"]
+
+    client.post(f"/api/workspaces/{workspace['id']}/proposals/{proposal_id}/reject")
+
+    assert not git.status(doc_repo), "declining left something behind"
+    assert not (doc_repo / "Notities").exists(), "declining created the folder anyway"
+
+
 def test_the_group_follows_the_document_to_its_new_path(
     client: TestClient, workspace: dict, doc_repo: Path
 ) -> None:
