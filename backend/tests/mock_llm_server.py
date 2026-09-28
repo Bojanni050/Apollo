@@ -9,6 +9,7 @@ Run:  python mock_llm_server.py [port]
 from __future__ import annotations
 
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -103,6 +104,46 @@ def _inventory_reply(user_content: str) -> dict:
     }
 
 
+def _signals_reply(user_content: str) -> dict:
+    """A Delphi pass, built from the paths in the request.
+
+    The findings themselves are fixed on purpose: this fixture exists to exercise
+    the real HTTP path end to end, not to be clever about what a model would say.
+    The paths are read out of the request so the references resolve to documents
+    that exist, which is what the application validates them against.
+    """
+    paths = sorted(set(re.findall(r'"path": "([^"]+)"', user_content)))
+    if len(paths) < 2:
+        return {"documents": [{"path": path, "signals": []} for path in paths]}
+    older, newer = paths[0], paths[1]
+    return {
+        "documents": [
+            {
+                "path": older,
+                "signals": [
+                    {
+                        "kind": "outdated",
+                        "reference": newer,
+                        "why": f"{newer} states a later date than {older} does.",
+                    }
+                ],
+                "confidence": 0.9,
+            },
+            {
+                "path": newer,
+                "signals": [
+                    {
+                        "kind": "new",
+                        "reference": None,
+                        "why": "It covers a subject nothing else in the collection mentions.",
+                    }
+                ],
+                "confidence": 0.6,
+            },
+        ]
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # silence request logging
         pass
@@ -113,6 +154,13 @@ class Handler(BaseHTTPRequestHandler):
         messages = payload.get("messages", [])
         system = messages[0].get("content", "") if messages else ""
         user = messages[-1].get("content", "") if messages else ""
+
+        # The analysis is a single-shot JSON request like the inventory, and is
+        # keyed on its own system prompt.
+        if "You read a documentation collection" in system:
+            reply = json.dumps(_signals_reply(user))
+            self._send({"role": "assistant", "content": reply}, payload)
+            return
 
         # The inventory prompt is a single-shot JSON classification request
         # (no tools), which is a different shape from the chat tool loop.
