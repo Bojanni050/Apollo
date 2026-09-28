@@ -305,6 +305,39 @@ export interface InboxUpload {
   unreadable_reason: string | null
 }
 
+// --- Delphi's findings -----------------------------------------------------
+// What stands out in a collection. Suggestions, never decisions: a finding can
+// be dismissed and nothing else, and no finding ever reaches a file.
+
+export interface Signal {
+  id: number
+  repository_id: number
+  file_path: string
+  kind: string
+  /** The reader-facing name of the kind, worded for people rather than code. */
+  label: string
+  /** The document this is about, when the signal names one. */
+  reference: string | null
+  /** The evidence, in the model's own words. Never empty. */
+  why: string
+  confidence: number | null
+  status: 'new' | 'confirmed' | 'dismissed'
+  created_at: string
+}
+
+export interface AnalyseResult {
+  repository_id: number
+  /** Documents in the collection. */
+  documents: number
+  /** Documents actually read, which is not always the same number. */
+  analysed: number
+  signals: Signal[]
+  open_signals: number
+  /** One sentence, in the reader's terms, saying what did and did not happen. */
+  summary: string
+  errors: string[]
+}
+
 // --- Visual groups ---------------------------------------------------------
 // A group is a *view* over documents. It does not correspond to a folder, and
 // no operation here moves a file: that separation is what lets the reader
@@ -792,6 +825,34 @@ export const api = {
       headers: {},
     })
   },
+
+  // --- Delphi's findings --------------------------------------------------
+  /**
+   * The one button: read the collection and say what stands out.
+   *
+   * Passing a repository_id analyses that collection; omitting it analyses the
+   * workspace's documentation, falling back to the inbox when there is none --
+   * which is why the button works in a workspace nobody has configured yet.
+   */
+  analyseDelphi: (workspaceId: number, repositoryId?: number | null) =>
+    request<AnalyseResult>(`/workspaces/${workspaceId}/delphi/analyze`, {
+      method: 'POST',
+      body: JSON.stringify(repositoryId ? { repository_id: repositoryId } : {}),
+    }),
+  signalsForDocument: (workspaceId: number, repositoryId: number, path: string) =>
+    request<Signal[]>(
+      `/workspaces/${workspaceId}/signals?repository_id=${repositoryId}&path=${encodeURIComponent(path)}`,
+    ),
+  signalsForGroup: (workspaceId: number, groupId: number) =>
+    request<Signal[]>(`/workspaces/${workspaceId}/signals?group_id=${groupId}`),
+  /** How many findings are waiting for a decision, for the badge on the button. */
+  openSignalCount: (workspaceId: number) =>
+    request<{ open_signals: number }>(`/workspaces/${workspaceId}/signals/count`),
+  /** Hide one finding. The document is untouched, and the decision sticks. */
+  dismissSignal: (workspaceId: number, signalId: number) =>
+    request<Signal>(`/workspaces/${workspaceId}/signals/${signalId}/dismiss`, {
+      method: 'POST',
+    }),
 
   // --- Visual groups ------------------------------------------------------
   // The arrangement, not the filesystem. Every call here writes a database row

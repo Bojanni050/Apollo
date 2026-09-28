@@ -56,6 +56,18 @@ interface Props {
   workspaceId: number | null
   /** Called after a drop, so the inbox list and the tree are re-read. */
   onInboxStored: () => void
+  // Delphi's pass, and what it said about itself. One group of props because
+  // they are one feature: the button, its state, and the report it produces.
+  onRunDelphi?: () => void
+  analysing?: boolean
+  /** False when no model is configured, so the button can say so instead of
+   *  failing when it is pressed. */
+  llmConfigured?: boolean
+  /** Findings still waiting for a decision, shown on the button. */
+  openFindings?: number
+  delphiSummary?: string | null
+  delphiErrors?: string[]
+  onDismissDelphiReport?: () => void
 }
 
 function flattenDocs(node: DocNode | null): DocNode[] {
@@ -94,7 +106,18 @@ export function FolderContentsColumn({
   inboxRepositoryId,
   workspaceId,
   onInboxStored,
+  onRunDelphi,
+  analysing = false,
+  llmConfigured = true,
+  openFindings = 0,
+  delphiSummary = null,
+  delphiErrors = [],
+  onDismissDelphiReport = () => {},
 }: Props) {
+  // The analysis belongs to the sections that list documents, and to the inbox:
+  // it is a question about a collection, and those are the collections on offer.
+  const canAnalyse =
+    activeSection === 'inbox' || activeSection === 'all' || activeSection === 'docs'
   // Convert current items into standard ItemCard format
   const items = useMemo<ItemCard[]>(() => {
     const flatFiles = flattenDocs(tree)
@@ -263,11 +286,7 @@ export function FolderContentsColumn({
           </span>
         </div>
 
-        {activeSection === 'inbox' ? null : activeSection === 'pulse' ? (
-          // No button here for the inbox, deliberately: the action in this
-          // section is the drop zone itself, and a "New" button would offer to
-          // create a decision or a conversation where what is wanted is
-          // dropping a file.
+        {activeSection === 'pulse' ? (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {onOpenPulseSettings && (
               <button
@@ -291,14 +310,42 @@ export function FolderContentsColumn({
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            className="folder-contents-new-btn"
-            onClick={onNewItem}
-            title="Create New Object"
-          >
-            New
-          </button>
+          <div className="folder-contents-actions">
+            {/* The one button, on the sections where a collection is on offer.
+
+                No "New" button for the inbox: that would offer to create a
+                decision or a conversation where what is wanted is dropping a
+                file, which the drop zone below already does. */}
+            {canAnalyse && onRunDelphi && (
+              <button
+                type="button"
+                className="folder-contents-new-btn"
+                onClick={onRunDelphi}
+                disabled={analysing || !llmConfigured}
+                title={
+                  !llmConfigured
+                    ? 'Delphi needs a model. Add one in Settings, then analyse.'
+                    : 'Read the collection and say what stands out. Nothing is moved or changed.'
+                }
+              >
+                {analysing
+                  ? 'Analyseren…'
+                  : openFindings > 0
+                    ? `Analyseren · ${openFindings}`
+                    : 'Analyseren'}
+              </button>
+            )}
+            {activeSection !== 'inbox' && (
+              <button
+                type="button"
+                className="folder-contents-new-btn"
+                onClick={onNewItem}
+                title="Create New Object"
+              >
+                New
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -327,6 +374,29 @@ export function FolderContentsColumn({
           )}
         </div>
       </div>
+
+      {/* The pass's own account of itself, above the list: what it read, what it
+          found, what it did not do, and anything that went wrong. Kept until the
+          reader clears it, because "read 4 of 10 documents" is only useful if it
+          stays on screen long enough to be read. */}
+      {(delphiSummary || delphiErrors.length > 0) && (
+        <div className="delphi-report">
+          {delphiSummary && <p className="delphi-report-summary">{delphiSummary}</p>}
+          {delphiErrors.map((error, index) => (
+            <p key={index} className="delphi-report-error">
+              {error}
+            </p>
+          ))}
+          <button
+            type="button"
+            className="delphi-report-close"
+            onClick={onDismissDelphiReport}
+            title="Clear this report"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* A non-empty inbox still has to offer the same drop zone, or adding a
           twelfth document would mean emptying the list to get at it. Slim

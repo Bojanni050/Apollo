@@ -3398,3 +3398,145 @@ input:focus, textarea:focus, select:focus {
   color: var(--warn-fg);
   background: var(--warn-bg);
 }
+
+/* Delphi's report on a pass: what it read, what it found, what it did not do.
+
+   Its own quiet surface above the list rather than a toast, because a toast is
+   gone before a sentence can be read, and "read 4 of 10 documents" is the one
+   line that tells the reader whether to press the button again. */
+.delphi-report {
+  position: relative;
+  margin: 0 10px 8px;
+  padding: 8px 26px 8px 10px;
+  background: var(--pulse-gold-bg);
+  border: 1px solid var(--pulse-gold-border);
+  border-radius: var(--radius-sm);
+}
+.delphi-report-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--pulse-gold-fg);
+}
+/* A failure is stated in the same place as the result, never swallowed: a pass
+   that read three documents out of ten said so, and that has to stay visible. */
+.delphi-report-error {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--warn-fg);
+}
+.delphi-report-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--pulse-gold-fg);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+}
+.delphi-report-close:hover { background: var(--surface-hover); }
+
+/* What Delphi found in the open document, above the text.
+
+   Gold rather than red, and wording rather than severity: these are claims to
+   check, not errors. The same gold the pulse suggestions use, so "something
+   Delphi said that you should look at" looks like one kind of thing in this
+   application rather than two. */
+.signal-bar {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--pulse-gold-bg);
+  border: 1px solid var(--pulse-gold-border);
+  border-radius: var(--radius-sm);
+}
+.signal-bar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.signal-bar-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pulse-gold-fg);
+}
+.signal-bar-note {
+  font-size: 11.5px;
+  color: var(--pulse-gold-fg);
+}
+.signal-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.signal-bar-item {
+  padding-top: 8px;
+  border-top: 1px solid var(--pulse-gold-border);
+}
+.signal-bar-list > .signal-bar-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.signal-bar-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.signal-kind {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+}
+/* The document a claim is about, as a link rather than as text: a claim you
+   cannot check in one click is a claim you will not check. */
+.signal-reference {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-blue);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.signal-reference:hover { text-decoration: underline; }
+/* The evidence, set as a sentence and never truncated: this is the part the
+   reader came to read, and the reason the server refuses a signal without it. */
+.signal-why {
+  margin: 4px 0 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.signal-bar-actions {
+  display: flex;
+  gap: 6px;
+}
+.signal-dismiss {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.signal-dismiss:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+/* Two buttons in a column header used to look like a form; the actions sit
+   together with a gap instead. */
+.folder-contents-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

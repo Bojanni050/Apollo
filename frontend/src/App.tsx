@@ -16,6 +16,7 @@ import {
   type DocumentLinks,
   type Group,
   type InboxFile,
+  type Signal,
   type Repository,
   type Workspace,
 } from './api/client'
@@ -73,7 +74,9 @@ export default function App() {
   // applied to the conversation that the first message creates, so the user can
   // choose a mode before typing rather than being locked to 'explore'.
   const [pendingMode, setPendingMode] = useState<Mode>('explore')
-  const [_chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
+  // Read for one thing only: the analysis button has to be disabled, with a
+  // reason, when there is no model to do the analysis.
+  const [chatStatus, setChatStatus] = useState<ChatStatus | null>(null)
   const [inventoryRun, setInventoryRun] = useState<InventoryRun | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [pulseRun, setPulseRun] = useState<PulseRun | null>(null)
@@ -92,6 +95,21 @@ export default function App() {
     repository_id: null,
     files: [],
   })
+
+  /* Delphi's findings, and the two things they feed.
+
+     The findings themselves belong to the open document, and are re-read
+     whenever it changes -- including after a dismissal, so hiding one needs no
+     second source of truth. The count belongs to the workspace, because the
+     reader's real question is "is there anything I have not looked at yet", not
+     "what is wrong with the file I happen to be reading". */
+  const [signals, setSignals] = useState<Signal[]>([])
+  const [openSignals, setOpenSignals] = useState(0)
+  const [analysing, setAnalysing] = useState(false)
+  // The pass's own account of itself, shown once above the list: what it read,
+  // what it found, and what it did not do.
+  const [delphiSummary, setDelphiSummary] = useState<string | null>(null)
+  const [delphiErrors, setDelphiErrors] = useState<string[]>([])
 
   // UI Panels & Modals
   const [contextOpen, setContextOpen] = useState(true)
@@ -157,6 +175,21 @@ export default function App() {
     }
   }, [])
 
+  /* The number on the analysis button.
+
+     Re-read whenever the workspace changes rather than remembered from the last
+     analysis, so a restart cannot leave a badge claiming there is nothing to look
+     at while three findings are open. A workspace whose count cannot be read
+     shows no badge at all, which is a smaller claim than a wrong number. */
+  const refreshSignalCount = useCallback(async (ws: Workspace) => {
+    try {
+      const count = await api.openSignalCount(ws.id)
+      setOpenSignals(count.open_signals)
+    } catch {
+      setOpenSignals(0)
+    }
+  }, [])
+
   const openConversation = useCallback(async (workspaceId: number, conversationId: number) => {
     try {
       const detail = await api.getConversation(workspaceId, conversationId)
@@ -214,7 +247,10 @@ export default function App() {
         setQuestions(qs)
         setDecisions(decs)
         setGroups(grps)
-        await refreshInbox(ws)
+        await Promise.all([refreshInbox(ws), refreshSignalCount(ws)])
+        setSignals([])
+        setDelphiSummary(null)
+        setDelphiErrors([])
         if (runs.length > 0) setInventoryRun(runs[0])
         // The newest Pulse run *with items*, not simply the newest run. A
         // scheduled scan on a repository whose documents are not committed yet
@@ -233,7 +269,7 @@ export default function App() {
         report(e)
       }
     },
-    [newConversation, openConversation, refreshInbox, reloadTree],
+    [newConversation, openConversation, refreshInbox, refreshSignalCount, reloadTree],
   )
 
   const refreshQuestions = useCallback(async () => {
@@ -362,19 +398,25 @@ export default function App() {
       setDocumentPath(path)
       setDocumentMarkdown(null)
       setDocumentLinks(null)
-      // The document and its links are independent reads, so they are not
-      // awaited one after the other: the text appears as soon as it is ready.
+      // The document, its links and its findings are independent reads, so they
+      // are not awaited one after the other: the text appears as soon as it is
+      // ready, and a failure in either of the other two leaves the document
+      // readable rather than showing an error where a document should be.
       const links = api
         .documentLinks(workspace.id, repoId, path)
         .then(setDocumentLinks)
         .catch(() => setDocumentLinks(null))
+      const findings = api
+        .signalsForDocument(workspace.id, repoId, path)
+        .then(setSignals)
+        .catch(() => setSignals([]))
       try {
         const doc = await api.document(workspace.id, repoId, path)
         setDocumentMarkdown(doc.raw_markdown)
       } catch (e) {
         report(e)
       }
-      await links
+      await Promise.all([links, findings])
     },
     [workspace, repository],
   )
@@ -735,6 +777,76 @@ export default function App() {
     }
   }, [workspace, repository, refreshInbox, reloadTree])
 
+  /* The one button.
+
+     It reads the whole collection rather than the open document, because the
+     question is which document stands out *among these*; answered one document
+     at a time it would be a different question, and a worse one.
+
+     The inbox is named explicitly when there is one, so the reader analyses the
+     pile they just built rather than a folder they registered months ago. */
+  const runDelphi = useCallback(async () => {
+    if (!workspace) return
+    setAnalysing(true)
+    setDelphiErrors([])
+    try {
+      const result = await api.analyseDelphi(workspace.id, inbox.repository_id)
+      setDelphiSummary(result.summary)
+      setDelphiErrors(result.errors)
+      setOpenSignals(result.open_signals)
+      // Re-read the open document rather than trusting the response list: the
+      // response holds everything this pass found, and the bar above a document
+      // should show that document's own findings, dismissed ones included out.
+      if (documentPath) {
+        const repoId = result.repository_id
+        setSignals(await api.signalsForDocument(workspace.id, repoId, documentPath))
+      }
+    } catch (e) {
+      report(e)
+    } finally {
+      setAnalysing(false)
+    }
+  }, [workspace, inbox.repository_id, documentPath])
+
+  /* Hide one finding. The list is re-read rather than edited in place, so the bar
+     cannot disagree with the server about what is still open -- and a dismissal
+     survives the next analysis, which is the whole point of making one. */
+  const dismissSignal = useCallback(
+    async (signalId: number) => {
+      if (!workspace || !documentPath || !repository) return
+      try {
+        await api.dismissSignal(workspace.id, signalId)
+        // After, not before: re-reading first would fetch the list that still
+        // contains the finding being dismissed.
+        setSignals(
+          await api.signalsForDocument(workspace.id, repository.id, documentPath),
+        )
+        const count = await api.openSignalCount(workspace.id)
+        setOpenSignals(count.open_signals)
+      } catch (e) {
+        report(e)
+      }
+    },
+    [workspace, repository, documentPath],
+  )
+
+  /* Open the document a finding names, in its own repository.
+
+     The reference is a path, and a path belongs to a repository: opening it in
+     whichever repository happens to be open would be a plausible-looking wrong
+     answer. The finding knows which one it meant. */
+  const openSignalReference = useCallback(
+    async (signal: Signal) => {
+      if (!signal.reference) return
+      try {
+        await openDocument(signal.reference, signal.repository_id)
+      } catch (e) {
+        report(e)
+      }
+    },
+    [openDocument],
+  )
+
   // Calculate object counts for Column 1
   const flatDocs = useMemo(() => flattenDocs(tree), [tree])
   // The folder picked while creating a workspace is registered as
@@ -866,6 +978,16 @@ export default function App() {
             inboxRepositoryId={inbox.repository_id}
             workspaceId={workspace?.id ?? null}
             onInboxStored={onInboxStored}
+            onRunDelphi={runDelphi}
+            analysing={analysing}
+            llmConfigured={chatStatus?.llm_configured ?? true}
+            openFindings={openSignals}
+            delphiSummary={delphiSummary}
+            delphiErrors={delphiErrors}
+            onDismissDelphiReport={() => {
+              setDelphiSummary(null)
+              setDelphiErrors([])
+            }}
           />
         )}
 
@@ -882,6 +1004,9 @@ export default function App() {
           selectedItem={selectedItem}
           documentMarkdown={documentMarkdown}
           repository={repository}
+          signals={signals}
+          onDismissSignal={(id) => void dismissSignal(id)}
+          onOpenReference={(signal) => void openSignalReference(signal)}
           pulseItem={selectedPulseItem}
           busy={busy}
           onApplyPulsePart={applyPulsePart}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { PulseItem, PulseItemPart, Repository } from '../api/client'
+import type { PulseItem, PulseItemPart, Repository, Signal } from '../api/client'
 import { renderMarkdown } from '../markdown'
 import type { ItemCard } from './FolderContentsColumn'
 
@@ -22,6 +22,17 @@ interface Props {
   busy?: boolean
   onApplyPulsePart?: (itemId: number, parts: PulseItemPart[]) => void
   onSkipPulseItem?: (itemId: number) => void
+  /**
+   * What Delphi makes of the open document, each finding with its evidence.
+   *
+   * Shown above the document rather than in the sidebar for the same reason the
+   * Pulse panel is: a claim is only worth reading next to the thing it is a claim
+   * about, and "older information" means nothing until you can see the file.
+   */
+  signals?: Signal[]
+  onDismissSignal?: (signalId: number) => void
+  /** Open the document a finding names, in the repository the finding meant. */
+  onOpenReference?: (signal: Signal) => void
   /**
    * Why the last accept or decline did not happen, shown next to the buttons.
    *
@@ -50,6 +61,9 @@ export function FileContentColumn({
   busy = false,
   onApplyPulsePart = () => {},
   onSkipPulseItem = () => {},
+  signals = [],
+  onDismissSignal = () => {},
+  onOpenReference = () => {},
   pulseError = null,
   onDismissPulseError = () => {},
   pulseNeedsCommit = false,
@@ -169,6 +183,58 @@ export function FileContentColumn({
               </>
             )}
           </div>
+
+          {/* What Delphi makes of this document, above the text rather than
+              below it: a claim is worth reading next to the thing it is a claim
+              about, and the reader should not have to finish a document to learn
+              that another one says otherwise. */}
+          {signals.length > 0 && (
+            <section className="signal-bar" aria-label="What Delphi found in this document">
+              <header className="signal-bar-head">
+                <span className="signal-bar-badge">✦ Delphi</span>
+                <span className="signal-bar-note">
+                  {signals.length === 1
+                    ? '1 thing worth knowing about this document'
+                    : `${signals.length} things worth knowing about this document`}
+                </span>
+              </header>
+              <ul className="signal-bar-list">
+                {signals.map((signal) => (
+                  <li key={signal.id} className="signal-bar-item">
+                    <div className="signal-bar-item-head">
+                      <span className={`signal-kind signal-kind--${signal.kind}`}>
+                        {signal.label}
+                      </span>
+                      {signal.reference && (
+                        <button
+                          type="button"
+                          className="signal-reference"
+                          onClick={() => onOpenReference(signal)}
+                          title={signal.reference}
+                        >
+                          {signal.reference}
+                        </button>
+                      )}
+                    </div>
+                    {/* The evidence, in full. A signal without one is refused by
+                        the server, so shortening it here would only throw away
+                        the part the reader came to check. */}
+                    <p className="signal-why">{signal.why}</p>
+                    <div className="signal-bar-actions">
+                      <button
+                        type="button"
+                        className="signal-dismiss"
+                        onClick={() => onDismissSignal(signal.id)}
+                        title="Not this one. It stays dismissed after the next analysis too."
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {selectedItem?.rawDecision && (
             <div className="file-linked-sources">
