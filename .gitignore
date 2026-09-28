@@ -39,6 +39,10 @@ src-tauri/gen/
 *.db-shm
 # Managed checkouts for GitHub repository sources (SOURCE_CHECKOUT_ROOT)
 gaia_source_checkouts/
+# Where Apollo keeps documents dropped in on the inbox (APOLLO_STORAGE_ROOT).
+# The reader's own documents, never committed: the application keeps them here
+# precisely so a Git repository is not the place a copy of their desk ends up.
+backend/apollo_storage/
 # Local embedding model weights (LLAMACPP_MODELS_DIR). Multi-gigabyte downloads
 # the app fetches; they are reproducible from the catalog and must never be
 # committed.

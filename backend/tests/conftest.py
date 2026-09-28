@@ -97,6 +97,20 @@ def session(db_session_factory) -> Iterator[Session]:
         db.close()
 
 
+@pytest.fixture(autouse=True)
+def apollo_storage_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point Apollo's own storage at a throwaway directory.
+
+    Autouse, and that is the reason it exists: the configured default is a real
+    folder beside the backend, so a single test that forgot to redirect it would
+    write into the developer's own inbox and leave files behind. Every test gets
+    a fresh root whether or not it is about the inbox.
+    """
+    root = tmp_path / "apollo_storage"
+    monkeypatch.setattr(settings, "apollo_storage_root", str(root))
+    return root
+
+
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(
         ["git", "-C", str(repo), *args],

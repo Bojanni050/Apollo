@@ -139,6 +139,17 @@ class Settings(BaseSettings):
     # managed by the application, not registered by the operator.
     source_checkout_root: str = "./gaia_source_checkouts"
 
+    # ---- Inbox storage (documents dropped in from the desktop) --------------
+    # A directory the application owns, for documents that did not arrive in a
+    # repository the operator registered: files dropped onto the inbox land
+    # here. Unlike the checkout root above, this one is *not* outside the
+    # workspace-root allow-list -- it becomes a registered documentation
+    # repository, so it has to pass the same authorization check as any other.
+    # See effective_allowed_workspace_roots. Relative paths resolve against the
+    # backend directory, so the location does not depend on the process working
+    # directory (dev server, packaged desktop app or service install).
+    apollo_storage_root: str = "./apollo_storage"
+
     # ---- Semantic indexing (embeddings + pgvector) ------------------------
     # Model names are configuration, never code: changing either one changes
     # which vectors are compatible with the index (see services/embeddings.py,
@@ -198,6 +209,53 @@ class Settings(BaseSettings):
         if PurePath(value).is_absolute():
             return value
         return str((BACKEND_DIR / value).resolve())
+
+    @property
+    def effective_storage_root(self) -> str:
+        """Absolute path to the directory Apollo keeps dropped-in documents in.
+
+        Resolved against the backend directory for the same reason the checkout
+        root is: the app runs from a venv, a packaged desktop build and a
+        service, and a relative path would mean three different directories.
+        """
+        from pathlib import PurePath
+
+        value = self.apollo_storage_root or "./apollo_storage"
+        if PurePath(value).is_absolute():
+            return value
+        return str((BACKEND_DIR / value).resolve())
+
+    @property
+    def effective_allowed_workspace_roots(self) -> list[str]:
+        """The roots a registered repository may be served from.
+
+        The operator's list plus Apollo's own storage, because that storage is
+        registered as a documentation repository like any other. Without the
+        addition the application would refuse to serve the folder it created
+        itself -- it would pass its own path to
+        :func:`app.services.paths.assert_authorized_root`, which is exactly the
+        check that keeps unregistered directories out.
+
+        An *empty* operator list is returned unchanged, and that is deliberate.
+        In development ``ALLOW_UNRESTRICTED_WORKSPACE_ROOTS`` makes an empty list
+        mean "any existing directory"; adding one path would quietly turn that
+        permission into a single allowed directory, and the folder the developer
+        had just registered would be refused by its own read path.
+
+        Deduplicated by resolved path: an operator who already listed the storage
+        root must not end up with it twice, since a duplicate would appear in
+        every message about the allow-list.
+        """
+        if not self.allowed_workspace_roots:
+            return []
+
+        # Path rather than PurePath because of expanduser, which only exists on
+        # the concrete flavour: the operator may have written "~" here.
+        roots = [str(Path(r).expanduser().resolve()) for r in self.allowed_workspace_roots]
+        storage = str(Path(self.effective_storage_root).resolve())
+        if storage not in roots:
+            roots.append(storage)
+        return roots
 
     # ---- LLM provider (OpenAI-compatible) -------------------------------
     llm_base_url: str | None = None
