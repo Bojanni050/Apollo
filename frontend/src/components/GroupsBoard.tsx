@@ -4,17 +4,17 @@ import { ApiError, api, type Group, type GroupDocument } from '../api/client'
 /**
  * The arrangement, as a board.
  *
- * A group is a view over documents, not a folder. Nothing in this component
- * moves a file: dragging a document from one group to another rewrites two rows
- * in the database and leaves the repository on disk exactly as it was. That is
- * the whole reason dragging is offered freely here rather than behind a
- * confirmation -- the reader can correct Delphi as often as they like, and none
- * of it touches their files.
+ * Most groups are a view over documents: dragging between them rewrites rows in
+ * the database and leaves the repository on disk exactly as it was. That is why
+ * dragging is offered freely rather than behind a confirmation -- the reader can
+ * correct Delphi as often as they like, and none of it touches their files.
  *
- * The consequence worth stating: the folders on disk and the groups on screen
- * are allowed to disagree. They are two different questions -- "where does this
- * live" and "where does this belong" -- and a document that sits in two groups
- * is not in a contradictory state.
+ * A group may also name a *folder*, and that changes what a drop means: the
+ * document is proposed to move there, and the move happens only when the reader
+ * accepts the proposal. So the two kinds of group are labelled on the card
+ * rather than left to be discovered, because "where does this live" and "where
+ * does this belong" are different questions and a drop can answer the second
+ * without touching the first.
  */
 
 interface Props {
@@ -77,6 +77,12 @@ export function GroupsBoard({
   const [dragging, setDragging] = useState<DragPayload | null>(null)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  // Set when a drop produced a move proposal, so the board can say "there is a
+  // card waiting" instead of leaving the reader to find it on another screen.
+  const [filed, setFiled] = useState<string | null>(null)
+  // The group whose folder is being edited, so only one card shows the field.
+  const [editingFolderId, setEditingFolderId] = useState<number | null>(null)
+  const [folderDraft, setFolderDraft] = useState('')
 
   const report = (e: unknown) =>
     setError(e instanceof ApiError ? e.detail : 'Something went wrong. Is the backend running?')
@@ -146,6 +152,10 @@ export function GroupsBoard({
    * One request. The source group is left in the same call, so a failure cannot
    * leave the document in both groups or in neither -- which is what would make
    * the board lie about the arrangement.
+   *
+   * The response says whether a *file* was proposed to move. That is the part
+   * the reader must not have to guess: a drop into a group with a folder has
+   * left a proposal waiting, and a drop into a view has not.
    */
   const onDrop = async (event: DragEvent, targetGroupId: number) => {
     event.preventDefault()
@@ -159,12 +169,39 @@ export function GroupsBoard({
     if (payload.fromGroupId === targetGroupId) return
 
     try {
-      await api.moveInGroup(workspaceId, {
+      const result = await api.moveInGroup(workspaceId, {
         repository_id: payload.repositoryId,
         path: payload.path,
         to_group_id: targetGroupId,
         ...(payload.fromGroupId !== null ? { from_group_id: payload.fromGroupId } : {}),
       })
+      if (result.proposal_id !== null) {
+        setFiled(
+          `${fileName(payload.path)} can be moved into ${
+            groups.find((g) => g.id === targetGroupId)?.folder ?? 'its folder'
+          }. Review the proposal to let it happen.`,
+        )
+      } else {
+        setFiled(null)
+      }
+      await load()
+    } catch (err) {
+      report(err)
+    }
+  }
+
+  /**
+   * Save the folder a group stands for.
+   *
+   * Written down, never derived from the group's name. An empty field clears it,
+   * which is a real choice -- a group goes back to being a view -- so the field
+   * says so instead of silently doing nothing.
+   */
+  const saveFolder = async (groupId: number) => {
+    const value = folderDraft.trim()
+    setEditingFolderId(null)
+    try {
+      await api.setGroupFolder(workspaceId, groupId, value === '' ? null : value)
       await load()
     } catch (err) {
       report(err)
@@ -181,10 +218,12 @@ export function GroupsBoard({
         <div>
           <h2 className="groups-board-title">Groups</h2>
           {/* Says plainly what a group is, because it is the one idea here that
-              is not obvious: a group is a view, and your files do not move. */}
+              is not obvious -- and now that some groups own a folder, the honest
+              version mentions both kinds. */}
           <p className="groups-board-hint">
-            Delphi found these, and you can change them. Dragging a document
-            changes only this arrangement — your files stay where they are.
+            Delphi found these, and you can change them. Dragging changes this
+            arrangement; a group with a folder will ask you first before any file
+            moves.
           </p>
         </div>
         <form onSubmit={createGroup} className="groups-new-form">
@@ -203,6 +242,11 @@ export function GroupsBoard({
       </div>
 
       {error && <div className="groups-board-error">{error}</div>}
+
+      {/* Said right where the drop happened, because the alternative is a reader
+          who believes their file moved -- or believes it did not -- and is wrong
+          either way until they go looking on another screen. */}
+      {filed && <div className="groups-board-filed">{filed}</div>}
 
       {groups.length === 0 ? (
         <div className="groups-board-empty">
@@ -254,6 +298,70 @@ export function GroupsBoard({
                     {selectedGroupId === group.id ? 'Hide details' : 'Details'}
                   </button>
                 </header>
+
+                {/* The folder, and what it means. This is the distinction the
+                    board has to make visible: a group with a folder turns a drop
+                    into a proposal to move a file, and one without is only a
+                    view. A reader cannot tell them apart from the name. */}
+                {editingFolderId === group.id ? (
+                  <form
+                    className="group-folder-form"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      void saveFolder(group.id)
+                    }}
+                  >
+                    <input
+                      className="group-folder-input"
+                      value={folderDraft}
+                      onChange={(e) => setFolderDraft(e.target.value)}
+                      placeholder="Folder name, or empty for a view"
+                      aria-label={`Folder for ${group.name}`}
+                      maxLength={200}
+                      // The archive's folder is not the reader's to choose, and
+                      // offering to change it would only earn a refusal.
+                      disabled={group.is_archive}
+                      autoFocus
+                    />
+                    <button className="btn" type="submit">
+                      Save
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => setEditingFolderId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <div className="group-folder">
+                    <span className="group-folder-value">
+                      {group.folder ? (
+                        <>
+                          <span className="group-folder-label">Folder</span>
+                          <code>{group.folder}</code>
+                        </>
+                      ) : (
+                        <span className="group-folder-label group-folder-label--muted">
+                          View only — your files do not move
+                        </span>
+                      )}
+                    </span>
+                    {!group.is_archive && (
+                      <button
+                        type="button"
+                        className="group-folder-edit"
+                        onClick={() => {
+                          setFolderDraft(group.folder ?? '')
+                          setEditingFolderId(group.id)
+                        }}
+                      >
+                        {group.folder ? 'Change' : 'Give it a folder'}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {group.description && (
                   <p className="group-card-description">{group.description}</p>

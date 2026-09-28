@@ -14,6 +14,7 @@
     "smoke:theme": "node scripts/smoke-theme.mjs",
     "smoke:columns": "node scripts/smoke-columns.mjs",
     "smoke:groups": "node scripts/smoke-groups-board.mjs",
+    "smoke:filing": "node scripts/smoke-filing.mjs",
     "smoke:sidebar": "node scripts/smoke-sidebar.mjs",
     "smoke:inbox-folder": "node scripts/smoke-inbox-folder.mjs",
     "smoke:working-folder": "node scripts/smoke-working-folder.mjs",

@@ -417,6 +417,14 @@ export interface Group {
   position: number
   layout: GroupLayout
   document_count: number
+  /**
+   * The folder this group's documents belong in, or null for a view-only group.
+   *
+   * The distinction the board has to make visible: a group with a folder turns a
+   * drop into a *proposal to move a file*, and one without changes only the
+   * board. A reader cannot tell them apart from the name.
+   */
+  folder: string | null
 }
 
 export interface GroupCreate {
@@ -425,6 +433,8 @@ export interface GroupCreate {
   source?: 'ai' | 'user'
   is_archive?: boolean
   layout?: GroupLayout
+  /** Omitted leaves it a view; null is the same thing here. */
+  folder?: string | null
 }
 
 export interface GroupDocument {
@@ -1013,9 +1023,23 @@ export const api = {
       from_group_id?: number
     },
   ) =>
-    request<void>(`/workspaces/${workspaceId}/groups/move`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
+    request<{ proposal_id: number | null }>(
+      `/workspaces/${workspaceId}/groups/move`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+  /**
+   * Name the folder a group's documents belong in, or pass null to take it away.
+   *
+   * Nothing moves. A folder is a statement about where documents belong; the
+   * moves it implies are separate proposals, one document at a time.
+   */
+  setGroupFolder: (workspaceId: number, groupId: number, folder: string | null) =>
+    request<Group>(`/workspaces/${workspaceId}/groups/${groupId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ folder }),
     }),
   /** Which groups a document is in -- the sidebar's "where does this sit?". */
   groupsOfDocument: (workspaceId: number, repositoryId: number, path: string) =>

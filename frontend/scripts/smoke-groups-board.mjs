@@ -62,9 +62,11 @@ await page.waitForTimeout(1200);
 
 const hint = await page.locator(".groups-board-hint").textContent().catch(() => null);
 console.log("board hint:", JSON.stringify(hint));
-if (!hint || !/files stay where they are/i.test(hint)) {
+// The hint now has to mention both kinds of group, because that is the
+// distinction the reader has to be able to see before they drag anything.
+if (!hint || !/folder/i.test(hint) || !/ask you first/i.test(hint)) {
   throw new Error(
-    `the board does not say that dragging leaves files alone: ${JSON.stringify(hint)}`,
+    `the board does not say that a group with a folder asks before moving a file: ${JSON.stringify(hint)}`,
   );
 }
 

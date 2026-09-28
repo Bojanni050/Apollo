@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    Document Architect & Mindstack Design System
    Modern 4-Column Minimalist Knowledge & Architecture OS
    ========================================================================== */
@@ -3812,4 +3812,108 @@ input:focus, textarea:focus, select:focus {
 
 .working-folder-card [role='alert'] {
   color: var(--danger);
+}
+
+/* The folder a group stands for.
+   The board has to make one distinction visible: a group with a folder turns a
+   drop into a proposal to move a file, and a group without one only rearranges
+   the view. Both are legitimate, so neither is styled as a warning or a state
+   of completion -- they are two kinds of group, and the label says which. */
+.group-folder {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  /* Wraps rather than squeezes: the label and the button are both short, but
+     forcing them onto one line is what made them overlap at narrow widths. */
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.group-folder-value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  /* Grows, so the label takes the space it needs and pushes the button to the
+     next line instead of underneath itself. */
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.group-folder-label {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* The view-only label is a sentence rather than a name, so it is the one label
+   that must be allowed to wrap: with nowrap it ran under the button beside it
+   and the two overlapped, which is worse than a slightly taller card. */
+.group-folder-label--muted {
+  font-style: italic;
+  color: var(--text-faint);
+  white-space: normal;
+  flex: 1 1 100%;
+}
+
+/* The folder name as the reader will meet it in a file manager, so monospaced
+   and not wrapped: a name shown differently here than in Explorer is a name
+   they cannot match up. */
+.group-folder code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-folder-edit {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.group-folder-edit:hover {
+  color: var(--text);
+}
+
+.group-folder-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.group-folder-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* What a drop just did. Said where the drop happened, because the reader's
+   next question -- "did my file move?" -- has to be answered without leaving
+   the board. Not a success colour: nothing has happened yet, only a proposal
+   is waiting. */
+.groups-board-filed {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-radius: var(--radius-sm, 4px);
 }
