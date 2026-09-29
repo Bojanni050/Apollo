@@ -1,4 +1,4 @@
-"""A group that names a folder, and the move that follows from it.
+﻿"""A group that names a folder, and the move that follows from it.
 
 The service tests elsewhere pin the arrangement: placing, dragging, deleting a
 group, none of which touches a file. These pin the other half -- the point where
@@ -324,6 +324,60 @@ def test_only_the_offered_move_ends_up_in_git_status(
         "architecture/overview.md",
     ):
         assert untouched in paths or (doc_repo / untouched).is_file()
+
+
+def test_the_archive_action_does_what_the_drag_would(
+    client: TestClient, workspace: dict, doc_repo: Path
+) -> None:
+    """Archiving by name, and the same two steps as the drag.
+
+    The point of having the verb is that the reader does not have to find the
+    archive card -- and on a workspace that has never archived anything, there is
+    no archive card yet, so the drag is not even available. The action creates it
+    and then does exactly what a drag into it would have done: place the
+    document, and propose the move.
+    """
+    base = _base(workspace)
+    repo = _doc_repo_id(workspace)
+
+    archived = client.post(
+        f"{base}/archive",
+        json={"repository_id": repo, "path": "notes.md"},
+    )
+
+    assert archived.status_code == 201
+    proposal_id = archived.json()["proposal_id"]
+    assert proposal_id is not None
+    # Created on demand, with the folder the archive always stands for.
+    groups = {g["name"]: g for g in client.get(base).json()}
+    assert "Archief" in groups
+    assert groups["Archief"]["is_archive"] is True
+    assert groups["Archief"]["folder"] == ARCHIVE_FOLDER
+    # And nothing moved yet: the document is still readable where it was.
+    assert (doc_repo / "notes.md").is_file()
+    assert not (doc_repo / ARCHIVE_FOLDER).exists()
+
+
+def test_the_archive_action_refuses_a_document_that_is_not_there(
+    client: TestClient, workspace: dict
+) -> None:
+    """A refusal names the problem, and creates no archive on the way.
+
+    Placing a path that does not exist is refused before the archive is made, so
+    a typo does not leave an empty archive behind as a side effect.
+    """
+    from app.services.filing import ARCHIVE_FOLDER as folder_name
+
+    response = client.post(
+        f"{_base(workspace)}/archive",
+        json={"repository_id": _doc_repo_id(workspace), "path": "bestaat-niet.md"},
+    )
+
+    assert response.status_code == 400
+    groups = client.get(_base(workspace)).json()
+    assert not any(g["name"] == folder_name for g in groups), (
+        "a failed archive created the archive anyway"
+    )
 
 
 def test_a_declined_move_leaves_git_status_empty(

@@ -84,6 +84,14 @@ interface Props {
    * reader a different file with the same name.
    */
   onOpenDocumentIn?: (repositoryId: number, path: string) => void
+  /**
+   * Put the open document in the archive. Optional: absent where the caller has
+   * no repository to archive within.
+   */
+  onArchive?: () => void
+  /** Said once after archiving, next to the button that did it. */
+  archiveNotice?: string | null
+  onDismissArchiveNotice?: () => void
 }
 
 type Tab = 'related' | 'chat' | 'proposals'
@@ -280,6 +288,9 @@ export function ContextSidebar({
   groupSignals = [],
   onOpenGroup = () => {},
   onOpenDocumentIn = () => {},
+  onArchive = () => {},
+  archiveNotice = null,
+  onDismissArchiveNotice = () => {},
 }: Props) {
   const [tab, setTab] = useState<Tab>('related')
   const [chatInput, setChatInput] = useState('')
@@ -316,6 +327,14 @@ export function ContextSidebar({
      graph read in one direction is easier to follow than the same edges split
      across two headings. */
   const currentItem = pulseRun?.items.find((i) => i.file_path === documentPath)
+
+  /* Whether this document is already archived, which changes what the archive
+     action says rather than whether it works. Pressing it again is harmless --
+     the server proposes nothing the second time -- but a button that invites the
+     same click twice and then says "already done" reads as the first one having
+     failed, which is the wrong story about what just happened. */
+  const alreadyArchived =
+    documentGroups?.some((g) => g.is_archive) ?? false
 
   const stripExt = (p: string) => p.replace(/\.[^./]+$/, '')
 
@@ -567,6 +586,18 @@ export function ContextSidebar({
                 <div className="context-section-label" style={{ marginTop: 18 }}>
                   ACTIONS
                 </div>
+                {archiveNotice && (
+                  <div className="context-archive-notice" role="status">
+                    <span>{archiveNotice}</span>
+                    <button
+                      type="button"
+                      onClick={onDismissArchiveNotice}
+                      aria-label="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
                 <div className="context-actions">
                   <button
                     type="button"
@@ -594,6 +625,35 @@ export function ContextSidebar({
                     <span className="context-action-label">Suggest improvements</span>
                     <span className="context-action-hint">
                       Delphi Pulse reviews this file and offers tags and links
+                    </span>
+                  </button>
+                  {/* Archiving, next to dragging rather than instead of it.
+                      Both reach the same place -- the archive is a group, and the
+                      drag is how documents are filed everywhere else -- but the
+                      drag needs a card to aim at, and on a workspace that has
+                      never archived anything there is no archive card yet. So the
+                      verb is here for the times you want to say what you mean
+                      rather than go looking. */}
+                  <button
+                    type="button"
+                    className="context-action"
+                    onClick={onArchive}
+                    disabled={busy || !onArchive || !documentPath}
+                  >
+                    <span className="context-action-label">Put in the archive</span>
+                    <span className="context-action-hint">
+                      {alreadyArchived ? (
+                        <>
+                          Already in the archive. The file stays readable there, and
+                          can be dragged back onto a group.
+                        </>
+                      ) : (
+                        <>
+                          Keeps the file and proposes moving it into{' '}
+                          <code>Archief/</code>. Nothing happens until you accept
+                          that proposal.
+                        </>
+                      )}
                     </span>
                   </button>
                 </div>

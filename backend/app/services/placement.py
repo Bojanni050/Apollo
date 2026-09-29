@@ -259,6 +259,34 @@ def delete_group(db: Session, workspace_id: int, group_id: int) -> None:
     db.commit()
 
 
+def assert_can_place(
+    db: Session, workspace_id: int, repository_id: int, file_path: str
+) -> str:
+    """Check a document can be placed, and return its canonical path.
+
+    Public because a caller may need to know *before* it does something else:
+    the archive action creates the archive group, and doing that first would
+    leave an empty archive behind when the document turns out not to be there.
+    Refusing first costs one call and no side effect.
+    """
+    repo = db.scalar(
+        select(Repository).where(
+            Repository.id == repository_id, Repository.workspace_id == workspace_id
+        )
+    )
+    if repo is None:
+        raise PlacementError("That repository is not registered in this workspace.")
+    if not repo.writable:
+        raise PlacementError(
+            f"Repository {repo.name!r} is read-only, so its documents cannot be moved."
+        )
+    rel = _normalize(file_path)
+    if not rel:
+        raise PlacementError("A document needs a path.")
+    _assert_document_exists(Path(repo.local_path), rel)
+    return rel
+
+
 def place_document(
     db: Session,
     workspace_id: int,

@@ -134,6 +134,10 @@ export default function App() {
   const [newObjectModalOpen, setNewObjectModalOpen] = useState(false)
   const [addRepoModalOpen, setAddRepoModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Said once after archiving, in the panel that has the button. "Archive" is a
+  // word that suggests the file is gone, so the panel states plainly what did and
+  // did not happen: the document is filed, the file has not moved.
+  const [archiveNotice, setArchiveNotice] = useState<string | null>(null)
 
   // Async Status
   const [sending, setSending] = useState(false)
@@ -614,6 +618,50 @@ export default function App() {
   const refreshPulseRun = async (workspaceId: number, runId: number) => {
     setPulseRun(await api.getPulseRun(workspaceId, runId))
   }
+
+  /* Archiving, from the panel's action list.
+
+     The same two steps as dragging onto the archive card, which is why this does
+     not move a file: it files the document into the archive and a proposal to
+     move it into `Archief/`, and the reader accepts or declines that separately.
+     Saying so here matters, because "archive" is a word that suggests tidying
+     away, and nothing is tidied away -- the file is readable at its old path
+     until the proposal is accepted.
+
+     The groups and the folder tree are both re-read afterwards, because the
+     arrangement changed now and the file's location will change on acceptance.
+     Leaving either stale would show the document as filed but not filed. */
+  const archiveDocument = () =>
+    workspace &&
+    repository &&
+    documentPath &&
+    (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const filed = await api.archiveDocument(workspace.id, repository.id, documentPath)
+        // Read the answer back rather than guessing what it means: the document
+        // now sits in the archive, and the arrangement and the folder tree both
+        // say so. Anything left stale would show the document as filed on one
+        // screen and not filed on the next.
+        const [groupList, belonging] = await Promise.all([
+          api.groups(workspace.id),
+          api.groupsOfDocument(workspace.id, repository.id, filed.path),
+        ])
+        setGroups(groupList)
+        setDocumentGroups(belonging)
+        if (filed.proposal_id !== null) {
+          setArchiveNotice(
+            `${documentPath.split('/').pop()} is in the archive. A proposal to ` +
+              `move the file into Archief/ is waiting for you — nothing has moved yet.`,
+          )
+        }
+      } catch (e) {
+        report(e)
+      } finally {
+        setBusy(false)
+      }
+    })()
 
   const runPulse = () =>
     workspace &&
@@ -1128,6 +1176,9 @@ export default function App() {
           groupSignals={groupSignals}
           onOpenGroup={(groupId) => void selectGroup(groupId)}
           onOpenDocumentIn={(repositoryId, path) => void openDocument(path, repositoryId)}
+          onArchive={workspace ? () => void archiveDocument() : undefined}
+          archiveNotice={archiveNotice}
+          onDismissArchiveNotice={() => setArchiveNotice(null)}
         />
       </div>
 

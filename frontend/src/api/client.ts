@@ -1056,6 +1056,22 @@ export const api = {
       `/workspaces/${workspaceId}/working-dir/adopt`,
       { method: 'POST' },
     ),
+  /**
+   * Put a document in the archive, creating the archive group if there is none.
+   *
+   * The same two steps as dragging onto the archive card: the document is filed,
+   * and a proposal to move the file into `Archief/` is filed with it. The id comes
+   * back so the interface can say a card is waiting rather than leave the reader
+   * wondering whether anything happened.
+   */
+  archiveDocument: (workspaceId: number, repositoryId: number, path: string) =>
+    request<{ repository_id: number; path: string; proposal_id: number | null }>(
+      `/workspaces/${workspaceId}/groups/archive`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ repository_id: repositoryId, path }),
+      },
+    ),
   /** Which groups a document is in -- the sidebar's "where does this sit?". */
   groupsOfDocument: (workspaceId: number, repositoryId: number, path: string) =>
     request<Group[]>(

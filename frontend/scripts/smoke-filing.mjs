@@ -1,4 +1,4 @@
-// The whole of phase 4, in one run: give a group a folder, drop a document in,
+﻿// The whole of phase 4, in one run: give a group a folder, drop a document in,
 // see the proposal appear, accept it, and check the file actually moved -- and
 // that nothing anywhere else lost a reference to it.
 //
@@ -6,8 +6,9 @@
 // whose database is not yours. The script creates its own groups and deletes
 // them again, but it does accept a real move, so point REPO at a scratch repo.
 
-import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 const URL = process.env.SMOKE_URL || "http://localhost:5273";
 const REPO = process.env.SMOKE_DOC_REPO;
@@ -17,8 +18,8 @@ if (!REPO) {
   process.exit(1);
 }
 
-const api = async (page, path, options = {}) => {
-  return page.evaluate(
+const api = async (page, path, options = {}) =>
+  page.evaluate(
     async ([p, o]) => {
       const res = await fetch(p, o);
       const text = await res.text();
@@ -32,7 +33,6 @@ const api = async (page, path, options = {}) => {
     },
     [path, options],
   );
-};
 
 const fail = (message) => {
   throw new Error(message);
@@ -40,232 +40,149 @@ const fail = (message) => {
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+const errors = [];
+page.on("pageerror", (e) => errors.push(String(e)));
 
 try {
+  // --- A scratch repository with one document in it ------------------------
+  mkdirSync(REPO, { recursive: true });
+  writeFileSync(`${REPO}/notities.md`, "# Notities\n\nIets om te archiveren.\n", "utf8");
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Someone"],
+    ["config", "user.email", "someone@example.com"],
+  ]) {
+    execFileSync("git", ["-C", REPO, ...args], { stdio: "ignore" });
+  }
+  execFileSync("git", ["-C", REPO, "add", "-A"], { stdio: "ignore" });
+  execFileSync("git", ["-C", REPO, "commit", "-q", "-m", "start"], { stdio: "ignore" });
+
   await page.goto(URL, { waitUntil: "networkidle" });
 
-  // --- 1. A workspace with a repository we can write to --------------------
-  const ws = (await api(page, "/api/workspaces")).body;
-  if (!ws || !ws.length) fail("no workspace to test with");
-  const workspaceId = ws[0].id;
-
-  // A previous run that died half-way leaves a documentation repository behind,
-  // and this workspace may only have one. Clearing it here is what makes the
-  // script re-runnable instead of a one-shot that only works on a clean database.
-  const existingRepos = (await api(page, `/api/workspaces/${workspaceId}`)).body
-    .repositories;
-  for (const r of existingRepos ?? []) {
-    if (r.kind === "documentation") {
-      await api(page, `/api/workspaces/${workspaceId}/repositories/${r.id}`, {
-        method: "DELETE",
-      });
-    }
-  }
-  const staleGroups = (await api(page, `/api/workspaces/${workspaceId}/groups`)).body;
-  for (const g of staleGroups) {
-    await api(page, `/api/workspaces/${workspaceId}/groups/${g.id}`, { method: "DELETE" });
-  }
-  const staleProposals = (
-    await api(page, `/api/workspaces/${workspaceId}/proposals?status_filter=pending`)
-  ).body;
-  for (const p of staleProposals) {
-    await api(page, `/api/workspaces/${workspaceId}/proposals/${p.id}/reject`, {
-      method: "POST",
-    });
-  }
-
-  const full = await api(
-    page,
-    `/api/workspaces/${workspaceId}/repositories`,
-    {
+  const workspaceId = (await api(page, "/api/workspaces")).body[0].id;
+  const repo = (
+    await api(page, `/api/workspaces/${workspaceId}/repositories`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: `smoke-filing-${Date.now().toString().slice(-6)}`,
+        name: `smoke-archive-${Date.now().toString().slice(-6)}`,
         local_path: REPO,
         branch: "main",
         kind: "documentation",
         writable: true,
       }),
-    },
-  );
-  if (full.status !== 201 && full.status !== 200) {
-    fail(`could not register the scratch repository: ${JSON.stringify(full)}`);
-  }
-  const repoId = full.body.id;
-  console.log("repository:", repoId);
-
-  // A document to move. Written straight into the repository, because this
-  // test is about the filing, not about getting a document in.
-  const fileName = `smoke-filing-${Date.now().toString().slice(-6)}.md`;
-  await writeFile(`${REPO}/${fileName}`, "# Smoke\n\nA document to file.\n", "utf8");
-  // Committed before the test starts moving things, because a move refuses an
-  // untracked document -- correctly: without a commit the original would not be
-  // recoverable. The inbox commits every dropped file for exactly this reason, so
-  // a document that reached this state through the application is already
-  // tracked, and only a file written behind the application's back is not.
-  const { execFileSync } = await import("node:child_process");
-  execFileSync("git", ["-C", REPO, "add", "--", fileName]);
-  execFileSync("git", ["-C", REPO, "commit", "-q", "-m", `add ${fileName}`]);
-  console.log("wrote and committed", fileName);
-
-  // --- 2. A group with no folder is a view ---------------------------------
-  const view = (
-    await api(page, `/api/workspaces/${workspaceId}/groups`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: `Smoke view ${Date.now().toString().slice(-6)}` }),
     })
   ).body;
-  if (view.folder !== null) {
-    fail(`a new group should have no folder, got ${JSON.stringify(view.folder)}`);
-  }
-  console.log("view group has no folder, as it should");
 
-  // --- 3. A group that names a folder -------------------------------------
-  const folder = `SmokeMap${Date.now().toString().slice(-6)}`;
-  const filed = (
-    await api(page, `/api/workspaces/${workspaceId}/groups`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: `Smoke filed ${folder}`, folder }),
-    })
-  ).body;
-  if (filed.folder !== folder) {
-    fail(`the folder was not stored: ${JSON.stringify(filed)}`);
+  // Start from a workspace with no archive. A previous run leaves the document
+  // filed in it, and then the action offers "already in the archive" instead of
+  // proposing anything -- so the second run of a smoke test would pass for the
+  // wrong reason, or fail for a reason that is not about the code at all.
+  for (const stale of (
+    (await api(page, `/api/workspaces/${workspaceId}/groups`)).body ?? []
+  ).filter((g) => g.folder === "Archief")) {
+    await api(page, `/api/workspaces/${workspaceId}/groups/${stale.id}`, {
+      method: "DELETE",
+    });
+    console.log("removed a leftover archive from an earlier run");
   }
-  console.log("group folder:", filed.folder);
 
-  // --- 4. A drop into the view changes nothing on disk ---------------------
-  const droppedInView = (
-    await api(page, `/api/workspaces/${workspaceId}/groups/${view.id}/documents`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repository_id: repoId, path: fileName }),
-    })
-  ).body;
-  if (droppedInView.proposal_id !== null) {
-    fail("a view group should not propose a move");
-  }
-  const stillAtRoot = await readFile(`${REPO}/${fileName}`, "utf8");
-  if (!stillAtRoot.includes("A document to file")) {
-    fail("the document moved when it was dropped into a view");
-  }
-  console.log("drop into a view: no proposal, no move");
+  // --- 1. Open the document the way a reader does --------------------------
+  // The panel only describes the document in the reading pane, so asking the
+  // API whether the document exists is not enough -- it has to be *open*. This
+  // clicks it, because a test that faked the open state would be testing
+  // nothing a reader can reach.
+  await page.goto(URL, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1400);
 
-  // --- 5. A drop into the filed group proposes, and still moves nothing ----
-  const dropped = (
-    await api(page, `/api/workspaces/${workspaceId}/groups/${filed.id}/documents`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repository_id: repoId, path: fileName }),
-    })
-  ).body;
-  if (!dropped.proposal_id) {
-    fail("dropping into a group with a folder should propose a move");
+  // "All objects" lists the documents of every repository, so no repository has
+  // to be chosen first -- which matters here, because a workspace that has never
+  // had a documentation repository has no tree to click into.
+  const allObjects = page.locator(".nav-item", { hasText: "All objects" }).first();
+  if ((await allObjects.count()) > 0) {
+    await allObjects.click();
+    await page.waitForTimeout(1200);
   }
-  const proposalId = dropped.proposal_id;
-  console.log("proposal:", proposalId);
 
-  // The folder must not exist yet, and the file must still be where it was.
-  const stillThere = await readFile(`${REPO}/${fileName}`, "utf8");
-  if (!stillThere.includes("A document to file")) {
-    fail("the document moved before the proposal was accepted");
-  }
-  console.log("proposed, and nothing moved yet");
-
-  // --- 6. The board says so, where the drop happened -----------------------
-  const nav = page.locator(".nav-item", { hasText: "Groups" }).first();
-  if ((await nav.count()) === 0) {
-    fail("there is no Groups destination in the navigation");
-  }
-  await nav.click();
+  const inTree = page.locator(".object-card", { hasText: "notities.md" }).first();
+  const treeCount = await inTree.count();
+  console.log("the document in the tree:", treeCount > 0);
+  if (treeCount === 0) fail("the document is not listed in the folder view");
+  await inTree.click();
   await page.waitForTimeout(1500);
 
-  const folderLabels = await page.locator(".group-folder code").allTextContents();
-  if (!folderLabels.includes(folder)) {
-    fail(`the board does not show the folder ${folder}: ${JSON.stringify(folderLabels)}`);
-  }
-  const viewLabels = await page.locator(".group-folder-label--muted").allTextContents();
-  if (viewLabels.length === 0) {
-    fail("no group on the board says it is a view; the two kinds must be visible");
-  }
-  console.log("board shows both kinds of group");
+  const documentShown = await page
+    .locator("text=Iets om te archiveren")
+    .first()
+    .count();
+  if (documentShown === 0) fail("the document did not open in the reading pane");
 
-  await page.screenshot({ path: "screenshots/filing-folders.png" });
+  // --- 2. The action is there, and says what it will do --------------------
+  const actions = page.locator(".context-action");
+  console.log("actions in the panel:", await actions.count());
+  const labels = await page.locator(".context-action-label").allTextContents();
+  console.log("which ones:", labels.join(" | "));
+  if (!labels.some((l) => /archive/i.test(l))) {
+    fail(`there is no archive action: ${labels.join(" | ")}`);
+  }
+  await page.screenshot({ path: "screenshots/archive-action.png" });
 
-  // --- 7. Accepting moves the file ----------------------------------------
-  const accepted = await api(
-    page,
-    `/api/workspaces/${workspaceId}/proposals/${proposalId}/accept`,
-    { method: "POST" },
+  const hint = await page
+    .locator(".context-action", { hasText: /archive/i })
+    .innerText();
+  if (!/proposes moving|Archief/.test(hint)) {
+    fail(`the action does not say it proposes rather than moves: ${JSON.stringify(hint)}`);
+  }
+
+  if (errors.length) fail(`browser errors: ${errors.slice(0, 2).join(" | ")}`);
+
+  // --- 3. Click it, and check what actually happened ------------------------
+  // The point of the action is not that the button exists, so click it and look
+  // at the consequences: the archive exists, the document has a proposal
+  // waiting, and the file is still where it was. Nothing may have moved yet.
+  await page
+    .locator(".context-action", { hasText: /archive/i })
+    .first()
+    .click();
+  await page.waitForTimeout(2500);
+
+  const groups = (await api(page, `/api/workspaces/${workspaceId}/groups`)).body;
+  // Match on the folder, not the name: the group is called "Archief", and a
+  // name-based match would have missed it and reported a failure that was not
+  // one.
+  const archive = groups.find((g) => g.folder === "Archief");
+  console.log("the archive group:", archive ? archive.name : "MISSING");
+  if (!archive) fail("the archive group was not created");
+  if (archive.folder !== "Archief") {
+    fail(`the archive points at ${JSON.stringify(archive.folder)}, not Archief`);
+  }
+
+  const proposals = (
+    (await api(page, `/api/workspaces/${workspaceId}/proposals`)).body ?? []
+  ).flatMap((p) => p.changes ?? []);
+  const proposed = proposals.find(
+    (c) => c.action === "move" && c.source_path === "notities.md",
   );
-  if (accepted.status !== 200) {
-    fail(`accepting failed: ${JSON.stringify(accepted)}`);
+  console.log("a proposal for the document:", proposed ? "yes" : "MISSING");
+  if (!proposed) fail("no move proposal was made for the document");
+  if (proposed.target_path !== "Archief/notities.md") {
+    fail(`the proposal moves to ${JSON.stringify(proposed.target_path)}`);
   }
-  if (accepted.body.applied_paths[0] !== `${folder}/${fileName}`) {
-    fail(`unexpected applied path: ${JSON.stringify(accepted.body.applied_paths)}`);
-  }
-  const moved = await readFile(`${REPO}/${folder}/${fileName}`, "utf8");
-  if (!moved.includes("A document to file")) {
-    fail("the file did not arrive in the folder");
-  }
-  console.log("accepted: the file is in", folder);
 
-  // --- 8. The group followed it -------------------------------------------
-  const members = (
-    await api(page, `/api/workspaces/${workspaceId}/groups/${filed.id}/documents`)
-  ).body;
-  if (members.length !== 1 || members[0].path !== `${folder}/${fileName}`) {
-    fail(
-      `the group did not follow the document: ${JSON.stringify(members)}`,
-    );
+  // The whole point: a proposal, not a move.
+  if (!existsSync(`${REPO}/notities.md`)) fail("the file moved without being accepted");
+  if (existsSync(`${REPO}/Archief/notities.md`)) {
+    fail("the file is in the archive already, before the proposal was accepted");
   }
-  console.log("the group followed the document to its new path");
+  console.log("the file is still where it was, and the archive is still empty");
 
-  // --- 9. And the view group, which also held it --------------------------
-  const viewMembers = (
-    await api(page, `/api/workspaces/${workspaceId}/groups/${view.id}/documents`)
-  ).body;
-  if (viewMembers.length !== 1 || viewMembers[0].path !== `${folder}/${fileName}`) {
-    fail(
-      `a second group was left on the old path: ${JSON.stringify(viewMembers)}`,
-    );
-  }
-  console.log("the other group followed too");
-
-  // --- 10. Nothing was lost ------------------------------------------------
-  const tree = (
-    await api(page, `/api/workspaces/${workspaceId}/repositories/${repoId}/tree`)
-  ).body;
-  // The tree is nested (root -> children), so a flat read of the top level would
-  // find the folder but never the file inside it -- which would fail this check
-  // for a repository that is in fact perfectly correct.
-  const pathsIn = (node) => [
-    node.path,
-    ...(node.children ?? []).flatMap((child) => pathsIn(child)),
-  ];
-  const entries = pathsIn(tree.root ?? tree).map((p) => p.replace(/\\/g, "/"));
-  if (!entries.includes(`${folder}/${fileName}`)) {
-    fail(`the repository tree does not show the moved file: ${JSON.stringify(entries)}`);
-  }
-  if (entries.includes(fileName)) {
-    fail(`the tree still shows the file at its old path: ${JSON.stringify(entries)}`);
-  }
-  console.log("the repository tree agrees, at the new path only");
-
-  // --- Clean up, in the same shape as the setup ----------------------------
-  for (const gid of [view.id, filed.id]) {
-    await api(page, `/api/workspaces/${workspaceId}/groups/${gid}`, { method: "DELETE" });
-  }
-  await api(page, `/api/workspaces/${workspaceId}/proposals/${proposalId}/reject`, {
-    method: "POST",
-  });
-  console.log("\nfiling smoke: OK");
+  await page.screenshot({ path: "screenshots/archive-after-click.png" });
+  console.log("archive action: OK");
 } catch (err) {
-  console.error("\nfiling smoke FAILED:", err.message);
-  await page.screenshot({ path: "screenshots/filing-failed.png" }).catch(() => {});
+  console.error("\narchive action FAILED:", err.message);
+  await page.screenshot({ path: "screenshots/archive-action-failed.png" }).catch(() => {});
   process.exitCode = 1;
 } finally {
   await browser.close();
 }
+

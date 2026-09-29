@@ -49,3 +49,14 @@ backend/apollo_storage/
 backend/models/
 *.gguf
 *.gguf.part
+
+# Scratch repositories the smoke scripts create and move documents around in.
+# They are throwaway, and a file a test moved must never look like a change to
+# the project.
+.smoke-*/
+
+# Scratch logs written while running a server or a test by hand. Named with a
+# leading underscore so they cannot be confused with a real output file.
+_*.out
+_*.err
+_*.tmp

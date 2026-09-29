@@ -29,9 +29,11 @@ from app.schemas import (
 from app.services.filing import plan_filing, set_group_folder
 from app.services.placement import (
     PlacementError,
+    assert_can_place,
     create_group,
     delete_group,
     get_group,
+    get_or_create_archive,
     group_documents,
     groups_of_document,
     list_groups,
@@ -205,6 +207,61 @@ def add_document(
         group = get_group(db, workspace_id, group_id)
         proposal = plan_filing(
             db, workspace_id, group, payload.repository_id, payload.path
+        )
+    except PlacementError as exc:
+        raise _fail(exc) from exc
+    return GroupDocumentOut(
+        repository_id=placement.repository_id,
+        path=placement.file_path,
+        position=placement.position,
+        placed_by=placement.placed_by,
+        proposal_id=proposal.id if proposal is not None else None,
+    )
+
+
+@router.post(
+    "/groups/archive",
+    response_model=GroupDocumentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def archive(
+    workspace_id: int, payload: GroupPlacementRequest, db: Session = Depends(get_db)
+) -> GroupDocumentOut:
+    """Put a document in the archive, creating the archive if there is none.
+
+    An action rather than a place you have to find: archiving is something a
+    reader does often and by name, so it gets its own verb instead of a drag
+    onto a card that may not exist yet. It does exactly what the drag would --
+    the archive is a group like any other -- and says which.
+
+    The file does not move on its own. The archive stands for a folder, so this
+    files the same proposal a drag into it would, and the response carries the
+    id. That is what keeps "archive" from becoming a quiet way around the rule
+    that nothing is ever deleted: the document is still readable at its old path
+    until somebody accepts.
+
+    The archive is created only once the document is known to be archivable, so
+    a refused request leaves no empty archive behind.
+    """
+    get_workspace(db, workspace_id)
+    try:
+        # Check the document before reaching for the archive. The archive is
+        # created on first use, and creating it for a document that turns out not
+        # to be there would leave an empty archive behind -- a side effect of a
+        # request that was refused.
+        assert_can_place(db, workspace_id, payload.repository_id, payload.path)
+        archive_group = get_or_create_archive(db, workspace_id)
+        placement = place_document(
+            db,
+            workspace_id,
+            archive_group.id,
+            payload.repository_id,
+            payload.path,
+            # The reader's, same as every placement made through this surface.
+            placed_by="user",
+        )
+        proposal = plan_filing(
+            db, workspace_id, archive_group, payload.repository_id, payload.path
         )
     except PlacementError as exc:
         raise _fail(exc) from exc

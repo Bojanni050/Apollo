@@ -583,6 +583,18 @@ deletion. One archive, not several: "is this archived?" has to have one answer.
 The archive is created on first use rather than migrated, so a workspace that
 never archives anything does not carry a group nobody asked for.
 
+Dragging is the only way to file a document, and dragging is a fine way to do it
+only if you are holding the mouse. So the panel also offers **Put in the
+archive** for the document you are reading. It is the same flow, not a shortcut
+past it: the action places the document in the archive group and proposes the
+move to `Archief/`, and nothing is moved until you accept. The document is
+checked before the archive group is created, so a path that does not exist
+refuses the request instead of leaving an empty archive behind.
+
+`POST /workspaces/{id}/groups/archive` is that action, and it goes through the
+same `place_document` and `plan_filing` as a drag. Nothing in the archive path
+moves or deletes a file directly.
+
 ## Signals
 
 Delphi also reports what it thinks is happening to a document's *standing*,
