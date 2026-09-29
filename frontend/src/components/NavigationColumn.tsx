@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { Workspace } from '../api/client'
-import { WhyNote } from './WhyNote'
 
 export type NavSection =
   | 'inbox'
@@ -288,11 +287,6 @@ export function NavigationColumn({
             </div>
           </details>
         </div>
-
-        {/* Why this exists. Last in the scrolling list rather than pinned to the
-            bottom, so it is present without competing with the navigation it
-            sits under, and can be collapsed out of the way once it has been read. */}
-        <WhyNote />
       </div>
 
       {/* 4. Bottom Pinned Section */}

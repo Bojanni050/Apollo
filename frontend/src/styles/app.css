@@ -704,81 +704,6 @@ input:focus, textarea:focus, select:focus {
   background: var(--bg-nav);
 }
 
-/* "Why this exists".
-   Quiet by design: this is a reminder, not a call to action, so it uses the
-   muted text colour and a dashed edge. It is the last thing in the scrolling
-   list, where it is findable but out of the way of the navigation above it. */
-.why-note {
-  margin: 14px 14px 4px;
-  padding: 10px 12px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 8px;
-  background: transparent;
-}
-
-.why-note-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.why-note-title {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.why-note-caret {
-  font-size: 10px;
-  color: var(--text-faint);
-}
-
-.why-note-edit {
-  padding: 1px 7px;
-  font-size: 11.5px;
-  color: var(--text-faint);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.why-note-edit:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-
-.why-note-body {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-}
-
-.why-note-editor {
-  width: 100%;
-  margin-top: 8px;
-  padding: 7px 8px;
-  font-family: inherit;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--text);
-  background: var(--bg-file);
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  resize: vertical;
-}
-
 .nav-ai-pulse-btn {
   display: flex;
   align-items: center;
@@ -3829,6 +3754,30 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-dim);
+}
+
+/* The optional half of the folder step: adding documents now, by uploading or
+   by pointing at an existing documentation folder. Set apart with a top border
+   rather than a box, because it follows the folder confirmation directly and
+   should read as "next, if you want" rather than as a competing card. */
+.setup-optional {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.setup-optional h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setup-inline-form {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-contents);
 }
 
 .working-folder-card {

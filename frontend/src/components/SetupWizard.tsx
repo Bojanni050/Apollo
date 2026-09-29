@@ -1,22 +1,30 @@
 /**
- * First-run setup: create a workspace and register its documentation
- * repository, in one pass.
+ * First-run setup: create a workspace and give it a folder, in one pass.
  *
  * Why this exists
  * ---------------
- * The API has always supported both operations (`POST /workspaces` and
- * `POST /workspaces/{id}/repositories`) and the typed client has methods for
- * them, but nothing in the UI called them. A new user had to open a terminal,
- * run curl, and reload the page before the app was usable at all. This
- * component closes that gap.
+ * The API has always supported creating a workspace, choosing its working
+ * folder and registering a documentation repository, and the typed client has
+ * methods for all three, but nothing in the UI called them. A new user had to
+ * open a terminal, run curl, and reload the page before the app was usable at
+ * all. This component closes that gap.
  *
- * Design notes
- * ------------
- * A workspace with no repository is nearly useless: the document tree is empty
- * and chat refuses to run (see test_workspace_without_repositories_cannot_chat).
- * That is why the repository step is part of the same flow rather than a
- * separate screen, and why it can be skipped but not forgotten -- the summary
- * says plainly what is still missing.
+ * Two steps, not three
+ * ---------------------
+ * This used to be three steps: name the workspace, choose a working folder,
+ * then separately register an existing documentation folder. That third step
+ * read as a second, different kind of "pick a folder" question right after the
+ * first one, which is exactly where people got lost -- two folders that look
+ * like the same choice are not the same choice.
+ *
+ * The folder step now creates the workspace's repository the moment a folder
+ * is chosen (see `set_working_dir` on the backend, which does this eagerly
+ * rather than waiting for a first upload) -- so as soon as step 2's folder is
+ * confirmed, the workspace already has somewhere to keep documents and chat is
+ * not blocked. Adding documents -- by uploading, or by pointing at an existing
+ * documentation folder instead of Apollo's own -- is then one optional, later
+ * half of the same step rather than a step of its own: real, offered plainly,
+ * but not something the reader has to get past to finish.
  *
  * Path validation is the backend's job, not this component's. The form
  * deliberately does not re-implement the allow-list rules: it sends what the
@@ -28,8 +36,10 @@
 import { useState } from 'react'
 import { ApiError, api, type Workspace } from '../api/client'
 import { FolderPickerModal } from './FolderPickerModal'
+import { InboxDropzone } from './InboxDropzone'
 
-type Step = 'workspace' | 'working' | 'repository' | 'done'
+type Step = 'workspace' | 'folder' | 'done'
+type AddMode = 'none' | 'upload' | 'existing'
 
 interface Props {
   /** Called when a workspace exists, so the app can load and select it. */
@@ -44,22 +54,8 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   // -- step 1: the workspace -------------------------------------------------
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-
-  // -- step 2: the documentation repository ----------------------------------
-  const [repoName, setRepoName] = useState('')
-  const [localPath, setLocalPath] = useState('')
-  const [writable, setWritable] = useState(true)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  /** The workspace from step 1, needed to attach the repository to. */
+  /** The workspace from step 1, needed for every call the folder step makes. */
   const [created, setCreated] = useState<Workspace | null>(null)
-
-  const handleFolderPicked = (picked: string) => {
-    setLocalPath(picked)
-    if (!repoName.trim()) {
-      const folderName = picked.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
-      if (folderName) setRepoName(folderName)
-    }
-  }
 
   const message = (e: unknown, fallback: string) =>
     setError(e instanceof ApiError ? e.detail : fallback)
@@ -73,9 +69,9 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
       setCreated(ws)
       // Deliberately does NOT notify the parent yet. Doing so would add the
       // workspace to App's list, which makes App render the main layout and
-      // unmount this wizard -- so the repository step would never be seen.
+      // unmount this wizard -- so the folder step would never be seen.
       // The parent is told once the whole flow finishes, in finish().
-      setStep('working')
+      setStep('folder')
     } catch (err) {
       message(err, 'Could not create the workspace.')
     } finally {
@@ -85,8 +81,8 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
 
   /**
    * Hand the finished workspace to the app, which selects it and loads the
-   * document tree. Called after the repository is registered, or when the user
-   * skips that step.
+   * document tree. Reachable as soon as the folder is chosen -- everything
+   * after that is optional.
    */
   const finish = async (ws: Workspace) => {
     setStep('done')
@@ -99,19 +95,11 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     }
   }
 
-  // -- step 2: the working folder ---------------------------------------------
-  // Asked before the documentation folder, and that order is the argument: this
-  // is where documents *arrive*, and the folder they are read from is a
-  // separate, later question. A reader with no existing documentation at all --
-  // the common case for somebody opening this for the first time -- needs this
-  // answer and not the other one.
-  //
-  // Which is also why this step has to say plainly that it wants a *new, empty*
-  // folder and that it is not the documentation folder. The two questions both
-  // end in "pick a folder", they look the same, and a reader who has just been
-  // asked one of them reasonably assumes the second is the same one. So: a
-  // distinct heading, a tree of what this choice actually creates, and a reminder
-  // on the next step of what this one already was.
+  // -- step 2: the folder ------------------------------------------------------
+  // Choosing (or explicitly keeping Apollo's own) is what creates the
+  // workspace's repository, so this half of the step cannot be skipped -- only
+  // answered either way. What comes after it -- uploading something now, or
+  // pointing at an existing documentation folder -- can be.
   const [workingPath, setWorkingPath] = useState('')
   const [workingPicked, setWorkingPicked] = useState(false)
   const [workingWarning, setWorkingWarning] = useState<string | null>(null)
@@ -132,10 +120,28 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     }
   }
 
-  /** Skipping is a real state, not a dismissal: the folder stays Apollo's own
-   *  and the card beside the inbox keeps saying so. */
-  const skipWorkingFolder = () => {
-    if (created) setStep('repository')
+  /** Apollo's own folder is a real choice, made through the same call, so the
+   *  repository exists either way -- not a dismissal that leaves it missing. */
+  const useDefaultFolder = () => void chooseWorkingFolder('')
+
+  // -- step 2, optional half: adding documents now -----------------------------
+  const [addMode, setAddMode] = useState<AddMode>('none')
+
+  // An existing documentation folder, read in place and never copied -- the
+  // other optional path, alongside uploading, now that it is no longer a step
+  // of its own.
+  const [repoName, setRepoName] = useState('')
+  const [localPath, setLocalPath] = useState('')
+  const [writable, setWritable] = useState(true)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [repoAdded, setRepoAdded] = useState<string | null>(null)
+
+  const handleFolderPicked = (picked: string) => {
+    setLocalPath(picked)
+    if (!repoName.trim()) {
+      const folderName = picked.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
+      if (folderName) setRepoName(folderName)
+    }
   }
 
   const addRepository = async (e: React.FormEvent) => {
@@ -154,7 +160,9 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
         kind: 'documentation',
         writable,
       })
-      await finish(created)
+      setRepoAdded(trimmedPath)
+      setLocalPath('')
+      setRepoName('')
     } catch (err) {
       message(err, 'Could not register the repository.')
     } finally {
@@ -166,11 +174,11 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   if (step === 'workspace') {
     return (
       <form className="setup" onSubmit={createWorkspace}>
-        <h2>Step 1 of 3 &mdash; name your workspace</h2>
+        <h2>Step 1 of 2 &mdash; name your workspace</h2>
         <p className="faint">
           A workspace holds your documentation and the conversations about it.
-          It is a name for your work, not a folder &mdash; you will be asked for
-          two folders in the next two steps.
+          It is a name for your work, not a folder &mdash; the next step asks
+          for that.
         </p>
 
         <div className="form-group">
@@ -211,219 +219,234 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     )
   }
 
-  // -- step 3: the documentation repository ----------------------------------
-  if (step === 'working' && created) {
+  // -- step 2: the folder, then optionally some documents ----------------------
+  if (step === 'folder' && created) {
     return (
       <>
-        <form className="setup" onSubmit={(e) => { e.preventDefault(); setStep('repository') }}>
-          <h2>Step 2 of 3 &mdash; where Apollo keeps its own work</h2>
-          <p className="faint">
-            Workspace <strong>{created.name}</strong> is ready. Choose an empty
-            folder on this machine for Apollo to work in. This folder is
-            Apollo&rsquo;s own: it fills up as you drop documents in.
-          </p>
-          <p className="hint">
-            This is <strong>not</strong> the folder with your existing
-            documentation &mdash; that is the next step. You only choose one
-            folder here.
-          </p>
+        <div className="setup">
+          <h2>Step 2 of 2 &mdash; your folder</h2>
 
-          {workingPicked ? (
-            <div className="form-group">
-              <label className="form-label">Your folder</label>
-              <p className="setup-picked">{workingPath}</p>
-              {workingWarning && <p className="hint">{workingWarning}</p>}
-              <p className="hint">
-                This is where Apollo will work. Next you point it at the folder
-                with your existing documentation — that is a different folder,
-                and you can leave this one as it is.
+          {!workingPicked ? (
+            <>
+              <p className="faint">
+                Workspace <strong>{created.name}</strong> is ready. Choose a
+                folder on this machine for Apollo to keep its own copies of
+                documents in &mdash; or keep Apollo&rsquo;s own.
               </p>
-            </div>
-          ) : (
-            <div className="form-group">
-              <label className="form-label" htmlFor="working-path">
-                Folder
-              </label>
-              <div className="input-with-button">
-                <input
-                  id="working-path"
-                  value={workingPath}
-                  onChange={(e) => setWorkingPath(e.target.value)}
-                  placeholder="C:/Documenten/Apollo"
-                  spellCheck={false}
-                  autoFocus
-                />
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="working-path">
+                  Folder
+                </label>
+                <div className="input-with-button">
+                  <input
+                    id="working-path"
+                    value={workingPath}
+                    onChange={(e) => setWorkingPath(e.target.value)}
+                    placeholder="C:/Documenten/Apollo"
+                    spellCheck={false}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && workingPath.trim()) {
+                        e.preventDefault()
+                        void chooseWorkingFolder(workingPath.trim())
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setWorkingPickerOpen(true)}
+                    title="Browse local folders"
+                  >
+                    📁 Browse…
+                  </button>
+                </div>
+                <p className="hint">
+                  Must be an existing directory. An empty one is best, but a
+                  folder that already has files in it is fine — Apollo adds its
+                  own alongside and leaves the rest alone.
+                </p>
+                <div className="setup-tree">
+                  <p className="setup-tree-title">
+                    Apollo will make this, and nothing else:
+                  </p>
+                  <div className="setup-tree-body">
+                    <div className="setup-tree-line">{workingPath.trim() || 'C:\\Documenten\\Apollo'}{'\\'}</div>
+                    <div className="setup-tree-line setup-tree-indent">Inbox{'\\'}</div>
+                    <div className="setup-tree-line setup-tree-indent setup-tree-arrow">
+                      you drop documents in here
+                    </div>
+                  </div>
+                  <p className="setup-tree-note">
+                    <code>Inbox</code> is created as soon as you confirm this
+                    folder, before you have dropped anything in. You never
+                    choose it yourself.
+                  </p>
+                </div>
+              </div>
+
+              {error && <p className="error">{error}</p>}
+
+              <div className="btn-row">
                 <button
+                  className="btn primary"
                   type="button"
-                  className="btn"
-                  onClick={() => setWorkingPickerOpen(true)}
-                  title="Browse local folders"
+                  disabled={busy || !workingPath.trim()}
+                  onClick={() => void chooseWorkingFolder(workingPath.trim())}
                 >
-                  📁 Browse…
+                  {busy ? 'Choosing…' : 'Use this folder'}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={busy}
+                  onClick={useDefaultFolder}
+                >
+                  {busy ? 'Working…' : "Use Apollo's own folder"}
                 </button>
               </div>
-              <p className="hint">
-                Must be an existing directory. An empty one is best, but a folder
-                that already has files in it is fine — Apollo adds its own
-                alongside and leaves the rest alone.
-              </p>
-              <div className="setup-tree">
-                <p className="setup-tree-title">
-                  Apollo will make this, and nothing else:
-                </p>
-                <div className="setup-tree-body">
-                  <div className="setup-tree-line">{workingPath.trim() || 'C:\\Documenten\\Apollo'}{'\\'}</div>
-                  <div className="setup-tree-line setup-tree-indent">Inbox{'\\'}</div>
-                  <div className="setup-tree-line setup-tree-indent setup-tree-arrow">
-                    you drop documents in here
-                  </div>
-                </div>
-                <p className="setup-tree-note">
-                  <code>Inbox</code> is created as soon as you confirm this
-                  folder, before you have dropped anything in. You never choose
-                  it yourself.
-                </p>
+            </>
+          ) : (
+            <>
+              <div className="form-group">
+                <label className="form-label">Your folder</label>
+                <p className="setup-picked">{workingPath}</p>
+                {workingWarning && <p className="hint">{workingWarning}</p>}
               </div>
-            </div>
+
+              <div className="setup-optional">
+                <h3>Optional &mdash; add some documents now</h3>
+                <p className="faint">
+                  You can also do this later, from the workspace itself.
+                </p>
+
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className={addMode === 'upload' ? 'btn primary' : 'btn'}
+                    onClick={() => setAddMode(addMode === 'upload' ? 'none' : 'upload')}
+                  >
+                    Upload files
+                  </button>
+                  <button
+                    type="button"
+                    className={addMode === 'existing' ? 'btn primary' : 'btn'}
+                    onClick={() => setAddMode(addMode === 'existing' ? 'none' : 'existing')}
+                  >
+                    Point at an existing folder
+                  </button>
+                </div>
+
+                {addMode === 'upload' && (
+                  <InboxDropzone workspaceId={created.id} onStored={() => {}} compact />
+                )}
+
+                {addMode === 'existing' && (
+                  <form className="setup-inline-form" onSubmit={addRepository}>
+                    <p className="hint">
+                      A different folder from the one above &mdash; your
+                      existing documentation (Markdown, PDF, Word .docx, plain
+                      text), read in place. Nothing is copied or moved.
+                    </p>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="repo-path">
+                        Your documentation folder
+                      </label>
+                      <div className="input-with-button">
+                        <input
+                          id="repo-path"
+                          value={localPath}
+                          onChange={(e) => setLocalPath(e.target.value)}
+                          placeholder="C:/src/gaia-docs"
+                          spellCheck={false}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setPickerOpen(true)}
+                          title="Browse local folders"
+                        >
+                          📁 Browse…
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="repo-name">
+                        Name <span className="faint">(optional)</span>
+                      </label>
+                      <input
+                        id="repo-name"
+                        value={repoName}
+                        onChange={(e) => setRepoName(e.target.value)}
+                        placeholder="Defaults to the folder name"
+                        maxLength={200}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="checkbox">
+                        <input
+                          type="checkbox"
+                          checked={writable}
+                          onChange={(e) => setWritable(e.target.checked)}
+                        />
+                        <span>
+                          Allow edits
+                          <span className="hint" style={{ display: 'block' }}>
+                            Move, rename and edit proposals can be prepared
+                            against this folder. Nothing is written without
+                            your explicit approval.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    {repoAdded && (
+                      <p className="hint">Registered {repoAdded}. You can add another.</p>
+                    )}
+
+                    <div className="btn-row">
+                      <button
+                        className="btn primary"
+                        type="submit"
+                        disabled={busy || !localPath.trim()}
+                      >
+                        {busy ? 'Registering…' : 'Register folder'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {error && <p className="error">{error}</p>}
+
+              <div className="btn-row">
+                <button
+                  className="btn primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void finish(created)}
+                >
+                  Finish setup
+                </button>
+              </div>
+            </>
           )}
-
-          {error && <p className="error">{error}</p>}
-
-          <div className="btn-row">
-            {workingPicked ? (
-              <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? 'Working…' : 'Continue'}
-              </button>
-            ) : (
-              <button
-                className="btn primary"
-                type="button"
-                disabled={busy || !workingPath.trim()}
-                onClick={() => void chooseWorkingFolder(workingPath.trim())}
-              >
-                {busy ? 'Choosing…' : 'Use this folder'}
-              </button>
-            )}
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={skipWorkingFolder}
-            >
-              Use Apollo&rsquo;s own folder
-            </button>
-          </div>
-        </form>
+        </div>
 
         <FolderPickerModal
           isOpen={workingPickerOpen}
           initialPath={workingPath || undefined}
-          title="Select Your Working Folder"
+          title="Select Your Folder"
           onSelect={(path) => {
             setWorkingPath(path)
             setWorkingPickerOpen(false)
           }}
           onClose={() => setWorkingPickerOpen(false)}
         />
-      </>
-    )
-  }
-
-  // -- step 4: the documentation repository ----------------------------------
-  if (step === 'repository' && created) {
-    return (
-      <>
-        <form className="setup" onSubmit={addRepository}>
-          <h2>Step 3 of 3 &mdash; your existing documentation</h2>
-          <p className="faint">
-            Almost done. Point Apollo at the folder holding the documentation you
-            already have (Markdown, PDF, Word .docx, plain text) — an existing
-            directory on this machine. Nothing is cloned or copied.
-          </p>
-          {workingPicked && (
-            <p className="hint">
-              A different folder from step 2. Step 2 was Apollo&rsquo;s own
-              working folder, now <code>{workingPath}</code>. Leave it there;
-              choose here the folder your documents are actually in.
-            </p>
-          )}
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="repo-path">
-              Your documentation folder
-            </label>
-            <div className="input-with-button">
-              <input
-                id="repo-path"
-                value={localPath}
-                onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="C:/src/gaia-docs"
-                spellCheck={false}
-                autoFocus
-                required
-              />
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setPickerOpen(true)}
-                title="Browse local folders"
-              >
-                📁 Browse…
-              </button>
-            </div>
-            <p className="hint">
-              Must be an existing directory on this machine. You can type a path
-              or click &quot;Browse&quot; to pick a folder.
-            </p>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="repo-name">
-              Name <span className="faint">(optional)</span>
-            </label>
-            <input
-              id="repo-name"
-              value={repoName}
-              onChange={(e) => setRepoName(e.target.value)}
-              placeholder="Defaults to the folder name"
-              maxLength={200}
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={writable}
-                onChange={(e) => setWritable(e.target.checked)}
-              />
-              <span>
-                Allow edits
-                <span className="hint" style={{ display: 'block' }}>
-                  Move, rename and edit proposals can be prepared against this
-                  repository. Nothing is written without your explicit approval.
-                </span>
-              </span>
-            </label>
-          </div>
-
-          {error && <p className="error">{error}</p>}
-
-          <div className="btn-row">
-            <button className="btn primary" type="submit" disabled={busy || !localPath.trim()}>
-              {busy ? 'Registering…' : 'Register repository'}
-            </button>
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={() => finish(created)}
-            >
-              Skip for now
-            </button>
-          </div>
-        </form>
-
         <FolderPickerModal
           isOpen={pickerOpen}
           initialPath={localPath}
@@ -442,17 +465,7 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   return (
     <div className="setup">
       <h2>Workspace ready</h2>
-      {error ? (
-        <p className="error">{error}</p>
-      ) : created && created.repositories.length === 0 ? (
-        <p className="faint">
-          <strong>{created.name}</strong> has no repository yet, so the document
-          tree is empty and chat has nothing to read. Register one from the
-          Workspace panel whenever you are ready.
-        </p>
-      ) : (
-        <p className="faint">Loading your documents…</p>
-      )}
+      {error ? <p className="error">{error}</p> : <p className="faint">Loading your documents…</p>}
     </div>
   )
 }
