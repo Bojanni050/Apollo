@@ -316,3 +316,31 @@ def test_tool_failure_does_not_break_the_loop(
         str(m.get("content", "")) for m in provider.calls[1]
     ).lower()
     assert "traversal" in blob
+
+
+def test_agent_retries_once_on_empty_response(
+    session: Session, workspace: dict, repos: list
+) -> None:
+    """An empty reply (no content, no tool calls) is retried once before the
+    user is told the model returned nothing."""
+    conversation = _conversation(session, workspace, "explore")
+    provider = ScriptedProvider(
+        [LLMResponse(content=""), LLMResponse(content="recovered answer")]
+    )
+    result = Agent(provider).run(session, conversation, "q", repos)
+    assert result.content == "recovered answer"
+    # Two provider calls happened: the empty one and the retry.
+    assert len(provider.calls) == 2
+
+
+def test_agent_reports_after_empty_retry_fails(
+    session: Session, workspace: dict, repos: list
+) -> None:
+    """If the retry is also empty, the user gets the fallback text."""
+    conversation = _conversation(session, workspace, "explore")
+    provider = ScriptedProvider([LLMResponse(content=""), LLMResponse(content="")])
+    result = Agent(provider).run(session, conversation, "q", repos)
+    assert result.content == (
+        "(The AI model returned an empty answer — please try again.)"
+    )
+    assert len(provider.calls) == 2
