@@ -1036,6 +1036,7 @@ export default function App() {
           onAddRepository={() => setAddRepoModalOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onDeleteWorkspace={onDeleteWorkspace}
+          pulseActive={pulseRunning}
         />
 
         <ColumnResizer
