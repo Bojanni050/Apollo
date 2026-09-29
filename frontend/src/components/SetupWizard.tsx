@@ -279,9 +279,9 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
                   </div>
                 </div>
                 <p className="setup-tree-note">
-                  <code>Inbox</code> is created the first time you drop a
-                  document, so you will not see it yet. You never choose it
-                  yourself.
+                  <code>Inbox</code> is created as soon as you confirm this
+                  folder, before you have dropped anything in. You never choose
+                  it yourself.
                 </p>
               </div>
             </div>

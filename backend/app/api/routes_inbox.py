@@ -81,6 +81,13 @@ def set_working_dir(
     about documents that are not there any more. The documents themselves are
     never moved, renamed or deleted by this call: an existing inbox stays exactly
     where it is, and the new folder simply starts empty.
+
+    The row is created here, not deferred until the first upload. Choosing a
+    folder is as deliberate an action as dropping in a document, and a workspace
+    left without a repository after it has one -- waiting on nothing but an
+    upload nobody has gotten to yet -- reads as "chat is broken" rather than as
+    "you have not added anything", the same trap ``get_or_create_storage_repo``
+    exists to close on the upload path.
     """
     workspace = get_workspace(db, workspace_id)
     raw = payload.path.strip()
@@ -94,9 +101,10 @@ def set_working_dir(
         workspace.working_dir = None
         db.commit()
         db.refresh(workspace)
-        repo = get_storage_repository(db, workspace_id)
-        if repo is not None:
-            repo.local_path = str(workspace_storage(workspace.id))
+        repo = get_or_create_storage_repo(db, workspace_id)
+        default_path = str(workspace_storage(workspace.id))
+        if repo.local_path != default_path:
+            repo.local_path = default_path
             db.commit()
             db.refresh(repo)
         return _working_dir_out(workspace)
@@ -127,8 +135,8 @@ def set_working_dir(
     db.commit()
     db.refresh(workspace)
 
-    repo = get_storage_repository(db, workspace_id)
-    if repo is not None:
+    repo = get_or_create_storage_repo(db, workspace_id)
+    if repo.local_path != str(target):
         repo.local_path = str(target)
         db.commit()
         db.refresh(repo)
@@ -156,11 +164,14 @@ def _working_dir_out(workspace) -> WorkingDirOut:
         )
 
     target = Path(chosen)
-    # Git's own directory is Apollo's bookkeeping, not the reader's content, and
-    # counting it would make every folder Apollo has ever prepared look occupied --
-    # including the one they just emptied on purpose.
+    # Git's own directory and the Inbox are Apollo's bookkeeping, not the
+    # reader's content, and counting either would make every folder Apollo has
+    # ever prepared look occupied -- including the one they just emptied on
+    # purpose, and including one where they have not dropped in anything yet.
     entries = (
-        len([p for p in target.iterdir() if p.name != ".git"]) if target.is_dir() else 0
+        len([p for p in target.iterdir() if p.name not in (".git", INBOX_DIR)])
+        if target.is_dir()
+        else 0
     )
     if not target.is_dir():
         # Said rather than glossed over. A folder the reader deleted on purpose

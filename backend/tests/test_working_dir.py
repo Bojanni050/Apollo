@@ -94,6 +94,23 @@ def test_a_chosen_folder_becomes_where_documents_go(
     assert not (storage_root() / f"workspace_{workspace['id']}" / INBOX_DIR).exists()
 
 
+def test_choosing_a_folder_creates_its_repository_without_an_upload(
+    client: TestClient, workspace: dict, tmp_path: Path
+) -> None:
+    """The point of the change: a reader who chose a folder and uploaded
+    nothing yet must still be able to chat, because a repository row already
+    exists for the folder they chose."""
+    chosen = tmp_path / "mijn-werkmap"
+    chosen.mkdir()
+
+    _choose(client, workspace["id"], chosen)
+
+    repos = client.get(f"/api/workspaces/{workspace['id']}").json()["repositories"]
+    storage_repo = next(r for r in repos if r.get("is_storage"))
+    assert storage_repo["local_path"] == str(chosen)
+    assert (chosen / INBOX_DIR).is_dir()
+
+
 def test_a_chosen_folder_is_stored_resolved(
     client: TestClient, workspace: dict, tmp_path: Path
 ) -> None:

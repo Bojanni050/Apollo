@@ -123,8 +123,10 @@ def get_or_create_storage_repo(db: Session, workspace_id: int) -> Repository:
     whether or not the workspace has a documentation repository at all, which is
     the normal case the first time somebody opens the app.
 
-    Created on first use, never on a read. A workspace somebody merely looked at
-    must not gain a directory on disk, so only an upload reaches this.
+    Created the first time it is needed, never on a read. A workspace somebody
+    merely looked at must not gain a directory on disk, but a workspace whose
+    reader explicitly chose a working folder or dropped in a document has asked
+    for one -- both deliberate actions reach this, not only an upload.
 
     The directory is created before the row, because a repository pointing at a
     path that does not exist would be refused by the very check that authorizes
