@@ -342,6 +342,69 @@ input:focus, textarea:focus, select:focus {
   grid-template-columns: var(--col-nav-width) var(--col-contents-width) 1fr 0px;
 }
 
+/* When the window leaves the document too little room, the navigation column
+   folds away entirely (see navCollapsed in App.tsx) and the grid drops its
+   track. The menu button and the flyout overlay take over; the contents list
+   keeps its own width so the arrangement stays recognisable. */
+.mindstack-layout.nav-collapsed,
+.mindstack-layout.nav-collapsed.context-closed {
+  grid-template-columns: 0px var(--col-contents-width) 1fr var(--col-context-width);
+}
+.mindstack-layout.nav-collapsed.context-closed {
+  grid-template-columns: 0px var(--col-contents-width) 1fr 0px;
+}
+.mindstack-layout.nav-collapsed .col-resizer-nav {
+  display: none;
+}
+
+/* The only trace of the navigation once it has collapsed: a small menu button
+   pinned to the top-left, above the contents list. */
+.nav-flyout-btn {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 60;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-chrome);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.nav-flyout-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* The collapsed navigation as an overlay: the column's own look, floating over
+   the layout, closed by the backdrop or the button. */
+.nav-flyout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.25);
+}
+.nav-flyout {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 71;
+  width: min(320px, 85vw);
+  background: var(--bg-nav);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+}
+.nav-flyout .nav-column {
+  border-right: none;
+}
+
+
 /* ==========================================================================
    Column resizers
    The dividers between the two list columns and the document. Absolute rather

@@ -30,7 +30,7 @@ import { FolderContentsColumn, type ItemCard } from './components/FolderContents
 import { GroupsBoard } from './components/GroupsBoard'
 import { LoginForm } from './components/LoginForm'
 import { NavigationColumn, type NavSection } from './components/NavigationColumn'
-import { ColumnResizer, useColumnResizers } from './columnResize'
+import { ColumnResizer, useColumnResizers, MIN_DOCUMENT } from './columnResize'
 import { NewObjectModal } from './components/NewObjectModal'
 import { SetupWizard } from './components/SetupWizard'
 
@@ -155,6 +155,27 @@ export default function App() {
     nudge: nudgeColumn,
     reset: resetColumnWidths,
   } = useColumnResizers()
+  /*
+   * Auto-collapse of the navigation column. When the window (or the column
+   * widths) leave the document too little room, the left navigation folds
+   * away so the document -- the reason the app exists -- keeps a readable
+   * width. `navCollapsed` is derived, not stored: it follows the layout on
+   * every resize, and the menu button brings the column back as a flyout
+   * overlay without changing the layout underneath.
+   */
+  const [navFlyoutOpen, setNavFlyoutOpen] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const navCollapsed =
+    viewportWidth - columnWidths.nav - columnWidths.contents <
+    MIN_DOCUMENT + 480
+  useEffect(() => {
+    if (!navCollapsed) setNavFlyoutOpen(false)
+  }, [navCollapsed])
 
   // Auth Status
   const [authRequired, setAuthRequired] = useState<boolean | null>(null)
@@ -1039,25 +1060,67 @@ export default function App() {
           } as React.CSSProperties
         }
       >
-        {/* Column 1: Navigation */}
-        <NavigationColumn
-          workspace={workspace}
-          workspaces={workspaces}
-          activeSection={activeSection}
-          onSelectSection={setActiveSection}
-          counts={counts}
-          onNewObject={() => setNewObjectModalOpen(true)}
-          onFocusSearch={() => {
-            const el = document.querySelector('.folder-search-input') as HTMLInputElement | null
-            el?.focus()
-          }}
-          onSelectWorkspace={selectWorkspace}
-          onAddRepository={() => setAddRepoModalOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onDeleteWorkspace={onDeleteWorkspace}
-          pulseActive={pulseRunning}
-        />
-
+        {/* Column 1: Navigation. When the layout collapses it (see
+            navCollapsed above), the column becomes a flyout overlay and the
+            menu button is the only trace of it -- the document keeps the room. */}
+        {navCollapsed ? (
+          <>
+            <button
+              type="button"
+              className={`nav-flyout-btn ${navFlyoutOpen ? 'active' : ''}`}
+              onClick={() => setNavFlyoutOpen((v) => !v)}
+              title={navFlyoutOpen ? 'Close navigation' : 'Show navigation'}
+              aria-expanded={navFlyoutOpen}
+            >
+              {navFlyoutOpen ? '✕' : '☰'}
+            </button>
+            {navFlyoutOpen && (
+              <>
+                <div
+                  className="nav-flyout-backdrop"
+                  onClick={() => setNavFlyoutOpen(false)}
+                />
+                <div className="nav-flyout">
+                  <NavigationColumn
+            workspace={workspace}
+            workspaces={workspaces}
+            activeSection={activeSection}
+            onSelectSection={setActiveSection}
+            counts={counts}
+            onNewObject={() => setNewObjectModalOpen(true)}
+            onFocusSearch={() => {
+              const el = document.querySelector('.folder-search-input') as HTMLInputElement | null
+              el?.focus()
+            }}
+            onSelectWorkspace={selectWorkspace}
+            onAddRepository={() => setAddRepoModalOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onDeleteWorkspace={onDeleteWorkspace}
+            pulseActive={pulseRunning}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <NavigationColumn
+            workspace={workspace}
+            workspaces={workspaces}
+            activeSection={activeSection}
+            onSelectSection={setActiveSection}
+            counts={counts}
+            onNewObject={() => setNewObjectModalOpen(true)}
+            onFocusSearch={() => {
+              const el = document.querySelector('.folder-search-input') as HTMLInputElement | null
+              el?.focus()
+            }}
+            onSelectWorkspace={selectWorkspace}
+            onAddRepository={() => setAddRepoModalOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onDeleteWorkspace={onDeleteWorkspace}
+            pulseActive={pulseRunning}
+          />
+        )}
         <ColumnResizer
           side="nav"
           width={columnWidths.nav}
