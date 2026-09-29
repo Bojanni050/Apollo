@@ -57,6 +57,9 @@ class GroupView:
     #: so the board can tell a view from a filing destination without a second
     #: query per group.
     folder: str | None
+    #: Whether the reader has accepted this group. False only for a Delphi
+    #: proposal nobody has acted on yet.
+    reviewed: bool
 
 
 #: The name of the single archive group. One, not several: "the archive" is a
@@ -129,6 +132,7 @@ def list_groups(db: Session, workspace_id: int) -> list[GroupView]:
             layout=g.layout,
             document_count=counts.get(g.id, 0),
             folder=g.folder,
+            reviewed=g.reviewed,
         )
         for g in groups
     ]
@@ -185,6 +189,10 @@ def create_group(
         is_archive=is_archive,
         layout=layout,
         position=(last or 0) + 1,
+        # A group the reader just created is reviewed by construction -- they
+        # made the decision by making it. Only a Delphi proposal starts
+        # unreviewed, so the board can ask "accept or reject" about it.
+        reviewed=(source != "ai"),
     )
     if is_archive:
         # Set here rather than only in ``get_or_create_archive`` so that both
@@ -242,6 +250,21 @@ def rename_group(
         group.layout = layout
     db.commit()
     db.refresh(group)
+    return group
+
+
+def accept_group(db: Session, workspace_id: int, group_id: int) -> Group:
+    """Mark a Delphi proposal as kept.
+
+    Idempotent, and deliberately so: accepting an already-reviewed group is not
+    an error, because the board offers the button per group rather than
+    tracking which ones it has already sent a request for.
+    """
+    group = get_group(db, workspace_id, group_id)
+    if not group.reviewed:
+        group.reviewed = True
+        db.commit()
+        db.refresh(group)
     return group
 
 

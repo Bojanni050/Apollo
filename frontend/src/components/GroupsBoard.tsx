@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type DragEvent } from 'react'
-import { ApiError, api, type Group, type GroupDocument } from '../api/client'
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
+import { ApiError, api, type DocNode, type Group, type GroupDocument } from '../api/client'
 
 /**
  * The arrangement, as a board.
@@ -33,6 +33,16 @@ interface Props {
    */
   selectedGroupId?: number | null
   onSelectGroup?: (groupId: number | null) => void
+  /**
+   * The documentation repository's tree, so the board can show which
+   * documents are in no group at all. Null before it has loaded, or when the
+   * workspace has no documentation repository yet -- either way, the
+   * "ungrouped" shelf is simply not shown, rather than shown empty and wrong.
+   */
+  tree?: DocNode | null
+  /** The repository the tree belongs to, so membership can be checked per
+   *  document rather than by path alone -- two repositories can share a path. */
+  treeRepositoryId?: number | null
 }
 
 const ARCHIVE_NAME = 'Archief'
@@ -62,21 +72,37 @@ function fileName(path: string): string {
   return path.split('/').pop() ?? path
 }
 
+/** Every file (not directory) under a tree node. */
+function flattenDocs(node: DocNode | null | undefined): DocNode[] {
+  if (!node) return []
+  const files: DocNode[] = []
+  const walk = (current: DocNode) => {
+    if (!current.is_dir) files.push(current)
+    else current.children.forEach(walk)
+  }
+  walk(node)
+  return files
+}
+
 export function GroupsBoard({
   workspaceId,
   onOpenDocument,
   activeDocument,
   selectedGroupId = null,
   onSelectGroup = () => {},
+  tree = null,
+  treeRepositoryId = null,
 }: Props) {
   const [groups, setGroups] = useState<Group[]>([])
   const [members, setMembers] = useState<Record<number, GroupDocument[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<number | null>(null)
+  const [ungroupedOver, setUngroupedOver] = useState(false)
   const [dragging, setDragging] = useState<DragPayload | null>(null)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [reviewing, setReviewing] = useState<number | null>(null)
   // Set when a drop produced a move proposal, so the board can say "there is a
   // card waiting" instead of leaving the reader to find it on another screen.
   const [filed, setFiled] = useState<string | null>(null)
@@ -114,6 +140,69 @@ export function GroupsBoard({
   useEffect(() => {
     void load()
   }, [load])
+
+  /**
+   * Every document in the tree that sits in no group at all.
+   *
+   * Computed here rather than asked of the server: the board already has both
+   * halves of the answer in memory -- the full tree and every group's members
+   * -- and a document belongs to whichever repository the open tree is for, so
+   * a placement in a different repository (the inbox, say) does not count
+   * against it.
+   */
+  const ungroupedDocs = useMemo(() => {
+    if (!tree || treeRepositoryId == null) return []
+    const grouped = new Set<string>()
+    for (const docs of Object.values(members)) {
+      for (const doc of docs) {
+        if (doc.repository_id === treeRepositoryId) grouped.add(doc.path)
+      }
+    }
+    return flattenDocs(tree).filter((node) => !grouped.has(node.path))
+  }, [tree, treeRepositoryId, members])
+
+  const acceptGroup = async (groupId: number) => {
+    setReviewing(groupId)
+    try {
+      await api.acceptGroup(workspaceId, groupId)
+      await load()
+    } catch (err) {
+      report(err)
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  /** Rejecting a proposal nobody wrote to disk is the same as deleting it: its
+   *  documents are left exactly where they were, simply in no group. */
+  const rejectGroup = async (groupId: number) => {
+    setReviewing(groupId)
+    try {
+      await api.deleteGroup(workspaceId, groupId)
+      if (selectedGroupId === groupId) onSelectGroup(null)
+      await load()
+    } catch (err) {
+      report(err)
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  /** Dropping onto the ungrouped shelf takes a document out of whatever group
+   *  it was in. Dropping something already ungrouped here changes nothing. */
+  const onDropToUngrouped = async (event: DragEvent) => {
+    event.preventDefault()
+    setUngroupedOver(false)
+    const payload = readPayload(event) ?? dragging
+    setDragging(null)
+    if (!payload || payload.fromGroupId === null) return
+    try {
+      await api.removeFromGroup(workspaceId, payload.fromGroupId, payload.repositoryId, payload.path)
+      await load()
+    } catch (err) {
+      report(err)
+    }
+  }
 
   const createGroup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -248,13 +337,75 @@ export function GroupsBoard({
           either way until they go looking on another screen. */}
       {filed && <div className="groups-board-filed">{filed}</div>}
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && (
         <div className="groups-board-empty">
           No groups yet. Delphi proposes them after a scan, and you can make your
           own here.
         </div>
-      ) : (
+      )}
+
+      {(groups.length > 0 || (tree && treeRepositoryId != null)) && (
         <div className="groups-grid">
+          {/* Everything Delphi and the reader have not put anywhere. Shown
+              first, because "what has nobody looked at yet" is a more useful
+              question to answer before "what is already sorted". */}
+          {tree && treeRepositoryId != null && (
+            <section
+              className={`group-card group-card--ungrouped${
+                ungroupedOver ? ' group-card--droptarget' : ''
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setUngroupedOver(true)
+              }}
+              onDragLeave={() => setUngroupedOver(false)}
+              onDrop={(e) => void onDropToUngrouped(e)}
+            >
+              <header className="group-card-header">
+                <h3 className="group-card-name">Ungrouped</h3>
+                <span className="group-card-count">
+                  {ungroupedDocs.length} {ungroupedDocs.length === 1 ? 'document' : 'documents'}
+                </span>
+              </header>
+              <p className="group-folder-label group-folder-label--muted">
+                Not a group — just what is left over
+              </p>
+              {ungroupedDocs.length === 0 ? (
+                <p className="group-card-empty">Every document is in a group.</p>
+              ) : (
+                <ul className="group-card-list">
+                  {ungroupedDocs.map((node) => {
+                    const isOpen =
+                      activeDocument?.repositoryId === treeRepositoryId &&
+                      activeDocument?.path === node.path
+                    return (
+                      <li key={node.path}>
+                        <button
+                          type="button"
+                          className={`group-document${isOpen ? ' group-document--open' : ''}`}
+                          draggable
+                          onDragStart={(e) =>
+                            onDocumentDragStart(e, treeRepositoryId, node.path, null)
+                          }
+                          onDragEnd={() => {
+                            setDragging(null)
+                            setDragOverId(null)
+                          }}
+                          onClick={() => onOpenDocument(treeRepositoryId, node.path)}
+                          title={node.path}
+                        >
+                          <span className="group-document-name">{fileName(node.path)}</span>
+                          <span className="group-document-path">{node.path}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+          )}
+
           {groups.map((group) => {
             const docs = members[group.id] ?? []
             const isTarget = dragOverId === group.id
@@ -266,6 +417,7 @@ export function GroupsBoard({
                   group.is_archive ? 'group-card--archive' : '',
                   isTarget ? 'group-card--droptarget' : '',
                   selectedGroupId === group.id ? 'group-card--selected' : '',
+                  !group.reviewed ? 'group-card--pending' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -374,6 +526,35 @@ export function GroupsBoard({
                   <span className="group-card-origin">
                     Delphi proposed this group
                   </span>
+                )}
+
+                {/* A proposal nobody has acted on yet. Accepting keeps it
+                    exactly as it is; rejecting deletes it -- its documents are
+                    left untouched, simply in no group any more. */}
+                {!group.reviewed && (
+                  <div className="group-card-review">
+                    <span className="group-card-review-note">
+                      Not reviewed yet
+                    </span>
+                    <div className="btn-row">
+                      <button
+                        type="button"
+                        className="btn primary text-sm"
+                        disabled={reviewing === group.id}
+                        onClick={() => void acceptGroup(group.id)}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        className="btn text-sm"
+                        disabled={reviewing === group.id}
+                        onClick={() => void rejectGroup(group.id)}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
                 )}
 
                 {docs.length === 0 ? (

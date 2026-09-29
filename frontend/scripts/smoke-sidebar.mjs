@@ -33,9 +33,21 @@ const visible = await page.locator('.nav-item:visible').allTextContents()
 const flat = visible.map((t) => t.replace(/\s+/g, ' ').trim())
 console.log('nav without opening anything:', JSON.stringify(flat))
 
-for (const core of ['Inbox', 'All objects', 'Groups', 'Notes & Docs']) {
+for (const core of ['Inbox', 'All objects', 'Notes & Docs']) {
   if (!flat.some((t) => t.includes(core))) {
     throw new Error(`the core section ${core} is not on the front page`)
+  }
+}
+
+// Groups moved out of this list and into the tab bar above the middle column,
+// alongside Ingestion -- so it is checked there instead of among the nav items.
+const tabs2 = (await page.locator('.mindstack-tab:visible').allTextContents()).map((t) =>
+  t.replace(/\s+/g, ' ').trim(),
+)
+console.log('tab bar:', JSON.stringify(tabs2))
+for (const tab of ['Ingestion', 'Groups']) {
+  if (!tabs2.some((t) => t.includes(tab))) {
+    throw new Error(`the ${tab} tab is not above the middle column`)
   }
 }
 for (const demoted of [
@@ -138,7 +150,7 @@ await page.reload({ waitUntil: 'networkidle' })
 await page.waitForTimeout(2000)
 
 // --- 4. The group describes itself in the panel -----------------------------
-await page.locator('.nav-item', { hasText: 'Groups' }).first().click()
+await page.locator('.mindstack-tab', { hasText: 'Groups' }).first().click()
 await page.waitForTimeout(1200)
 await page
   .locator('.group-card', { hasText: name })

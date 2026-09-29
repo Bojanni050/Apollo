@@ -153,30 +153,6 @@ export function NavigationColumn({
           </button>
         </div>
 
-        {/* Groups, above the object types.
-
-            This is the first thing the product is for, so it is the first
-            destination in the list: "which documents belong together" is the
-            question a reader brings to a pile of documents, and everything below
-            here is a way of looking at one of them. */}
-        <div className="nav-section-group">
-          <div className="nav-section-title">ARRANGEMENT</div>
-          <div className="nav-list">
-            <button
-              type="button"
-              className={`nav-item ${activeSection === 'groups' ? 'active' : ''}`}
-              onClick={() => onSelectSection('groups')}
-              title="Which documents belong together"
-            >
-              <span className="nav-item-left">
-                <span className="nav-item-glyph">▦</span>
-                <span>Groups</span>
-              </span>
-              <span className="nav-item-count">{counts.groups}</span>
-            </button>
-          </div>
-        </div>
-
         {/* Section: Object Types */}
         <div className="nav-section-group">
           <div className="nav-section-title">OBJECT TYPES</div>

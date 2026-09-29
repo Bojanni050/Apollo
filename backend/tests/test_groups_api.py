@@ -63,10 +63,12 @@ def test_there_is_no_way_to_delete_a_document_through_this_api() -> None:
         p for p in paths if "group" in p.lower() and "{group_id}" in p
     )
 
-    # There are exactly the two group-scoped deletes, and neither is about a
-    # document on disk.
+    # There are exactly these three group-scoped routes, and none of them is
+    # about a document on disk: two deletes (the group, a placement) and the
+    # accept endpoint, which only flips a flag.
     assert deletes == [
         "/api/workspaces/{workspace_id}/groups/{group_id}",
+        "/api/workspaces/{workspace_id}/groups/{group_id}/accept",
         "/api/workspaces/{workspace_id}/groups/{group_id}/documents",
     ]
 
@@ -86,6 +88,51 @@ def test_a_group_is_created_empty(client: TestClient, workspace: dict) -> None:
     assert body["name"] == "Projecten"
     assert body["source"] == "user"
     assert body["document_count"] == 0
+    assert body["reviewed"] is True
+
+
+def test_a_delphi_proposal_arrives_unreviewed(client: TestClient, workspace: dict) -> None:
+    base = f"/api/workspaces/{workspace['id']}/groups"
+
+    created = client.post(base, json={"name": "Gaia sources", "source": "ai"})
+
+    assert created.json()["reviewed"] is False
+
+
+def test_accepting_a_proposal_over_the_api(client: TestClient, workspace: dict) -> None:
+    base = f"/api/workspaces/{workspace['id']}/groups"
+    gid = client.post(base, json={"name": "Gaia sources", "source": "ai"}).json()["id"]
+
+    accepted = client.post(f"{base}/{gid}/accept")
+
+    assert accepted.status_code == 200
+    assert accepted.json()["reviewed"] is True
+    # Reflected in the list too, not only in the response to the accept call.
+    listed = client.get(base).json()
+    assert next(g for g in listed if g["id"] == gid)["reviewed"] is True
+
+
+def test_accepting_an_unknown_group_is_404(client: TestClient, workspace: dict) -> None:
+    response = client.post(f"/api/workspaces/{workspace['id']}/groups/999999/accept")
+
+    assert response.status_code == 404
+
+
+def test_rejecting_a_proposal_over_the_api_is_the_existing_delete(
+    client: TestClient, workspace: dict
+) -> None:
+    """No separate reject endpoint: the board rejects by deleting."""
+    base = f"/api/workspaces/{workspace['id']}/groups"
+    gid = client.post(base, json={"name": "Gaia sources", "source": "ai"}).json()["id"]
+    client.post(
+        f"{base}/{gid}/documents",
+        json={"repository_id": _doc_repo_id(workspace), "path": "notes.md"},
+    )
+
+    rejected = client.delete(f"{base}/{gid}")
+
+    assert rejected.status_code == 204
+    assert client.get(base).json() == []
 
 
 def test_a_duplicate_name_is_refused_with_a_reason(

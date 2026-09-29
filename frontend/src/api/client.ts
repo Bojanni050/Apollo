@@ -428,6 +428,8 @@ export interface Group {
    * board. A reader cannot tell them apart from the name.
    */
   folder: string | null
+  /** False only for a Delphi proposal nobody has accepted or rejected yet. */
+  reviewed: boolean
 }
 
 export interface GroupCreate {
@@ -983,9 +985,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   // Removes the group only. There is deliberately no method here that deletes a
-  // document, because the application does not delete documents.
+  // document, because the application does not delete documents. This also
+  // doubles as "reject" for a Delphi proposal: rejecting a group nobody wrote
+  // to disk means the same thing as deleting it.
   deleteGroup: (workspaceId: number, groupId: number) =>
     request<void>(`/workspaces/${workspaceId}/groups/${groupId}`, { method: 'DELETE' }),
+  /** Keep a group Delphi proposed. Marks it reviewed; nothing else changes. */
+  acceptGroup: (workspaceId: number, groupId: number) =>
+    request<Group>(`/workspaces/${workspaceId}/groups/${groupId}/accept`, { method: 'POST' }),
   groupDocuments: (workspaceId: number, groupId: number) =>
     request<GroupDocument[]>(`/workspaces/${workspaceId}/groups/${groupId}/documents`),
   // The server records a placement made here as the reader's own; there is no

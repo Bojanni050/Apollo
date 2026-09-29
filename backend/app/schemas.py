@@ -432,6 +432,9 @@ class GroupOut(BaseModel):
     #: groups rearrange files and which only rearrange the view -- a reader
     #: cannot make that distinction from the name alone.
     folder: str | None = None
+    #: False only for a Delphi proposal the reader has not accepted or rejected
+    #: yet. Always true for a group the reader made themselves.
+    reviewed: bool = True
 
 
 class GroupCreate(BaseModel):

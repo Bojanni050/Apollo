@@ -175,9 +175,9 @@ try {
   console.log("proposed, and nothing moved yet");
 
   // --- 6. The board says so, where the drop happened -----------------------
-  const nav = page.locator(".nav-item", { hasText: "Groups" }).first();
+  const nav = page.locator(".mindstack-tab", { hasText: "Groups" }).first();
   if ((await nav.count()) === 0) {
-    fail("there is no Groups destination in the navigation");
+    fail("there is no Groups tab above the middle column");
   }
   await nav.click();
   await page.waitForTimeout(1500);

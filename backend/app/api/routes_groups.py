@@ -29,6 +29,7 @@ from app.schemas import (
 from app.services.filing import plan_filing, set_group_folder
 from app.services.placement import (
     PlacementError,
+    accept_group,
     assert_can_place,
     create_group,
     delete_group,
@@ -67,6 +68,7 @@ def _group_out(group, document_count: int) -> GroupOut:
         layout=group.layout,
         document_count=document_count,
         folder=group.folder,
+        reviewed=group.reviewed,
     )
 
 
@@ -154,6 +156,23 @@ def update(
             group = set_group_folder(db, workspace_id, group_id, payload.folder)
     except PlacementError as exc:
         raise _fail(exc) from exc
+    return _group_out(group, len(group_documents(db, workspace_id, group_id)))
+
+
+@router.post("/groups/{group_id}/accept", response_model=GroupOut)
+def accept(workspace_id: int, group_id: int, db: Session = Depends(get_db)) -> GroupOut:
+    """Keep a group Delphi proposed. Rejecting one is the existing delete.
+
+    There is no separate reject endpoint: rejecting a proposal that was never
+    written to disk means "I do not want this group", which is exactly what
+    deleting a group already means. Giving it a second name and a second code
+    path would only be two ways to do the same thing.
+    """
+    get_workspace(db, workspace_id)
+    try:
+        group = accept_group(db, workspace_id, group_id)
+    except PlacementError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     return _group_out(group, len(group_documents(db, workspace_id, group_id)))
 
 

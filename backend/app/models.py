@@ -339,6 +339,15 @@ class Group(TimestampMixin, Base):
     #: a typo in a generated name would be a directory on disk. Writing the
     #: folder down is a decision with a visible consequence, so it is one.
     folder: Mapped[str | None] = mapped_column(String(200))
+    #: Whether the reader has looked at this group and kept it. A group the
+    #: reader made is reviewed from the moment it exists -- they just made the
+    #: decision by making it. A group Delphi proposed starts unreviewed, so the
+    #: board can ask "accept or reject" instead of presenting Delphi's guess as
+    #: already-settled fact. Existing rows default to reviewed: this column
+    #: governs new proposals, not a retroactive audit of old ones.
+    reviewed: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="groups")
     placements: Mapped[list["GroupPlacement"]] = relationship(

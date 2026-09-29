@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import Group, GroupPlacement
 from app.services.placement import (
     PlacementError,
+    accept_group,
     create_group,
     delete_group,
     get_or_create_archive,
@@ -72,6 +73,62 @@ def test_two_groups_cannot_share_a_name(session: Session, workspace: dict) -> No
     # can act on by choosing a different one.
     with pytest.raises(PlacementError, match="already exists"):
         create_group(session, workspace["id"], "Gaia")
+
+
+# ---------------------------------------------------------------------------
+# Accepting a Delphi proposal
+# ---------------------------------------------------------------------------
+
+
+def test_a_group_the_reader_makes_is_reviewed_already(
+    session: Session, workspace: dict
+) -> None:
+    """Making a group is the decision; there is nothing left to accept."""
+    group = create_group(session, workspace["id"], "Apollo")
+
+    assert group.reviewed is True
+
+
+def test_a_delphi_proposal_starts_unreviewed(session: Session, workspace: dict) -> None:
+    group = create_group(session, workspace["id"], "Gaia sources", source="ai")
+
+    assert group.reviewed is False
+
+
+def test_accepting_a_proposal_marks_it_reviewed(session: Session, workspace: dict) -> None:
+    group = create_group(session, workspace["id"], "Gaia sources", source="ai")
+
+    accepted = accept_group(session, workspace["id"], group.id)
+
+    assert accepted.reviewed is True
+    assert list_groups(session, workspace["id"])[0].reviewed is True
+
+
+def test_accepting_an_already_reviewed_group_changes_nothing(
+    session: Session, workspace: dict
+) -> None:
+    """Idempotent: the board offers the button per group, not per outstanding
+    request, so pressing it twice must not be an error."""
+    group = create_group(session, workspace["id"], "Apollo")
+
+    accepted = accept_group(session, workspace["id"], group.id)
+
+    assert accepted.reviewed is True
+
+
+def test_rejecting_a_proposal_is_deleting_it(
+    session: Session, workspace: dict, tmp_path: Path
+) -> None:
+    """There is no separate reject: a proposal nobody wrote to disk is deleted
+    like any other group, and its document is left exactly where it was."""
+    repo_id = _doc_repo_id(workspace)
+    group = create_group(session, workspace["id"], "Gaia sources", source="ai")
+    place_document(session, workspace["id"], group.id, repo_id, "notes.md")
+
+    delete_group(session, workspace["id"], group.id)
+
+    assert [g.id for g in list_groups(session, workspace["id"])] == []
+    assert groups_of_document(session, workspace["id"], repo_id, "notes.md") == []
 
 
 def test_groups_are_listed_with_their_document_count(

@@ -50,14 +50,13 @@ await page.waitForTimeout(2500);
 // The one idea a reader cannot guess is that a group is a view and not a
 // folder. If the board does not say so, dragging looks like it should be
 // rearranging files, and the reader will hesitate to use it.
-// The nav item carries a count badge alongside its label, so the label is
-// matched on its own text rather than the whole button -- an anchored /^Groups$/
-// never matches "▦Groups0".
-const groupsNav = page.locator(".nav-item", { hasText: "Groups" }).first();
-if (!(await groupsNav.count())) {
-  throw new Error("there is no Groups destination in the navigation");
+// The tab can carry a count badge alongside its label, so the label is
+// matched on its own text rather than the whole button.
+const groupsTab = page.locator(".mindstack-tab", { hasText: "Groups" }).first();
+if (!(await groupsTab.count())) {
+  throw new Error("there is no Groups tab above the middle column");
 }
-await groupsNav.click();
+await groupsTab.click();
 await page.waitForTimeout(1200);
 
 const hint = await page.locator(".groups-board-hint").textContent().catch(() => null);
@@ -95,7 +94,7 @@ if (made.created.some((c) => c.status !== 201)) {
 
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(2000);
-await page.locator(".nav-item", { hasText: "Groups" }).first().click();
+await page.locator(".mindstack-tab", { hasText: "Groups" }).first().click();
 await page.waitForTimeout(1500);
 
 // --- 3. A document in group A, and nothing in group B ----------------------
@@ -153,7 +152,7 @@ console.log("dragging document:", seeded.path);
 
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(2000);
-await page.locator(".nav-item", { hasText: "Groups" }).first().click();
+await page.locator(".mindstack-tab", { hasText: "Groups" }).first().click();
 await page.waitForTimeout(1800);
 
 const before = snapshot(REPO);

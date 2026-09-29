@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiError,
   api,
@@ -67,6 +67,13 @@ export default function App() {
   // is a way of looking at what is already here; this one is how documents
   // arrive, and a reader who cannot find it is stuck at step zero.
   const [activeSection, setActiveSection] = useState<NavSection>('inbox')
+  // Which section the "Ingestion" tab returns to. Tracked separately from
+  // activeSection so switching to the "Groups" tab and back does not forget
+  // where the reader was -- 'groups' itself is never a valid value here.
+  const lastIngestSection = useRef<NavSection>('inbox')
+  useEffect(() => {
+    if (activeSection !== 'groups') lastIngestSection.current = activeSection
+  }, [activeSection])
   const [searchQuery, setSearchQuery] = useState('')
 
   // Questions, Decisions, Conversations, Proposals, Inventory
@@ -1013,6 +1020,7 @@ export default function App() {
       inbox: inbox.files.length,
       all: flatDocs.length,
       groups: groups.length,
+      pendingGroups: groups.filter((g) => !g.reviewed).length,
       docs: flatDocs.length,
       repos: workspace?.repositories.length || 0,
       decisions: decisions.length,
@@ -1139,62 +1147,93 @@ export default function App() {
           onReset={resetColumnWidths}
         />
 
-        {/* Column 2: the arrangement, or the object list for a section.
+        {/* Column 2: two tabs above whichever it currently shows.
 
-            The board replaces the object list rather than sitting beside it: it
-            is a different thing to look at, not another filter of the same list,
+            "Ingestion" is every section this column has always had (inbox,
+            docs, decisions, and the rest); "Groups" is the board. The board
+            replaces the object list rather than sitting beside it: it is a
+            different thing to look at, not another filter of the same list,
             and showing both would halve the width each gets for no gain. */}
-        {activeSection === 'groups' ? (
-          <div className="folder-contents-column folder-contents-column--board">
-            <GroupsBoard
-              workspaceId={workspace!.id}
-              onOpenDocument={(repositoryId, path) => void openDocument(path, repositoryId)}
-        selectedGroupId={selectedGroupId}
-        onSelectGroup={(groupId) => void selectGroup(groupId)}
-              activeDocument={
-                documentPath && repository
-                  ? { repositoryId: repository.id, path: documentPath }
-                  : null
-              }
-            />
+        <div className="mindstack-middle">
+          <div className="mindstack-tabbar" role="tablist" aria-label="Ingestion or Groups">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection !== 'groups'}
+              className={`mindstack-tab${activeSection !== 'groups' ? ' active' : ''}`}
+              onClick={() => setActiveSection(lastIngestSection.current)}
+            >
+              Ingestion
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'groups'}
+              className={`mindstack-tab${activeSection === 'groups' ? ' active' : ''}`}
+              onClick={() => setActiveSection('groups')}
+              title="Which documents belong together"
+            >
+              Groups
+              {counts.pendingGroups > 0 && (
+                <span className="mindstack-tab-count">{counts.pendingGroups}</span>
+              )}
+            </button>
           </div>
-        ) : (
-          <FolderContentsColumn
-            activeSection={activeSection}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            workspace={workspace}
-            repository={repository}
-            tree={tree}
-            selectedId={selectedItem?.id || documentPath}
-            onSelectItem={handleSelectItem}
-            onNewItem={() => setNewObjectModalOpen(true)}
-            decisions={decisions}
-            questions={questions}
-            conversations={conversations}
-            repositories={repositories}
-            pulseItems={pulseRun?.items || []}
-            pulseRunning={pulseRunning}
-            onRunPulse={runPulse}
-            onOpenPulseSettings={() => setSettingsOpen(true)}
-            inboxFiles={inbox.files}
-            inboxRepositoryId={inbox.repository_id}
-            workspaceId={workspace?.id ?? null}
-            onInboxStored={onInboxStored}
-            onRunDelphi={runDelphi}
-            analysing={analysing}
-            llmConfigured={chatStatus?.llm_configured ?? true}
-            openFindings={openSignals}
-            delphiSummary={delphiSummary}
-            delphiErrors={delphiErrors}
-            delphiGroups={delphiGroups}
-            onDismissDelphiReport={() => {
-              setDelphiSummary(null)
-              setDelphiErrors([])
-              setDelphiGroups([])
-            }}
-          />
-        )}
+
+          {activeSection === 'groups' ? (
+            <div className="folder-contents-column folder-contents-column--board">
+              <GroupsBoard
+                workspaceId={workspace!.id}
+                onOpenDocument={(repositoryId, path) => void openDocument(path, repositoryId)}
+                selectedGroupId={selectedGroupId}
+                onSelectGroup={(groupId) => void selectGroup(groupId)}
+                activeDocument={
+                  documentPath && repository
+                    ? { repositoryId: repository.id, path: documentPath }
+                    : null
+                }
+                tree={tree}
+                treeRepositoryId={repository?.id ?? null}
+              />
+            </div>
+          ) : (
+            <FolderContentsColumn
+              activeSection={activeSection}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              workspace={workspace}
+              repository={repository}
+              tree={tree}
+              selectedId={selectedItem?.id || documentPath}
+              onSelectItem={handleSelectItem}
+              onNewItem={() => setNewObjectModalOpen(true)}
+              decisions={decisions}
+              questions={questions}
+              conversations={conversations}
+              repositories={repositories}
+              pulseItems={pulseRun?.items || []}
+              pulseRunning={pulseRunning}
+              onRunPulse={runPulse}
+              onOpenPulseSettings={() => setSettingsOpen(true)}
+              inboxFiles={inbox.files}
+              inboxRepositoryId={inbox.repository_id}
+              workspaceId={workspace?.id ?? null}
+              onInboxStored={onInboxStored}
+              onRunDelphi={runDelphi}
+              analysing={analysing}
+              llmConfigured={chatStatus?.llm_configured ?? true}
+              openFindings={openSignals}
+              delphiSummary={delphiSummary}
+              delphiErrors={delphiErrors}
+              delphiGroups={delphiGroups}
+              onDismissDelphiReport={() => {
+                setDelphiSummary(null)
+                setDelphiErrors([])
+                setDelphiGroups([])
+              }}
+            />
+          )}
+        </div>
 
         <ColumnResizer
           side="contents"
