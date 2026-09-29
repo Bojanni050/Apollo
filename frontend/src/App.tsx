@@ -57,6 +57,8 @@ export default function App() {
   // Document & Selection State
   const [documentPath, setDocumentPath] = useState<string | null>(null)
   const [documentMarkdown, setDocumentMarkdown] = useState<string | null>(null)
+  // The heading the open document declares, or null when it declares none.
+  const [documentTitle, setDocumentTitle] = useState<string | null>(null)
   const [selectedItem, setSelectedItem] = useState<ItemCard | null>(null)
 
   // Navigation State
@@ -233,6 +235,7 @@ export default function App() {
       setWorkspace(ws)
       setDocumentPath(null)
       setDocumentMarkdown(null)
+      setDocumentTitle(null)
       setSelectedItem(null)
       setInventoryRun(null)
       setPulseRun(null)
@@ -379,6 +382,7 @@ export default function App() {
             setSelectedItem(null)
             setDocumentPath(null)
             setDocumentMarkdown(null)
+            setDocumentTitle(null)
             setConversations([])
             setConversation(null)
             setDecisions([])
@@ -444,6 +448,12 @@ export default function App() {
       try {
         const doc = await api.document(workspace.id, repoId, path)
         setDocumentMarkdown(doc.raw_markdown)
+        // The title the file itself declares, kept so the sidebar can name this
+        // document by it. A heading is what a reader calls the document; a path
+        // is where it happens to sit today, and it changes the moment the
+        // document is filed. Discarding this here meant every panel downstream
+        // could only ever show a path.
+        setDocumentTitle(doc.title || null)
       } catch (e) {
         report(e)
       }
@@ -460,12 +470,14 @@ export default function App() {
       } else if (item.rawDecision) {
         const d = item.rawDecision
         setDocumentPath(`decisions/ADR-${d.id}.md`)
+        setDocumentTitle(`ADR-${d.id}: ${d.title}`)
         setDocumentMarkdown(
           `# ADR-${d.id}: ${d.title}\n\n**Status**: ${d.status.toUpperCase()}\n\n### Context\n${d.context || 'No context specified.'}\n\n### Decision\n${d.decision || 'No decision record specified.'}\n\n### Consequences\n${d.consequences || 'None recorded.'}`
         )
       } else if (item.rawQuestion) {
         const q = item.rawQuestion
         setDocumentPath(`questions/Q-${q.id}.md`)
+        setDocumentTitle(q.title)
         setDocumentMarkdown(
           `# ${q.title}\n\n**Status**: ${q.status.toUpperCase()}\n\n### Context\n${q.description || 'Architectural question raised.'}`
         )
@@ -491,6 +503,7 @@ export default function App() {
         // Demo card
         setDocumentPath(item.id)
         setDocumentMarkdown(null)
+        setDocumentTitle(null)
       }
     },
     [openDocument, openConversation, workspace],
@@ -793,6 +806,7 @@ export default function App() {
       tags: ['doc'],
     })
     setDocumentPath(path)
+    setDocumentTitle(title)
     setDocumentMarkdown(`# ${title}\n\nStart writing notes and architectural specifications here...`)
   }
 
@@ -1138,6 +1152,7 @@ export default function App() {
             setSelectedItem(null)
             setDocumentPath(null)
             setDocumentMarkdown(null)
+            setDocumentTitle(null)
           }}
         />
 
@@ -1148,6 +1163,7 @@ export default function App() {
           repository={repository}
           documentPath={documentPath}
           documentMarkdown={documentMarkdown}
+          documentTitle={documentTitle}
           inventoryRun={inventoryRun}
           proposals={proposals}
           conversations={conversations}
@@ -1253,6 +1269,7 @@ export default function App() {
             setSelectedItem(null)
             setDocumentPath(null)
             setDocumentMarkdown(null)
+            setDocumentTitle(null)
             setConversations([])
             setConversation(null)
             setDecisions([])

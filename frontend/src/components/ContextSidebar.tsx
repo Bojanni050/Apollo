@@ -20,6 +20,8 @@ interface Props {
   repository: Repository | null
   documentPath: string | null
   documentMarkdown: string | null
+  /** The heading the open document declares, or null when it declares none. */
+  documentTitle: string | null
   inventoryRun: InventoryRun | null
   proposals: Proposal[]
   conversations: Conversation[]
@@ -136,6 +138,34 @@ const SUGGESTIONS = [
 
 function fileNameOf(path: string): string {
   return path.split('/').pop() ?? path
+}
+
+/**
+ * How to name a document in a narrow space.
+ *
+ * A path is the wrong thing to show here. It is long, it is an implementation
+ * detail of where the file currently sits, and it changes the moment the
+ * document is filed somewhere else -- so a sidebar that names a document by its
+ * path says something different after every move. The file's own heading is what
+ * a reader calls it, and the file name is what they see in Windows Explorer.
+ *
+ * The heading is only better when it is short: a document whose title is a
+ * sentence fills the line and pushes the question off it. So the heading wins
+ * when it is short enough to read at a glance, and otherwise the file name does,
+ * which is shorter and still identifies the document.
+ */
+function nameForDisplay(path: string, title: string | null): string {
+  const name = fileNameOf(path)
+  if (title) {
+    const tidy = title.replace(/\s+/g, ' ').trim()
+    // Long enough that it wraps and the line stops being scannable. Measured in
+    // characters, not pixels, because that is what the caller can reason about
+    // and what a translated title will roughly hold.
+    if (tidy.length > 0 && tidy.length <= 60 && tidy !== name) {
+      return tidy
+    }
+  }
+  return name
 }
 
 /**
@@ -259,6 +289,7 @@ export function ContextSidebar({
   onClose,
   repository: _repository,
   documentPath,
+  documentTitle,
   documentMarkdown: _documentMarkdown,
   inventoryRun,
   proposals,
@@ -527,7 +558,16 @@ export function ContextSidebar({
               <>
                 <div className="context-section-label">THIS DOCUMENT</div>
                 <div className="context-current-doc">
-                  <span className="context-card-title">{documentPath}</span>
+                  {/* Name, not path, for the same reason as the chat line above:
+                      a path here changes every time the document is filed, and
+                      it is the longest thing in a narrow column. The location is
+                      one hover away, for when it is actually wanted. */}
+                  <span
+                    className="context-card-title"
+                    title={documentPath}
+                  >
+                    {nameForDisplay(documentPath, documentTitle)}
+                  </span>
                   {currentTags.length > 0 && (
                     <div className="context-doc-tags">
                       {currentTags.map((t) => (
@@ -806,8 +846,15 @@ export function ContextSidebar({
                     {documentPath ? (
                       <>
                         Ask about{' '}
-                        <span className="context-chat-empty-doc">
-                          {documentPath}
+                        {/* The name, not the path. The path is what the code needs
+                            and is unreadable here; the full path is still on the
+                            title attribute, so a reader who needs the location
+                            can hover it. */}
+                        <span
+                          className="context-chat-empty-doc"
+                          title={documentPath}
+                        >
+                          {nameForDisplay(documentPath, documentTitle)}
                         </span>
                       </>
                     ) : (
