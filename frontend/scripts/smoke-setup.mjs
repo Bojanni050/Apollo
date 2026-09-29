@@ -37,7 +37,7 @@ try {
   // The wizard, not the old curl instructions.
   const heading = await page.textContent('.setup h2')
   console.log('heading:', heading)
-  if (!/Set up your workspace/i.test(heading || '')) {
+  if (!/Step 1 of 3/i.test(heading || '')) {
     throw new Error(`expected the setup wizard, got: ${heading}`)
   }
   if ((await page.content()).includes('curl -X POST')) {
@@ -51,13 +51,27 @@ try {
   await page.fill('#ws-desc', 'created by the wizard smoke test')
   await page.click('.setup button[type=submit]')
 
-  // Step two: where the documents go. Asked before the documentation folder,
-  // because a reader with no documentation yet needs this answer first.
+  // Step two: Apollo's own working folder. Asked before the documentation
+  // folder, because a reader with no documentation yet needs this answer first.
+  // The heading is asserted by its step number, not its wording: the point of
+  // this check is that the wizard says which question it is asking, since both
+  // steps end in "pick a folder" and confusing the two is the trap.
   await page.waitForSelector('#working-path', { timeout: 10000 })
   const workingHeading = await page.textContent('.setup h2')
   console.log('step 2 heading:', workingHeading)
-  if (!/Where should your documents go/i.test(workingHeading || '')) {
+  if (!/Step 2 of 3/i.test(workingHeading || '')) {
     throw new Error(`expected the working-folder step, got: ${workingHeading}`)
+  }
+  // The two steps must not read alike, or the second is indistinguishable from
+  // the first to somebody who just answered it.
+  if (/existing documentation/i.test(workingHeading || '')) {
+    throw new Error(`step 2 is worded like the documentation step: ${workingHeading}`)
+  }
+  // And it must show what the choice creates, because the Inbox folder appearing
+  // later without warning reads as something the reader did not agree to.
+  const treeShown = await page.locator('.setup-tree-body').count()
+  if (treeShown === 0) {
+    throw new Error('step 2 does not show what the choice will create')
   }
   await page.screenshot({ path: 'screenshots/setup-step2-working.png' })
 
@@ -76,9 +90,20 @@ try {
   }
   await page.click('.setup button[type=submit]')
 
-  // Step three: the documentation repository.
+  // Step three: the documentation repository. A different question from step 2,
+  // and the screen has to say so -- see the check on step 2's heading.
   await page.waitForSelector('#repo-path', { timeout: 10000 })
-  console.log('step 3 heading:', await page.textContent('.setup h2'))
+  const repoHeading = await page.textContent('.setup h2')
+  console.log('step 3 heading:', repoHeading)
+  if (!/Step 3 of 3/i.test(repoHeading || '')) {
+    throw new Error(`expected the documentation step, got: ${repoHeading}`)
+  }
+  // It must name the folder chosen in step 2, so the two are told apart in the
+  // reader's terms rather than left to be remembered.
+  const reminder = await page.locator('.setup .hint code').first().textContent()
+  if (!reminder || !reminder.includes(working)) {
+    throw new Error(`step 3 does not recall the step 2 folder: ${reminder}`)
+  }
   await page.screenshot({ path: 'screenshots/setup-step3.png' })
 
   // Register this repository itself as the docs source.

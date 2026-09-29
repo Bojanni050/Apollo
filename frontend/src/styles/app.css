@@ -3759,6 +3759,62 @@ input:focus, textarea:focus, select:focus {
   word-break: break-all;
 }
 
+/* What a folder choice is going to create, shown before it is made.
+   A reader who has only been told "pick a folder" and then finds an Inbox/ they
+   did not ask for has no way to tell that from a folder Apollo invented on its
+   own. Drawing the shape of the folder first answers the question they are
+   actually asking, which is "what is this going to do to my disk?". */
+.setup-tree {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-contents);
+}
+
+.setup-tree-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.setup-tree-body {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* One element per row rather than one <pre> with newlines: a long path would
+   otherwise wrap and land the next row's arrow on the end of it, which makes
+   the tree unreadable exactly when the path is longest. */
+.setup-tree-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-tree-indent {
+  padding-left: 14px;
+}
+
+.setup-tree-arrow {
+  padding-left: 28px;
+  font-style: italic;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.setup-tree-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 .working-folder-card {
   margin: 0 16px 12px;
   padding: 10px 12px;

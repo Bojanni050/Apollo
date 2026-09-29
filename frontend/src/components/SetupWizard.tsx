@@ -105,6 +105,13 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   // separate, later question. A reader with no existing documentation at all --
   // the common case for somebody opening this for the first time -- needs this
   // answer and not the other one.
+  //
+  // Which is also why this step has to say plainly that it wants a *new, empty*
+  // folder and that it is not the documentation folder. The two questions both
+  // end in "pick a folder", they look the same, and a reader who has just been
+  // asked one of them reasonably assumes the second is the same one. So: a
+  // distinct heading, a tree of what this choice actually creates, and a reminder
+  // on the next step of what this one already was.
   const [workingPath, setWorkingPath] = useState('')
   const [workingPicked, setWorkingPicked] = useState(false)
   const [workingWarning, setWorkingWarning] = useState<string | null>(null)
@@ -159,10 +166,11 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   if (step === 'workspace') {
     return (
       <form className="setup" onSubmit={createWorkspace}>
-        <h2>Set up your workspace</h2>
+        <h2>Step 1 of 3 &mdash; name your workspace</h2>
         <p className="faint">
-          A workspace holds your documentation repositories and the
-          conversations held about them.
+          A workspace holds your documentation and the conversations about it.
+          It is a name for your work, not a folder &mdash; you will be asked for
+          two folders in the next two steps.
         </p>
 
         <div className="form-group">
@@ -208,11 +216,16 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     return (
       <>
         <form className="setup" onSubmit={(e) => { e.preventDefault(); setStep('repository') }}>
-          <h2>Where should your documents go?</h2>
+          <h2>Step 2 of 3 &mdash; where Apollo keeps its own work</h2>
           <p className="faint">
-            Workspace <strong>{created.name}</strong> is ready. Pick an empty folder
-            on this machine for Apollo to work in — a document you drop in will be
-            kept there, in a folder you can open yourself.
+            Workspace <strong>{created.name}</strong> is ready. Choose an empty
+            folder on this machine for Apollo to work in. This folder is
+            Apollo&rsquo;s own: it fills up as you drop documents in.
+          </p>
+          <p className="hint">
+            This is <strong>not</strong> the folder with your existing
+            documentation &mdash; that is the next step. You only choose one
+            folder here.
           </p>
 
           {workingPicked ? (
@@ -221,9 +234,9 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
               <p className="setup-picked">{workingPath}</p>
               {workingWarning && <p className="hint">{workingWarning}</p>}
               <p className="hint">
-                Apollo keeps a history of this folder, so anything it later
-                rearranges can be undone. What is already in there is never
-                touched.
+                This is where Apollo will work. Next you point it at the folder
+                with your existing documentation — that is a different folder,
+                and you can leave this one as it is.
               </p>
             </div>
           ) : (
@@ -254,6 +267,23 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
                 that already has files in it is fine — Apollo adds its own
                 alongside and leaves the rest alone.
               </p>
+              <div className="setup-tree">
+                <p className="setup-tree-title">
+                  Apollo will make this, and nothing else:
+                </p>
+                <div className="setup-tree-body">
+                  <div className="setup-tree-line">{workingPath.trim() || 'C:\\Documenten\\Apollo'}{'\\'}</div>
+                  <div className="setup-tree-line setup-tree-indent">Inbox{'\\'}</div>
+                  <div className="setup-tree-line setup-tree-indent setup-tree-arrow">
+                    you drop documents in here
+                  </div>
+                </div>
+                <p className="setup-tree-note">
+                  <code>Inbox</code> is created the first time you drop a
+                  document, so you will not see it yet. You never choose it
+                  yourself.
+                </p>
+              </div>
             </div>
           )}
 
@@ -304,17 +334,23 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
     return (
       <>
         <form className="setup" onSubmit={addRepository}>
-          <h2>Add your documentation repository</h2>
+          <h2>Step 3 of 3 &mdash; your existing documentation</h2>
           <p className="faint">
-            Workspace <strong>{created.name}</strong> is ready. Point it at the
-            folder holding your documentation (Markdown, PDF, Word .docx, and
-            plain text .txt) — an existing directory on this machine. Nothing is
-            cloned or copied.
+            Almost done. Point Apollo at the folder holding the documentation you
+            already have (Markdown, PDF, Word .docx, plain text) — an existing
+            directory on this machine. Nothing is cloned or copied.
           </p>
+          {workingPicked && (
+            <p className="hint">
+              A different folder from step 2. Step 2 was Apollo&rsquo;s own
+              working folder, now <code>{workingPath}</code>. Leave it there;
+              choose here the folder your documents are actually in.
+            </p>
+          )}
 
           <div className="form-group">
             <label className="form-label" htmlFor="repo-path">
-              Local path
+              Your documentation folder
             </label>
             <div className="input-with-button">
               <input
