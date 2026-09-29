@@ -16,6 +16,17 @@ export const MIN_NAV = 170
 export const MIN_CONTENTS = 220
 
 /**
+ * Per-column caps as shares of the viewport. A column may not grow past its
+ * fraction no matter how far it is dragged: the navigation is a way in, not
+ * a destination (1/5), the contents list is a way station (1/3), and the
+ * context panel must never crowd out the document (1/4). The combined cap
+ * MAX_COMBINED_FRACTION still applies on top of these.
+ */
+export const MAX_NAV_FRACTION = 1 / 5
+export const MAX_CONTENTS_FRACTION = 1 / 3
+export const MAX_CONTEXT_FRACTION = 1 / 4
+
+/**
  * Narrowest the document column may be squeezed to.
  *
  * The document is the reason the app exists, so it is the one column that is
@@ -44,9 +55,24 @@ export const CONTEXT_FRACTION = 0.14844
 export const CONTEXT_MIN = 380
 export const CONTEXT_MAX = 520
 
-/** The context panel's width at this viewport. Mirrors the CSS clamp() in app.css. */
+/**
+ * The context panel's width at this viewport. Mirrors the CSS clamp() in
+ * app.css, with one addition: a customised width is additionally capped at
+ * a quarter of the screen (MAX_CONTEXT_FRACTION), which the fixed 520px
+ * ceiling cannot express on a wide monitor.
+ */
 export function contextWidth(viewportWidth: number): number {
-  return Math.round(Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, viewportWidth * CONTEXT_FRACTION)))
+  return Math.round(
+    Math.min(
+      CONTEXT_MAX,
+      Math.max(CONTEXT_MIN, viewportWidth * CONTEXT_FRACTION),
+    ),
+  )
+}
+
+/** The widest the context panel may be dragged to at this viewport. */
+export function contextMax(viewportWidth: number): number {
+  return Math.round(Math.max(CONTEXT_MIN, viewportWidth * MAX_CONTEXT_FRACTION))
 }
 
 /**
@@ -161,12 +187,26 @@ export function clampWidths(widths: ColumnWidths, viewportWidth: number): Column
       viewportWidth - reservedRight(viewportWidth),
     ),
   )
-  const nav = Math.max(MIN_NAV, Math.round(widths.nav))
-  const contents = Math.max(MIN_CONTENTS, Math.round(widths.contents))
+  // Per-column fraction caps: however far a divider is dragged, no column
+  // may grow past its share of the screen (see MAX_*_FRACTION above).
+  const nav = Math.min(
+    Math.max(MIN_NAV, Math.round(widths.nav)),
+    Math.max(MIN_NAV, Math.floor(viewportWidth * MAX_NAV_FRACTION)),
+  )
+  const contents = Math.min(
+    Math.max(MIN_CONTENTS, Math.round(widths.contents)),
+    Math.max(MIN_CONTENTS, Math.floor(viewportWidth * MAX_CONTENTS_FRACTION)),
+  )
   // The context panel: 0 means "not customised" and keeps the CSS clamp()
-  // default; any explicit width is held between the chat's readable floor and
-  // the ceiling that stops it crowding the document.
-  const context = widths.context <= 0 ? 0 : Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, Math.round(widths.context)))
+  // default; any explicit width is held between the chat's readable floor,
+  // the fixed ceiling, and a quarter of the screen.
+  const context =
+    widths.context <= 0
+      ? 0
+      : Math.min(
+          Math.min(CONTEXT_MAX, contextMax(viewportWidth)),
+          Math.max(CONTEXT_MIN, Math.round(widths.context)),
+        )
   if (nav + contents <= ceiling) return { nav, contents, context }
 
   const excess = nav + contents - ceiling

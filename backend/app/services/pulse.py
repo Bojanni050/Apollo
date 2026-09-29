@@ -304,6 +304,31 @@ def _parse_response(text: str, expected_paths: set[str]) -> list[dict[str, Any]]
     return out
 
 
+def _repo_label(root: str) -> str:
+    """A short label for one scanned tree, for connection paths in the prompt.
+
+    The folder name says more to the model than the full path does, and the
+    label only exists to keep two same-named files apart when a run scans
+    more than one repository.
+    """
+    from pathlib import Path
+
+    return Path(root).name or "repo"
+
+
+def _root_for_item(roots: list[tuple[int | None, str]], item: PulseItem) -> str | None:
+    """The tree an item's path is relative to.
+
+    Items record the repository they were found in; the fallback to the
+    first root is for rows written before runs scanned the inbox, which all
+    came from the documentation repository -- the first pair in ``roots``.
+    """
+    for repository_id, root in roots:
+        if repository_id is not None and item.repository_id == repository_id:
+            return root
+    return roots[0][1] if roots else None
+
+
 def _previous_hashes(db: Session, workspace_id: int) -> dict[str, str]:
     """The content hashes from the last completed run, by file path."""
     run = db.scalar(
@@ -322,10 +347,19 @@ def run_pulse(
     provider: LLMProvider,
     db: Session,
     workspace_id: int,
-    root: str,
+    roots: list[tuple[int | None, str]],
     mode: str = "suggest",
 ) -> PulseRun:
-    """Scan the documentation repository and record a Pulse run.
+    """Scan the workspace's repositories and record a Pulse run.
+
+    ``roots`` is a list of ``(repository_id, path)`` pairs: the documentation
+    repository and the inbox storage both belong in it. New documents arrive
+    in the inbox, Delphi analyses them there (that is where the tags and
+    connections come from), and only afterwards are they filed out of it --
+    so a run that skipped the inbox had nothing to say about exactly the
+    documents the reader had just added. Each pair carries its repository id
+    because the same relative path can exist in both trees; an item without
+    one would be opened against whichever root the route tried first.
 
     In ``apply`` mode the suggestions are also written into the documents
     immediately; in ``suggest`` mode they wait for approval.
@@ -334,44 +368,72 @@ def run_pulse(
     db.add(run)
     db.flush()
 
-    try:
-        paths = list_documents(root, ".")
-    except (PathSecurityError, OSError) as exc:
-        run.status = "failed"
-        run.summary = f"Cannot read repository: {exc}"
-        return run
-
     budget = ContextBudget.from_settings(BackgroundSettingsView())
+    # Hashes are keyed "repo_id:path" so the incremental state of one tree
+    # cannot be confused with the other's: "notes.md" in the inbox and
+    # "notes.md" in the documentation repository are two documents.
     all_hashes: dict[str, str] = {}
     previous = _previous_hashes(db, workspace_id)
-    changed: list[dict[str, str]] = []
+    changed: list[dict[str, Any]] = []
 
-    for path in paths:
+    for repository_id, root in roots:
         try:
-            content = read_document(root, path)
-        except (OSError, PathSecurityError):
+            paths = list_documents(root, ".")
+        except (PathSecurityError, OSError) as exc:
+            # One unreadable tree must not lose the other's scan: the run
+            # continues, and the failure is named in the summary.
+            run.summary = f"Cannot read repository: {exc}"
             continue
-        digest = _digest(content)
-        if not digest.strip():
-            continue
-        h = _hash_document(content)
-        all_hashes[path] = h
-        if previous.get(path) != h:
-            changed.append({"path": path, "digest": digest})
+        for path in paths:
+            try:
+                content = read_document(root, path)
+            except (OSError, PathSecurityError):
+                continue
+            digest = _digest(content)
+            if not digest.strip():
+                continue
+            h = _hash_document(content)
+            key = f"{repository_id}:{path}" if repository_id is not None else path
+            all_hashes[key] = h
+            if previous.get(key) != h:
+                changed.append(
+                    {"path": path, "digest": digest, "repository_id": repository_id}
+                )
 
     if not changed:
         run.status = "completed"
         run.scanned_state = {"hashes": all_hashes}
-        run.summary = "No changed documents since the last run."
+        run.summary = run.summary or "No changed documents since the last run."
         return run
 
     system = _system_prompt()
-    all_paths = paths
+    # With more than one tree every path the model sees is prefixed with the
+    # repository's folder name, batch documents and connection targets alike.
+    # One namespace, so a connection across trees says which side it points
+    # at, and a same-named file in both trees cannot be confused with its
+    # twin. The label is stripped when the results are read back.
+    multi = len(roots) > 1
+    label_of = {repository_id: _repo_label(root) for repository_id, root in roots}
+    all_paths: list[str] = []
+    for repository_id, root in roots:
+        try:
+            for path in list_documents(root, "."):
+                all_paths.append(f"{label_of[repository_id]}:{path}" if multi else path)
+        except (PathSecurityError, OSError):
+            continue
     results: list[dict[str, Any]] = []
     errors: list[str] = []
 
     for i in range(0, len(changed), _MAX_DOCS_PER_REQUEST):
-        batch = changed[i : i + _MAX_DOCS_PER_REQUEST]
+        raw_batch = changed[i : i + _MAX_DOCS_PER_REQUEST]
+        batch = [
+            (
+                {**d, "path": f"{label_of[d['repository_id']]}:{d['path']}"}
+                if multi and d["repository_id"] in label_of
+                else d
+            )
+            for d in raw_batch
+        ]
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": _user_prompt(batch, all_paths)},
@@ -398,10 +460,26 @@ def run_pulse(
             errors.append(str(exc))
 
     items: list[PulseItem] = []
+    # The model answers with paths as they were given to it; each result is
+    # matched back to the repository its batch came from. Paths given with a
+    # "label:" prefix (the multi-repository form) are resolved by label.
+    label_to_repo = {_repo_label(root): rid for rid, root in roots}
+    changed_by_path = {entry["path"]: entry for entry in changed}
     for r in results:
+        raw_path = str(r["path"])
+        repository_id: int | None = None
+        path = raw_path
+        if ":" in raw_path:
+            label, _, rest = raw_path.partition(":")
+            if label in label_to_repo:
+                repository_id = label_to_repo[label]
+                path = rest
+        if repository_id is None:
+            repository_id = changed_by_path.get(path, {}).get("repository_id")
         item = PulseItem(
             run_id=run.id,
-            file_path=r["path"],
+            file_path=path,
+            repository_id=repository_id,
             summary=r["summary"] or None,
             tags=r["tags"],
             connections=r["connections"],
@@ -417,8 +495,12 @@ def run_pulse(
             if not item.tags and not item.connections:
                 item.decision = "skipped"
                 continue
+            item_root = _root_for_item(roots, item)
+            if item_root is None:
+                errors.append(f"{item.file_path}: no repository to write to.")
+                continue
             try:
-                applied_paths.append(apply_pulse_item(root, item))
+                applied_paths.append(apply_pulse_item(item_root, item))
             except PulseError as exc:
                 errors.append(f"{item.file_path}: {exc}")
 

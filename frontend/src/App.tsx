@@ -520,7 +520,10 @@ export default function App() {
            Anything that reads documentPath -- the review panel, the context
            panel's links -- then had nothing real to match on, which is why a
            document with three known connections reported none. */
-        await openDocument(item.rawPulseItem.file_path)
+        /* The item names its repository: a run covers the documentation
+           tree and the inbox, and opening the inbox copy from the docs
+           repository (or the reverse) shows a plausible-looking wrong file. */
+        await openDocument(item.rawPulseItem.file_path, item.rawPulseItem.repository_id ?? undefined)
       } else if (item.rawInboxFile) {
         /* An inbox document names its own repository, because it lives in
            Apollo's storage rather than in whatever folder happens to be open in

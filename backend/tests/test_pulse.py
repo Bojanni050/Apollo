@@ -232,7 +232,7 @@ def test_run_records_items_and_writes_nothing(doc_repo: Path) -> None:
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
-        run = run_pulse(provider, db, 1, str(doc_repo), mode="suggest")
+        run = run_pulse(provider, db, 1, [(None, str(doc_repo))], mode="suggest")
         db.commit()
         assert run.status == "completed"
         by_path = {i.file_path: i for i in run.items}
@@ -276,7 +276,7 @@ def test_run_in_apply_mode_writes_front_matter(doc_repo: Path) -> None:
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
-        run = run_pulse(provider, db, 1, str(doc_repo), mode="apply")
+        run = run_pulse(provider, db, 1, [(None, str(doc_repo))], mode="apply")
         db.commit()
         content = (doc_repo / "notes.md").read_text(encoding="utf-8")
         assert "pulse-tags:" in content
@@ -299,10 +299,10 @@ def test_run_is_incremental(doc_repo: Path) -> None:
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
-        first = run_pulse(provider, db, 1, str(doc_repo), mode="suggest")
+        first = run_pulse(provider, db, 1, [(None, str(doc_repo))], mode="suggest")
         db.commit()
         assert first.summary != "No changed documents since the last run."
-        second = run_pulse(provider, db, 1, str(doc_repo), mode="suggest")
+        second = run_pulse(provider, db, 1, [(None, str(doc_repo))], mode="suggest")
         db.commit()
         assert second.summary == "No changed documents since the last run."
     finally:
@@ -574,3 +574,54 @@ def test_sqlite_upgrade_adds_missing_pulse_columns(tmp_path) -> None:
         assert row[0] == 0
         assert row[1] == 1
     verify.dispose()
+
+
+def test_run_scans_the_inbox_alongside_the_docs(doc_repo: Path) -> None:
+    """A run with two roots analyses documents in both trees, and each item
+    records which repository it was found in."""
+    inbox = doc_repo.parent / "Inbox"
+    inbox.mkdir()
+    (inbox / "new.md").write_text(
+        "# New arrival\n\nFresh from the inbox, never filed yet.\n", encoding="utf-8"
+    )
+    provider = ScriptedProvider(
+        [
+            _pulse_response(
+                [
+                    {
+                        "path": "Inbox:new.md",
+                        "summary": "An inbox document.",
+                        "tags": ["intake"],
+                        "connections": [],
+                        "confidence": 0.9,
+                    }
+                ]
+            )
+        ]
+    )
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        run = run_pulse(
+            provider,
+            db,
+            1,
+            [(7, str(doc_repo)), (9, str(inbox))],
+            mode="suggest",
+        )
+        db.commit()
+        assert run.status == "completed"
+        by_path = {i.file_path: i for i in run.items}
+        item = by_path["new.md"]
+        assert item.tags == ["intake"]
+        # The item names the tree it came from: opening or applying it must
+        # resolve against the inbox, not against the documentation repository.
+        assert item.repository_id == 9
+    finally:
+        db.close()
