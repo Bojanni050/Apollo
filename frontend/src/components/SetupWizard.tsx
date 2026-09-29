@@ -21,10 +21,14 @@
  * is chosen (see `set_working_dir` on the backend, which does this eagerly
  * rather than waiting for a first upload) -- so as soon as step 2's folder is
  * confirmed, the workspace already has somewhere to keep documents and chat is
- * not blocked. Adding documents -- by uploading, or by pointing at an existing
- * documentation folder instead of Apollo's own -- is then one optional, later
- * half of the same step rather than a step of its own: real, offered plainly,
- * but not something the reader has to get past to finish.
+ * not blocked. Adding documents -- one at a time, or a whole existing folder
+ * copied in at once, both through `InboxDropzone` -- is then one optional,
+ * later half of the same step rather than a step of its own: real, offered
+ * plainly, but not something the reader has to get past to finish. Everything
+ * added this way lands in the Inbox, the same as it would from the workspace
+ * itself; this wizard has no path that registers a folder to be read in place
+ * instead of copied -- that is a distinct, later choice, made from the
+ * workspace's own repository settings once there is something to compare it to.
  *
  * Path validation is the backend's job, not this component's. The form
  * deliberately does not re-implement the allow-list rules: it sends what the
@@ -39,7 +43,6 @@ import { FolderPickerModal } from './FolderPickerModal'
 import { InboxDropzone } from './InboxDropzone'
 
 type Step = 'workspace' | 'folder' | 'done'
-type AddMode = 'none' | 'upload' | 'existing'
 
 interface Props {
   /** Called when a workspace exists, so the app can load and select it. */
@@ -123,52 +126,6 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   /** Apollo's own folder is a real choice, made through the same call, so the
    *  repository exists either way -- not a dismissal that leaves it missing. */
   const useDefaultFolder = () => void chooseWorkingFolder('')
-
-  // -- step 2, optional half: adding documents now -----------------------------
-  const [addMode, setAddMode] = useState<AddMode>('none')
-
-  // An existing documentation folder, read in place and never copied -- the
-  // other optional path, alongside uploading, now that it is no longer a step
-  // of its own.
-  const [repoName, setRepoName] = useState('')
-  const [localPath, setLocalPath] = useState('')
-  const [writable, setWritable] = useState(true)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [repoAdded, setRepoAdded] = useState<string | null>(null)
-
-  const handleFolderPicked = (picked: string) => {
-    setLocalPath(picked)
-    if (!repoName.trim()) {
-      const folderName = picked.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
-      if (folderName) setRepoName(folderName)
-    }
-  }
-
-  const addRepository = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!created) return
-    setBusy(true)
-    setError(null)
-    try {
-      const trimmedPath = localPath.trim().replace(/[\\/]+$/, '')
-      // The name defaults to the folder name, which is nearly always what the
-      // user wants and saves them typing it.
-      const fallbackName = trimmedPath.split(/[\\/]/).pop() || 'docs'
-      await api.addRepository(created.id, {
-        name: repoName.trim() || fallbackName,
-        local_path: trimmedPath,
-        kind: 'documentation',
-        writable,
-      })
-      setRepoAdded(trimmedPath)
-      setLocalPath('')
-      setRepoName('')
-    } catch (err) {
-      message(err, 'Could not register the repository.')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   // -- step 1: the workspace -------------------------------------------------
   if (step === 'workspace') {
@@ -318,107 +275,13 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
               <div className="setup-optional">
                 <h3>Optional &mdash; add some documents now</h3>
                 <p className="faint">
-                  You can also do this later, from the workspace itself.
+                  Drop files in, or use &ldquo;Add a whole folder&rdquo; to copy
+                  in an existing documentation folder&rsquo;s contents &mdash;
+                  they land in your Inbox above, structure kept, nothing in the
+                  source folder touched. You can also do this later, from the
+                  workspace itself.
                 </p>
-
-                <div className="btn-row">
-                  <button
-                    type="button"
-                    className={addMode === 'upload' ? 'btn primary' : 'btn'}
-                    onClick={() => setAddMode(addMode === 'upload' ? 'none' : 'upload')}
-                  >
-                    Upload files
-                  </button>
-                  <button
-                    type="button"
-                    className={addMode === 'existing' ? 'btn primary' : 'btn'}
-                    onClick={() => setAddMode(addMode === 'existing' ? 'none' : 'existing')}
-                  >
-                    Point at an existing folder
-                  </button>
-                </div>
-
-                {addMode === 'upload' && (
-                  <InboxDropzone workspaceId={created.id} onStored={() => {}} compact />
-                )}
-
-                {addMode === 'existing' && (
-                  <form className="setup-inline-form" onSubmit={addRepository}>
-                    <p className="hint">
-                      A different folder from the one above &mdash; your
-                      existing documentation (Markdown, PDF, Word .docx, plain
-                      text), read in place. Nothing is copied or moved.
-                    </p>
-
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="repo-path">
-                        Your documentation folder
-                      </label>
-                      <div className="input-with-button">
-                        <input
-                          id="repo-path"
-                          value={localPath}
-                          onChange={(e) => setLocalPath(e.target.value)}
-                          placeholder="C:/src/gaia-docs"
-                          spellCheck={false}
-                        />
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => setPickerOpen(true)}
-                          title="Browse local folders"
-                        >
-                          📁 Browse…
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="repo-name">
-                        Name <span className="faint">(optional)</span>
-                      </label>
-                      <input
-                        id="repo-name"
-                        value={repoName}
-                        onChange={(e) => setRepoName(e.target.value)}
-                        placeholder="Defaults to the folder name"
-                        maxLength={200}
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label className="checkbox">
-                        <input
-                          type="checkbox"
-                          checked={writable}
-                          onChange={(e) => setWritable(e.target.checked)}
-                        />
-                        <span>
-                          Allow edits
-                          <span className="hint" style={{ display: 'block' }}>
-                            Move, rename and edit proposals can be prepared
-                            against this folder. Nothing is written without
-                            your explicit approval.
-                          </span>
-                        </span>
-                      </label>
-                    </div>
-
-                    {repoAdded && (
-                      <p className="hint">Registered {repoAdded}. You can add another.</p>
-                    )}
-
-                    <div className="btn-row">
-                      <button
-                        className="btn primary"
-                        type="submit"
-                        disabled={busy || !localPath.trim()}
-                      >
-                        {busy ? 'Registering…' : 'Register folder'}
-                      </button>
-                    </div>
-                  </form>
-                )}
+                <InboxDropzone workspaceId={created.id} onStored={() => {}} compact />
               </div>
 
               {error && <p className="error">{error}</p>}
@@ -446,13 +309,6 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
             setWorkingPickerOpen(false)
           }}
           onClose={() => setWorkingPickerOpen(false)}
-        />
-        <FolderPickerModal
-          isOpen={pickerOpen}
-          initialPath={localPath}
-          title="Select Documentation Folder"
-          onSelect={handleFolderPicked}
-          onClose={() => setPickerOpen(false)}
         />
       </>
     )

@@ -6,10 +6,11 @@
 // wizard), and the backend must be reachable through the same origin.
 //
 // Two steps now, not three: name the workspace, then choose a folder. Adding
-// documents -- uploading, or registering an existing documentation folder --
-// is the optional second half of step 2, exercised here through the
-// "point at an existing folder" path since that is the one earlier revisions
-// of this wizard used to make into a step of its own.
+// documents is the optional second half of step 2, exercised here through
+// "Add a whole folder" -- copying an existing folder's documents into the
+// Inbox -- since that is the path earlier revisions of this wizard used to
+// implement wrong, as registering a separate read-in-place repository instead
+// of copying into the Inbox like every other way documents get in.
 import { chromium } from 'playwright'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,9 +20,9 @@ const URL = process.env.SMOKE_URL || 'http://localhost:5273'
 
 const working = mkdtempSync(join(tmpdir(), 'apollo-smoke-setup-'))
 // A documentation folder of this script's own, rather than a path that exists on
-// one person's machine. The optional "existing folder" path registers a real
-// directory, and pointing it at somebody's actual project folder would put a
-// repository in their real workspace and register their real files.
+// one person's machine. The optional "Add a whole folder" step copies a real
+// directory's contents, and pointing it at somebody's actual project folder
+// would copy their real files into this throwaway workspace.
 const docs = join(working, 'documentatie')
 mkdirSync(docs, { recursive: true })
 writeFileSync(join(docs, 'aantekening.md'), '# Aantekening\n')
@@ -94,20 +95,32 @@ try {
     throw new Error('choosing a folder did not create a repository before any upload')
   }
 
-  // The optional half: point at an existing documentation folder instead of
-  // uploading. Collapsed by default, and must say plainly that it is a
-  // different folder from the one just chosen.
-  await page.locator('.setup button', { hasText: 'Point at an existing folder' }).click()
-  await page.waitForSelector('#repo-path', { timeout: 10000 })
-  const reminder = await page.locator('.setup-inline-form .hint').first().textContent()
-  if (!reminder || !/different folder/i.test(reminder)) {
-    throw new Error(`the optional step does not say it is a different folder: ${reminder}`)
-  }
-  await page.screenshot({ path: 'screenshots/setup-step2-existing.png' })
+  // The optional half: copy in an existing folder's documents, through the
+  // same InboxDropzone the workspace itself uses. They must land in the
+  // Inbox -- copied, structure kept -- not registered as a separate,
+  // read-in-place repository.
+  await page.locator('.setup button', { hasText: 'Add a whole folder' }).click()
+  await page.waitForSelector('.inbox-folder-input', { timeout: 10000 })
+  await page.screenshot({ path: 'screenshots/setup-step2-import.png' })
 
-  await page.fill('#repo-path', docs)
-  await page.locator('.setup-inline-form button[type=submit]').click()
-  await page.waitForSelector('.setup-inline-form .hint:has-text("Registered")', { timeout: 10000 })
+  await page.fill('.inbox-folder-input', docs)
+  await page.locator('.setup button', { hasText: 'Copy in' }).click()
+  await page.waitForSelector('.inbox-outcome', { timeout: 10000 })
+  const outcome = await page.locator('.inbox-outcome').first().textContent()
+  console.log('import outcome:', outcome)
+  if (!outcome || !/^Copied/.test(outcome.trim())) {
+    throw new Error(`the folder was not copied in: ${outcome}`)
+  }
+
+  const inInbox = await page.evaluate(async () => {
+    const all = await (await fetch('/api/workspaces')).json()
+    const mine = all.find((w) => w.name.startsWith('Smoke WS'))
+    const inbox = await (await fetch(`/api/workspaces/${mine.id}/inbox`)).json()
+    return inbox.files.some((f) => f.path.endsWith('aantekening.md'))
+  })
+  if (!inInbox) {
+    throw new Error('the imported document is not listed in the Inbox')
+  }
 
   // Finishing is a separate, always-available action -- not gated on having
   // used the optional half at all.
@@ -152,7 +165,7 @@ try {
   }
 
   if (errors.length) throw new Error('console errors:\n' + errors.join('\n'))
-  console.log('OK: wizard created a workspace, chose a folder, and registered an existing folder')
+  console.log('OK: wizard created a workspace, chose a folder, and copied in an existing folder')
 } finally {
   await browser.close()
   rmSync(working, { recursive: true, force: true })
