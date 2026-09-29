@@ -25,6 +25,9 @@ const LONG =
   "A heading that runs on well past the point where anybody would still be " +
   "reading it in a narrow sidebar column without losing the thread\n\nBody.\n";
 const NONE = "No heading at all, just a paragraph.\n";
+// A heading that is a question. It ends in punctuation and is still a perfectly
+// good name, so it is here to stop the rule below from being too eager.
+const QUESTION = "# Why is the migration reversible?\n\nBody.\n";
 
 const fail = (message) => {
   throw new Error(message);
@@ -56,6 +59,7 @@ try {
   writeFileSync(join(REPO, "universal.md"), SHORT, "utf8");
   writeFileSync(join(REPO, "long-title.md"), LONG, "utf8");
   writeFileSync(join(REPO, "no-heading.md"), NONE, "utf8");
+  writeFileSync(join(REPO, "question.md"), QUESTION, "utf8");
   for (const args of [
     ["init", "-b", "main"],
     ["config", "user.name", "Someone"],
@@ -85,27 +89,28 @@ try {
     })
   ).body;
 
-  // The panel only names the document in the reading pane, so a document has to
-  // be open before there is anything to check. Opened through the app, not
-  // through the API: asking the API would prove nothing about the panel.
-  //
-  // "All objects" first, because a workspace that has never had a documentation
-  // repository open shows no folder tree, and a test that cannot get that far
-  // would be reporting the wrong problem.
-  if ((await page.locator(".object-card").count()) === 0) {
-    const allObjects = page
-      .locator(".nav-item", { hasText: "All objects" })
-      .first();
-    if ((await allObjects.count()) > 0) {
-      await allObjects.click();
-      await page.waitForTimeout(1200);
-    }
+  // The repository did not exist when the page first loaded, so what is on
+  // screen is from before it did. Reload rather than click around a stale view:
+  // a test that cannot get past this would be reporting the wrong thing.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(1500);
+
+  // "All objects" first: a fresh session opens on the Inbox, which shows the
+  // documents that were dropped in rather than the repository's own files, so
+  // the cards this test is looking for are not on screen yet.
+  const allObjects = page.locator(".nav-item", { hasText: "All objects" }).first();
+  if ((await allObjects.count()) === 0) {
+    fail("there is no 'All objects' section to open");
   }
+  await allObjects.click();
+  await page.waitForSelector(".object-card", { timeout: 15000 });
+  await page.waitForTimeout(600);
 
   for (const [file, expected] of [
     ["universal.md", "Universal document"],
     ["long-title.md", "long-title.md"],
     ["no-heading.md", "no-heading.md"],
+    ["question.md", "Why is the migration reversible?"],
   ]) {
     const card = page.locator(".object-card", { hasText: file }).first();
     if ((await card.count()) === 0) {

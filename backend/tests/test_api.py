@@ -251,3 +251,48 @@ def test_duplicate_repository_name_is_rejected(client: TestClient, doc_repo: Pat
         f"/api/workspaces/{ws['id']}/repositories", json={**payload, "kind": "source"}
     )
     assert duplicate.status_code == 409
+
+
+def test_a_workspace_survives_a_repository_whose_folder_is_gone(
+    client: TestClient, doc_repo: Path
+) -> None:
+    """A deleted folder must not take the workspace listing down with it.
+
+    Folders go missing for ordinary reasons: an external drive that is not
+    plugged in, a rename, a sync client that has not finished. The listing is
+    read on every load to decide whether the reader has set up a workspace yet,
+    so one repository pointing at nothing used to raise a 400 out of
+    GET /workspaces, the application showed the first-run wizard again, and the
+    wizard could not register a repository because the very listing it depends
+    on was still failing. The way out was the database, by hand.
+    """
+    ws = client.post("/api/workspaces", json={"name": "W"}).json()
+    doomed = doc_repo / "will-vanish"
+    doomed.mkdir()
+    client.post(
+        f"/api/workspaces/{ws['id']}/repositories",
+        json={"name": "gone", "local_path": str(doomed), "kind": "source"},
+    )
+    # A second repository that is perfectly fine, to show the failure was never
+    # about the workspace as a whole.
+    client.post(
+        f"/api/workspaces/{ws['id']}/repositories",
+        json={"name": "docs", "local_path": str(doc_repo), "kind": "documentation"},
+    )
+
+    import shutil
+
+    shutil.rmtree(doomed)
+
+    listed = client.get("/api/workspaces")
+    assert listed.status_code == 200, listed.text
+    mine = next(w for w in listed.json() if w["id"] == ws["id"])
+    # As a set, not a list: the order is an implementation detail of the
+    # relation, and this test is about which repositories survive, not how they
+    # are sorted. Pinning the order would make it fail for the wrong reason.
+    assert {r["name"] for r in mine["repositories"]} == {"docs", "gone"}
+    # Reported as not a repository rather than as an error, so the interface has
+    # something to show. It is not a Git question anybody asked.
+    gone = next(r for r in mine["repositories"] if r["name"] == "gone")
+    assert gone["is_git_repo"] is False
+    assert gone["current_branch"] is None

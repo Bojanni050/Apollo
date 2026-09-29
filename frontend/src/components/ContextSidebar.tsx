@@ -158,14 +158,35 @@ function nameForDisplay(path: string, title: string | null): string {
   const name = fileNameOf(path)
   if (title) {
     const tidy = title.replace(/\s+/g, ' ').trim()
-    // Long enough that it wraps and the line stops being scannable. Measured in
-    // characters, not pixels, because that is what the caller can reason about
-    // and what a translated title will roughly hold.
-    if (tidy.length > 0 && tidy.length <= 60 && tidy !== name) {
+    if (tidy && tidy !== name && isUsableAsName(tidy)) {
       return tidy
     }
   }
   return name
+}
+
+/**
+ * Whether a title reads as a name rather than as the first line of prose.
+ *
+ * The backend answers a document without a heading with its first short line,
+ * which is a reasonable default for a list -- "Inbox -- a note about the
+ * migration" tells you something. In a narrow sidebar next to a question it
+ * does not: it reads as a title, so the document appears to be called "No
+ * heading at all, just a paragraph.", which is the file's own text quoted back
+ * at the reader.
+ *
+ * Only a trailing full stop disqualifies it, and only with several words
+ * before it. A heading is allowed to end in a question mark ("Why is the sky
+ * blue?") and still be a perfectly good name; a sentence that happens to be
+ * short is not the problem this is solving.
+ */
+function isUsableAsName(title: string): boolean {
+  // Long enough that it wraps and the line stops being scannable. Measured in
+  // characters, not pixels, because that is what the caller can reason about
+  // and what a translated title will roughly hold.
+  if (title.length > 60) return false
+  const words = title.split(/\s+/).length
+  return !(title.endsWith(".") && words > 4)
 }
 
 /**

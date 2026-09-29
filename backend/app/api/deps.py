@@ -220,8 +220,29 @@ def resolve_repo_root(repo: Repository) -> str:
 
 
 def repository_status(repo: Repository) -> dict:
-    """Git info for a repository, tolerant of non-Git directories."""
-    root = resolve_repo_root(repo)
+    """Git info for a repository, tolerant of non-Git directories.
+
+    Tolerant of a directory that is *gone* as well, and that is not a nicety.
+    This is called while listing workspaces, so a single repository whose folder
+    was deleted, renamed or moved to another drive used to raise out of the
+    listing and take every workspace with it -- the application showed the
+    first-run wizard again, as if the reader had never set anything up, and the
+    wizard could not register the folder because the listing was still broken.
+    The reader's only way out was editing the database by hand.
+
+    A repository whose folder is missing is reported as not-a-repository, with
+    the reason, rather than breaking the page that lists them. The record stays:
+    the folder may come back (an external drive, a sync client that had not
+    finished), and silently forgetting where it was pointed would be worse.
+    """
+    try:
+        root = resolve_repo_root(repo)
+    except HTTPException:
+        return {
+            "is_git_repo": False,
+            "current_branch": None,
+            "head_revision": None,
+        }
     if not git.is_repo(root):
         return {"is_git_repo": False, "current_branch": None, "head_revision": None}
     return {
