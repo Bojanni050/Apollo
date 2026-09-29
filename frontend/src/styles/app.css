@@ -505,56 +505,24 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 8px;
 }
 
-/* Adding a whole folder, next to the dropzone rather than inside it. Quiet by
-   default and full width when opened, because it is a path -- a long one -- and a
-   field that wraps its own value is unreadable. */
-.inbox-folder {
-  margin-top: 6px;
-}
+/* Adding a whole folder, inside the dropzone itself, under its text. A real
+   button, not part of the dropzone's own click target: it opens the folder
+   picker instead of the file chooser, so its click (and Enter/Space) must not
+   bubble up to the box around it. */
 .inbox-folder-open {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
   padding: 0;
   font-size: 11.5px;
   color: var(--text-dim);
   background: none;
   border: none;
   cursor: pointer;
-  text-align: left;
+  text-decoration: underline;
 }
 .inbox-folder-open:hover {
   color: var(--text);
-  text-decoration: underline;
-}
-.inbox-folder-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-/* The path is the long thing here, so the buttons around it must not be the
-   flexible part: a two-line "Copy in" reads as a mistake. */
-.inbox-folder-row .btn {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.inbox-folder-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 4px 8px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-}
-.inbox-folder-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-.inbox-folder-hint {
-  margin: 4px 0 0;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-faint);
 }
 
 /* The list of documents in the group, and the groups a document is in. A plain
@@ -3491,6 +3459,7 @@ input:focus, textarea:focus, select:focus {
    so it stays an invitation rather than competing with the documents. */
 .inbox-drop--compact .inbox-dropzone {
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 5px 10px;
   border-radius: var(--radius-sm);
@@ -3498,6 +3467,14 @@ input:focus, textarea:focus, select:focus {
 .inbox-drop--compact .inbox-dropzone-glyph { font-size: 13px; }
 .inbox-drop--compact .inbox-dropzone-title { font-size: 12px; font-weight: 500; }
 .inbox-drop--compact .inbox-dropzone-hint { display: none; }
+/* Wrapped onto its own line rather than squeezed into the row: the row is one
+   line of glyph and title, and the folder button is a different action, not a
+   third word in that line. */
+.inbox-drop--compact .inbox-folder-open {
+  flex-basis: 100%;
+  text-align: center;
+  margin-top: 2px;
+}
 .folder-contents-inbox-tools {
   padding: 0 10px 8px;
 }

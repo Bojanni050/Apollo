@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type DragEvent } from 'react'
 import { ApiError, api } from '../api/client'
+import { FolderPickerModal } from './FolderPickerModal'
 
 /**
  * The way documents get in.
@@ -35,8 +36,7 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [outcomes, setOutcomes] = useState<Outcome[]>([])
-  const [folderPath, setFolderPath] = useState('')
-  const [folderOpen, setFolderOpen] = useState(false)
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   // dragenter and dragleave fire for every child the cursor crosses, so a
   // boolean would flicker off the moment the pointer moved onto the text inside
@@ -92,15 +92,14 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
   /**
    * Copy a whole folder in.
    *
-   * The folder is named, not chosen: a browser cannot see the disk, so the reader
-   * types the path they already know, exactly as they would type it into a file
-   * manager. What comes back is reported per document rather than as a single
-   * "done", for the same reason a drop reports per document: forty copied and one
-   * refused is a different outcome from forty-one copied, and the reader needs to
-   * know which.
+   * Chosen through the same folder picker every other "point at a folder"
+   * action in the app uses, rather than typed: a path the reader has to spell
+   * out by hand is a path they get wrong. What comes back is reported per
+   * document rather than as a single "done", for the same reason a drop
+   * reports per document: forty copied and one refused is a different outcome
+   * from forty-one copied, and the reader needs to know which.
    */
-  const importFolder = useCallback(async () => {
-    const path = folderPath.trim()
+  const importFolder = useCallback(async (path: string) => {
     if (!path) return
     setBusy(true)
     setOutcomes([])
@@ -133,7 +132,6 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
         })
       }
       setOutcomes(reported)
-      setFolderPath('')
       if (result.copied.length > 0) onStored()
     } catch (e) {
       setOutcomes([
@@ -149,7 +147,7 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
     } finally {
       setBusy(false)
     }
-  }, [workspaceId, folderPath, onStored])
+  }, [workspaceId, onStored])
 
   return (
     <div className={`inbox-drop${compact ? ' inbox-drop--compact' : ''}`}>
@@ -210,66 +208,22 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
           Drag files in, or click to choose. Markdown, text, PDF and Word. Apollo keeps
           its own copy; nothing you already have is moved or deleted.
         </span>
-      </div>
 
-      {/* A whole folder, for the reader who already has one. Behind a button
-          rather than in the dropzone itself: dropping a folder from the desktop
-          is something browsers do inconsistently, so this is a path the reader
-          types and Apollo reads -- and it is a different kind of act from adding
-          a few files, which is why it is not the first thing on screen. */}
-      <div className="inbox-folder">
-        {folderOpen ? (
-          <div className="inbox-folder-row">
-            <input
-              className="inbox-folder-input"
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  void importFolder()
-                }
-                if (e.key === 'Escape') setFolderOpen(false)
-              }}
-              placeholder="C:\Users\jij\Documenten\Mijn project"
-              aria-label="Path of the folder to copy in"
-              autoFocus
-            />
-            <button
-              type="button"
-              className="btn primary"
-              onClick={() => void importFolder()}
-              disabled={busy || !folderPath.trim()}
-            >
-              {busy ? 'Copying…' : 'Copy in'}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setFolderOpen(false)
-                setFolderPath('')
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="inbox-folder-open"
-            onClick={() => setFolderOpen(true)}
-          >
-            + Add a whole folder
-          </button>
-        )}
-        {folderOpen && (
-          <p className="inbox-folder-hint">
-            Apollo copies the documents out of it and keeps the folder&apos;s
-            structure. Your folder itself is not moved, not renamed and not
-            emptied.
-          </p>
-        )}
+        {/* A whole folder, for the reader who already has one. A real button
+            inside the dropzone, under its text -- stopping propagation so its
+            click (and Enter/Space) opens the folder picker instead of also
+            triggering the box's own "click anywhere to choose files". */}
+        <button
+          type="button"
+          className="inbox-folder-open"
+          onClick={(e) => {
+            e.stopPropagation()
+            setFolderPickerOpen(true)
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          + Add a whole folder
+        </button>
       </div>
 
       {outcomes.length > 0 && (
@@ -284,6 +238,16 @@ export function InboxDropzone({ workspaceId, onStored, compact = false }: Props)
           ))}
         </ul>
       )}
+
+      <FolderPickerModal
+        isOpen={folderPickerOpen}
+        title="Select a folder to copy in"
+        onSelect={(path) => {
+          setFolderPickerOpen(false)
+          void importFolder(path)
+        }}
+        onClose={() => setFolderPickerOpen(false)}
+      />
     </div>
   )
 }

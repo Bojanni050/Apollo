@@ -96,15 +96,26 @@ try {
   }
 
   // The optional half: copy in an existing folder's documents, through the
-  // same InboxDropzone the workspace itself uses. They must land in the
+  // same InboxDropzone the workspace itself uses. Chosen with the folder
+  // picker rather than typed, so this exercises the same picker every other
+  // "point at a folder" action in the app uses. They must land in the
   // Inbox -- copied, structure kept -- not registered as a separate,
   // read-in-place repository.
   await page.locator('.setup button', { hasText: 'Add a whole folder' }).click()
-  await page.waitForSelector('.inbox-folder-input', { timeout: 10000 })
+  await page.waitForSelector('.folder-picker-modal .picker-path-input', { timeout: 10000 })
   await page.screenshot({ path: 'screenshots/setup-step2-import.png' })
 
-  await page.fill('.inbox-folder-input', docs)
-  await page.locator('.setup button', { hasText: 'Copy in' }).click()
+  await page.fill('.folder-picker-modal .picker-path-input', docs)
+  await page.locator('.folder-picker-modal button', { hasText: 'Go' }).click()
+  // Wait for the browse to land on the folder just typed, not whichever one
+  // the picker opened on -- clicking "Select Folder" a moment too early would
+  // otherwise copy in the wrong directory.
+  await page.waitForFunction(
+    (expected) => document.querySelector('.folder-picker-modal .picker-selected-path')?.textContent?.includes(expected),
+    docs,
+    { timeout: 10000 },
+  )
+  await page.locator('.folder-picker-modal button', { hasText: 'Select Folder' }).click()
   await page.waitForSelector('.inbox-outcome', { timeout: 10000 })
   const outcome = await page.locator('.inbox-outcome').first().textContent()
   console.log('import outcome:', outcome)
