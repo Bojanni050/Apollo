@@ -353,6 +353,19 @@ input:focus, textarea:focus, select:focus {
 .mindstack-layout.nav-collapsed.context-closed {
   grid-template-columns: 0px var(--col-contents-width) 1fr 0px;
 }
+/* The Groups tab: the board and the document split the remaining space evenly
+   (two 1fr tracks) instead of the board keeping the narrow list width it has
+   everywhere else. Nav is always collapsed here (see navCollapsed in App.tsx),
+   so these two are the only tracks competing for room besides the context
+   panel. Comes after .nav-collapsed so it wins the tie on specificity order
+   when both classes are present, which they always are together here. */
+.mindstack-layout.groups-mode {
+  grid-template-columns: 0px minmax(280px, 1fr) minmax(280px, 1fr) var(--col-context-width);
+}
+.mindstack-layout.groups-mode.context-closed {
+  grid-template-columns: 0px minmax(280px, 1fr) minmax(280px, 1fr) 0px;
+}
+
 .mindstack-layout.nav-collapsed .col-resizer-nav {
   display: none;
 }

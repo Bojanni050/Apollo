@@ -177,9 +177,12 @@ export default function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+  // The Groups board also folds the navigation away, on top of the width
+  // check: it wants the room for itself and the document beside it, not for
+  // a sidebar whose sections are all in the other tab.
   const navCollapsed =
-    viewportWidth - columnWidths.nav - columnWidths.contents <
-    MIN_DOCUMENT + 480
+    activeSection === 'groups' ||
+    viewportWidth - columnWidths.nav - columnWidths.contents < MIN_DOCUMENT + 480
   useEffect(() => {
     if (!navCollapsed) setNavFlyoutOpen(false)
   }, [navCollapsed])
@@ -1068,7 +1071,14 @@ export default function App() {
     <div className="mindstack-app-shell">
       {/* 4-Column Layout */}
       <div
-        className={`mindstack-layout ${contextOpen ? 'context-open' : 'context-closed'}`}
+        className={[
+          'mindstack-layout',
+          contextOpen ? 'context-open' : 'context-closed',
+          navCollapsed ? 'nav-collapsed' : '',
+          activeSection === 'groups' ? 'groups-mode' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={
           {
             '--col-nav-width': `${columnWidths.nav}px`,
@@ -1173,7 +1183,13 @@ export default function App() {
               role="tab"
               aria-selected={activeSection === 'groups'}
               className={`mindstack-tab${activeSection === 'groups' ? ' active' : ''}`}
-              onClick={() => setActiveSection('groups')}
+              onClick={() => {
+                setActiveSection('groups')
+                // Closed on entry, every time: the board and the document
+                // beside it want the width the context panel would take, and
+                // a reader who wants it back can still open it themselves.
+                setContextOpen(false)
+              }}
               title="Which documents belong together"
             >
               Groups
@@ -1238,13 +1254,18 @@ export default function App() {
           )}
         </div>
 
-        <ColumnResizer
-          side="contents"
-          width={columnWidths.nav + columnWidths.contents}
-          onPointerDown={startColumnDrag('contents')}
-          onNudge={(delta) => nudgeColumn('contents', delta)}
-          onReset={resetColumnWidths}
-        />
+        {/* Not shown in Groups: the board and the document split the space
+            evenly there instead of at a remembered pixel width, so there is
+            no boundary this handle's own math would agree with. */}
+        {activeSection !== 'groups' && (
+          <ColumnResizer
+            side="contents"
+            width={columnWidths.nav + columnWidths.contents}
+            onPointerDown={startColumnDrag('contents')}
+            onNudge={(delta) => nudgeColumn('contents', delta)}
+            onReset={resetColumnWidths}
+          />
+        )}
 
         {/* Column 3: File Content Canvas */}
         <FileContentColumn
