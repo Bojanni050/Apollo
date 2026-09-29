@@ -239,7 +239,25 @@ fn start_server() -> Result<(Child, String), String> {
     // the relative .env path in the settings resolves to backend/.env.
     let backend_dir = repo_root().join("backend");
 
-    let mut child = Command::new(&python)
+    // The API's output goes to a log file, not to an inherited console.
+    //
+    // CREATE_NO_WINDOW is deliberate: the shell is a windows_subsystem binary
+    // with no console of its own, and a child that wants stdio may be given one
+    // by Windows, which shows up as an unexplained terminal beside the app.
+    // The cost of that guarantee is that the backend's stderr no longer prints
+    // where a reader might see it, so it goes to a file and the tail of it is
+    // quoted in the failure message -- which is where it is actually useful,
+    // because that message is shown in the app's own window.
+    let log_path = std::env::temp_dir().join("apollo-backend.log");
+    let stderr = match std::fs::File::create(&log_path) {
+        Ok(file) => Stdio::from(file),
+        // No log file is not a reason to refuse to start; the backend simply
+        // gets no stderr, and a failure then says so.
+        Err(_) => Stdio::null(),
+    };
+
+    let mut command = Command::new(&python);
+    command
         .current_dir(&backend_dir)
         .arg("-m")
         // `app.serve` mounts the built frontend on the same port as the API, so
@@ -255,7 +273,16 @@ fn start_server() -> Result<(Child, String), String> {
         // second process this crate does not own, so it would outlive the
         // window and keep holding the port.
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
+        .stderr(stderr);
+
+    // Windows-only. A no-op elsewhere, where a console is not created anyway.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Could not start the API ({python:?}): {e}"))?;
 
@@ -269,7 +296,8 @@ fn start_server() -> Result<(Child, String), String> {
             return Err(format!(
                 "The server exited immediately ({status}).\n\n\
                  If it mentions a missing frontend build, run:  npm --prefix frontend run build\n\
-                 Otherwise check backend/.env -- APP_ENV must be \"development\" for local use."
+                 Otherwise check backend/.env -- APP_ENV must be \"development\" for local use.\n\n{}",
+                backend_log_tail(&log_path)
             ));
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -277,9 +305,30 @@ fn start_server() -> Result<(Child, String), String> {
 
     let _ = child.kill();
     Err(format!(
-        "The server did not respond within {} seconds.\n\nSee backend/.env and any error output above.",
-        STARTUP_TIMEOUT.as_secs()
+        "The server did not respond within {} seconds.\n\n\
+         See backend/.env. The last thing it said:\n\n{}",
+        STARTUP_TIMEOUT.as_secs(),
+        backend_log_tail(&log_path)
     ))
+}
+
+/// The last lines the API wrote, for a failure message.
+///
+/// The backend's output goes to a file rather than to a console, so this is the
+/// only place its reason can be shown. An empty result says so explicitly: a
+/// blank section would read as "no output" when the real answer is "no log
+/// file", which is a different thing to go and look for.
+fn backend_log_tail(path: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return format!("(no API log at {})", path.display());
+    };
+    let lines: Vec<&str> = text.lines().rev().take(20).collect();
+    if lines.is_empty() {
+        return "(the API wrote nothing to its log)".to_string();
+    }
+    let mut out = lines.into_iter().rev().collect::<Vec<_>>().join("\n");
+    out.truncate(2000);
+    format!("--- {} ---\n{}", path.display(), out)
 }
 
 /// Show a short message in the window itself, for failures that happen before

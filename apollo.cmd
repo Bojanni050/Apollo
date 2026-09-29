@@ -146,10 +146,22 @@ exit /b 1
 
 :end
 set "EXITCODE=%ERRORLEVEL%"
+
+REM A successful launch leaves nothing to say and nothing to wait for: the app
+REM has its own window, and anything this console was going to show afterwards
+REM is either in that window or in a log. So it closes itself instead of waiting
+REM for a keypress that has no purpose.
+REM
+REM A failure is the exception. A message the reader never gets to read is worse
+REM than a window they have to close, so the window stays and says why.
 if not "%EXITCODE%"=="0" (
     echo.
     echo   Apollo exited with code %EXITCODE%.
+    echo.
+    pause
 )
-echo.
-pause
-endlocal
+
+REM endlocal comes last, and the code is read out first: endlocal discards
+REM everything set inside the block, so testing EXITCODE after it would always
+REM find it empty and report success.
+endlocal & exit /b %EXITCODE%

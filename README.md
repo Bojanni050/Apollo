@@ -28,6 +28,14 @@ A real application window: no browser, no second terminal, no ports to think
 about. The Rust shell starts the Python API as a child process, waits until it
 answers, and points the window at it. Closing the window stops the API.
 
+Neither the API nor the launcher leaves a terminal behind. The API is started
+with `CREATE_NO_WINDOW` and its stderr goes to `%TEMP%\apollo-backend.log`,
+which a failed start quotes in the app's own window; and `apollo.cmd` closes
+its console once the app window is up, keeping it only when something failed and
+there is a message to read.
+
+    apollo.cmd release-start    # build, start, and close the console behind it
+
 **Prerequisites** (all verified present on a current Windows dev box):
 
 | Requirement | Notes |

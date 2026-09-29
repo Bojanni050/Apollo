@@ -168,20 +168,48 @@ if (Test-Path $installDir) {
 Write-Host ""
 
 if ($Start) {
-    Write-Step "Starting the release exe (backend errors appear below; close the app window to return)..."
-    # Foreground on purpose: the desktop shell inherits the backend's stderr
-    # (Stdio::inherit in src-tauri\src\lib.rs), so a backend that fails to
-    # start prints its reason HERE. A detached start would hide exactly the
-    # message that explains a failed startup. The app opens its own window;
-    # closing it ends the process and returns control to this console.
-    Push-Location (Split-Path $releaseExe -Parent)
-    try {
-        & $releaseExe
+    Write-Step "Starting the release exe..."
+
+    # Detached, not in the foreground. The app opens its own window and reports
+    # its own startup failures in that window (src-tauri\src\lib.rs quotes the
+    # API's log there), so holding a console open beside it showed the reader an
+    # empty screen for as long as they used the app. It is started and then
+    # released, and the console this came from closes behind it.
+    $app = Start-Process -FilePath $releaseExe -WorkingDirectory (Split-Path $releaseExe -Parent) -PassThru
+
+    # Wait for a window before calling it a success, so a launch that dies
+    # immediately is reported here -- with this console still open to read it
+    # -- instead of being mistaken for a running app. Bounded, because a slow
+    # machine must not hang the launcher forever.
+    $deadline = (Get-Date).AddSeconds(90)
+    $window = [IntPtr]::Zero
+    while ((Get-Date) -lt $deadline) {
+        if ($app.HasExited) {
+            Stop-WithError "The release exe exited immediately (code $($app.ExitCode))." -Hint @(
+                "Its own window would have said why; it never got that far.",
+                "Run the exe directly to see what it reports:",
+                "  $releaseExe"
+            )
+        }
+        $app.Refresh()
+        if ($app.MainWindowHandle -ne [IntPtr]::Zero) {
+            $window = $app.MainWindowHandle
+            break
+        }
+        Start-Sleep -Milliseconds 300
     }
-    finally {
-        Pop-Location
+
+    if ($window -ne [IntPtr]::Zero) {
+        Write-Ok "Apollo is running. This console will close; the app keeps running."
     }
-    Write-Ok "The release exe exited."
+    else {
+        # No window after 90 seconds, but the process is alive. Say so plainly
+        # rather than claiming success, and keep the console for the detail.
+        Stop-WithError "The release exe is running but did not open a window within 90 seconds." -Hint @(
+            "The process is still alive, so close it if you do not want it:",
+            "  apollo.cmd stop"
+        )
+    }
 }
 else {
     Write-Host "Run it directly, or use:  apollo.cmd release-start"
