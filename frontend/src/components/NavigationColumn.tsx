@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Workspace } from '../api/client'
+import delphiIcon from '../assets/delphi-icon.webp'
 
 export type NavSection =
   | 'inbox'
@@ -297,7 +298,7 @@ export function NavigationColumn({
           onClick={() => onSelectSection('pulse')}
         >
           <span className="ai-pulse-left">
-            <span className="ai-pulse-glyph">✦</span>
+            <img className="ai-pulse-glyph" src={delphiIcon} alt="" aria-hidden="true" />
             <span>Delphi Pulse</span>
           </span>
           <span className="ai-pulse-badge">*new</span>

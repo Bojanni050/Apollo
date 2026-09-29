@@ -13,6 +13,7 @@ import type {
   Signal,
 } from '../api/client'
 import { renderDiff } from '../markdown'
+import delphiIcon from '../assets/delphi-icon.webp'
 
 interface Props {
   isOpen: boolean
@@ -500,7 +501,7 @@ export function ContextSidebar({
         {/* 1. Header Bar matching screenshot */}
         <div className="context-header">
           <div className="context-title-block">
-            <span className="context-title-hash">#</span>
+            <img src={delphiIcon} alt="" className="context-title-icon" aria-hidden="true" />
             <h3 className="context-title">Delphi Weave</h3>
           </div>
 
@@ -900,7 +901,13 @@ export function ContextSidebar({
                 activeConversation?.messages.map((m) => (
                   <div key={m.id} className={`context-msg ${m.role}`}>
                     <div className="msg-sender">
-                      {m.role === 'assistant' ? '✦ Delphi' : 'You'}
+                      {m.role === 'assistant' ? (
+                        <>
+                          <img src={delphiIcon} alt="" className="delphi-badge-icon" aria-hidden="true" /> Delphi
+                        </>
+                      ) : (
+                        'You'
+                      )}
                     </div>
                     <div className="msg-content">{m.content}</div>
                   </div>

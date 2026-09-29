@@ -177,7 +177,7 @@ class Settings(BaseSettings):
     # identifier the model gets on the wire. It does NOT decide where embeddings
     # are served: that stays EMBEDDING_API_BASE_URL, because either runtime can
     # also be pointed at a hosted endpoint.
-    embedding_runtime: str = Field(default="ollama", pattern="^(ollama|llamacpp)$")
+    embedding_runtime: str = Field(default="llamacpp", pattern="^(ollama|llamacpp)$")
     # Where llama.cpp weights are stored, and where EMBEDDING_API_BASE_URL
     # points when the operator is running llama-server locally. Resolved against
     # the backend directory when relative, like source_checkout_root.

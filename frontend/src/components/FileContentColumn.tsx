@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PulseItem, PulseItemPart, Repository, Signal } from '../api/client'
 import { renderMarkdown } from '../markdown'
 import type { ItemCard } from './FolderContentsColumn'
+import delphiIcon from '../assets/delphi-icon.webp'
 
 interface Props {
   selectedItem: ItemCard | null
@@ -191,7 +192,9 @@ export function FileContentColumn({
           {signals.length > 0 && (
             <section className="signal-bar" aria-label="What Delphi found in this document">
               <header className="signal-bar-head">
-                <span className="signal-bar-badge">✦ Delphi</span>
+                <span className="signal-bar-badge">
+                  <img src={delphiIcon} alt="" className="delphi-badge-icon" aria-hidden="true" /> Delphi
+                </span>
                 <span className="signal-bar-note">
                   {signals.length === 1
                     ? '1 thing worth knowing about this document'
@@ -286,7 +289,9 @@ export function FileContentColumn({
           {pulseItem && (
             <section className="pulse-review" aria-label="Delphi Pulse suggestions">
               <header className="pulse-review-head">
-                <span className="pulse-review-badge">✦ Delphi Pulse</span>
+                <span className="pulse-review-badge">
+                  <img src={delphiIcon} alt="" className="delphi-badge-icon" aria-hidden="true" /> Delphi Pulse
+                </span>
                 <span className="pulse-review-path">{pulseItem.file_path}</span>
                 {pulseItem.confidence !== null && (
                   <span className="pulse-review-confidence">
@@ -580,10 +585,7 @@ export function FileContentColumn({
         onClick={onOpenAiChat}
         title="Open Delphi Weave assistant"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="9" cy="12" r="1.5"/>
-          <circle cx="15" cy="12" r="1.5"/>
-        </svg>
+        <img src={delphiIcon} alt="" width={22} height={22} aria-hidden="true" />
       </button>
     </main>
   )

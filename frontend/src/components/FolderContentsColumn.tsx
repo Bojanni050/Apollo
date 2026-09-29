@@ -342,18 +342,18 @@ export function FolderContentsColumn({
                 type="button"
                 className="folder-contents-new-btn"
                 onClick={onRunDelphi}
-                disabled={analysing || !llmConfigured}
+                disabled={analysing}
                 title={
                   !llmConfigured
-                    ? 'Delphi needs a model. Add one in Settings, then analyse.'
+                    ? 'Delphi needs a model. Add one in Settings, then press this.'
                     : 'Read the collection and say what stands out. Nothing is moved or changed.'
                 }
               >
                 {analysing
-                  ? 'Analyseren…'
+                  ? 'Delphi Pulse…'
                   : openFindings > 0
-                    ? `Analyseren · ${openFindings}`
-                    : 'Analyseren'}
+                    ? `Delphi Pulse · ${openFindings}`
+                    : 'Delphi Pulse'}
               </button>
             )}
             {activeSection !== 'inbox' && (

@@ -748,15 +748,16 @@ export function SettingsModal({
                         </div>
 
                         <div className="form-group">
-                          <label className="form-label">
+                          <label className="checkbox" htmlFor="pulse-schedule-enabled">
                             <input
+                              id="pulse-schedule-enabled"
                               type="checkbox"
                               checked={pulse.schedule_enabled}
                               onChange={(e) =>
                                 setPulse({ ...pulse, schedule_enabled: e.target.checked })
                               }
-                            />{' '}
-                            Scan automatically
+                            />
+                            <span>Scan automatically</span>
                           </label>
                           <div className="settings-hint">
                             Leave this off to run a scan only when you press Run Pulse.

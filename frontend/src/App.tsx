@@ -873,9 +873,19 @@ export default function App() {
      at a time it would be a different question, and a worse one.
 
      The inbox is named explicitly when there is one, so the reader analyses the
-     pile they just built rather than a folder they registered months ago. */
+     pile they just built rather than a folder they registered months ago.
+
+     Left clickable with no model configured, rather than disabled: a disabled
+     button only explains itself to someone who hovers it, and pressing it is
+     exactly when the reader is asking why nothing happened. The check moved
+     here so the answer is the same report a failed scan would show, not a
+     tooltip nobody read. */
   const runDelphi = useCallback(async () => {
     if (!workspace) return
+    if (!(chatStatus?.llm_configured ?? true)) {
+      setDelphiErrors(['Delphi needs a model. Add one in Settings, then try again.'])
+      return
+    }
     setAnalysing(true)
     setDelphiErrors([])
     try {
@@ -904,7 +914,7 @@ export default function App() {
     } finally {
       setAnalysing(false)
     }
-  }, [workspace, inbox.repository_id, documentPath])
+  }, [workspace, inbox.repository_id, documentPath, chatStatus])
 
   /* Show a group's details in the panel, or stop showing them.
 

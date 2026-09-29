@@ -692,8 +692,9 @@ input:focus, textarea:focus, select:focus {
   gap: 7px;
 }
 .ai-pulse-glyph {
-  font-size: 15px;
-  color: var(--accent-amber);
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
 }
 /* While a Pulse scan runs, the glyph breathes: a soft glow and scale rhythm
    rather than a flashing badge, so the button reads "working", not "new". */
@@ -703,11 +704,11 @@ input:focus, textarea:focus, select:focus {
 @keyframes nav-pulse-glow {
   0%, 100% {
     transform: scale(1);
-    text-shadow: 0 0 0 rgba(197, 160, 42, 0);
+    filter: drop-shadow(0 0 0 rgba(197, 160, 42, 0));
   }
   50% {
     transform: scale(1.35);
-    text-shadow: 0 0 6px rgba(197, 160, 42, 0.8);
+    filter: drop-shadow(0 0 4px rgba(197, 160, 42, 0.8));
   }
 }
 
@@ -1271,6 +1272,15 @@ input:focus, textarea:focus, select:focus {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
+}
+
+/* Delphi's mark, wherever a badge or label names it. Sized to the text it
+   sits beside rather than fixed, so it scales with whichever badge uses it. */
+.delphi-badge-icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  object-fit: contain;
 }
 
 .pulse-review-path {
@@ -2265,10 +2275,10 @@ input:focus, textarea:focus, select:focus {
   gap: 5px;
 }
 
-.context-title-hash {
-  font-size: 15px;
-  color: var(--text-faint);
-  font-weight: 400;
+.context-title-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 
 .context-title {
