@@ -424,6 +424,71 @@ function Test-IsApolloFrontend {
     return ($cmd -like "*$script:RepoRoot*")
 }
 
+function Get-RunningReleaseExe {
+    <#
+      .SYNOPSIS
+        Every running process that is this repo's built release exe.
+      .DESCRIPTION
+        `tauri build` overwrites src-tauri\target\release\apollo.exe in place,
+        and Windows will not let it replace a file backing a running process --
+        the build then fails on a locked-file error that names neither the
+        file nor the reason. Matched by executable path rather than by name
+        alone, because "apollo.exe" is not a name only this repo could produce.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ExePath
+    )
+    $resolved = $ExePath.ToLowerInvariant()
+    # The leading comma matters: without it, PowerShell unrolls an empty array
+    # crossing the function boundary back into zero pipeline objects, and the
+    # caller's `$result = Get-RunningReleaseExe ...` gets $null instead of an
+    # empty array -- which then wraps right back into a *one*-element array
+    # containing that $null (`@($null)`, Count 1) the moment the caller tries
+    # to guard against exactly this with `@(...)`. The comma keeps the array
+    # itself as the one object on the pipeline, empty or not.
+    try {
+        ,@(Get-CimInstance Win32_Process -Filter "Name = 'apollo.exe'" -ErrorAction Stop |
+            Where-Object { $_.ExecutablePath -and ($_.ExecutablePath.ToLowerInvariant() -eq $resolved) })
+    }
+    catch {
+        ,@()
+    }
+}
+
+function Stop-RunningReleaseExe {
+    <#
+      .SYNOPSIS
+        Close a running copy of the built app, so a release build can replace
+        its exe.
+      .DESCRIPTION
+        Closed rather than merely reported: this is unmistakably this repo's
+        own app (matched on the exact exe path a moment ago), and a release
+        build that fails on a file lock with no explanation is a worse outcome
+        than the window it was already open in closing and reopening a minute
+        later, freshly built.
+      .OUTPUTS
+        $true if something was running and got stopped, $false if nothing was.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ExePath
+    )
+    # Not re-wrapped in @(): Get-RunningReleaseExe already guarantees an array
+    # (see its own comment), and @() around an already-array nests it one level
+    # deeper -- an empty result would then be a one-element array *holding*
+    # the empty array, and Count would read 1 instead of 0.
+    $running = Get-RunningReleaseExe -ExePath $ExePath
+    if ($running.Count -eq 0) { return $false }
+
+    foreach ($proc in $running) {
+        Write-Warn "Apollo is already running (pid $($proc.ProcessId)). Closing it so the build can replace its exe."
+        Stop-ProcessTree -ProcessId $proc.ProcessId -What "running Apollo app"
+    }
+    # Windows can hold the file handle open for a moment after the process
+    # exits; give it a beat before the build tries to overwrite the exe.
+    Start-Sleep -Milliseconds 500
+    return $true
+}
+
 function Test-IsApolloServer {
     <#
       .SYNOPSIS

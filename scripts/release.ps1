@@ -134,9 +134,18 @@ if (-not $npm) {
     Stop-WithError "npm is not on PATH, so the release build cannot run."
 }
 
-Write-Step "Building the release (tauri build; this also builds the frontend bundle)..."
 $releaseExe = Join-Path $script:RepoRoot "src-tauri\target\release\apollo.exe"
 $installDir = Join-Path $script:RepoRoot "src-tauri\target\release\bundle"
+
+# A previous build's exe still running locks that exact file; overwriting it
+# fails with a bare "process cannot access the file" that names neither the
+# file nor why. Close it first, so a rebuild while the app is still open just
+# works instead of failing on the second attempt of the day.
+if (Stop-RunningReleaseExe -ExePath $releaseExe) {
+    Write-Ok "Closed the running app; continuing with the build."
+}
+
+Write-Step "Building the release (tauri build; this also builds the frontend bundle)..."
 
 Push-Location $script:RepoRoot
 try {
