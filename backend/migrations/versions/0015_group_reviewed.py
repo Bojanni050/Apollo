@@ -17,8 +17,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0014_group_reviewed"
-down_revision = "0013_group_folder"
+revision = "0015_group_reviewed"
+down_revision = "0014_pulse_item_repository"
 branch_labels = None
 depends_on = None
 
