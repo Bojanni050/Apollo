@@ -740,6 +740,13 @@ export type PulseItemPart = 'tags' | 'connections'
 export interface PulseItem {
   id: number
   file_path: string
+  /**
+   * The repository the path is relative to: a Pulse run scans both the
+   * documentation repository and the inbox, so opening the document needs
+   * to know which tree to read from. Absent on items from older runs, which
+   * all came from the documentation repository.
+   */
+  repository_id?: number | null
   summary: string | null
   tags: string[]
   connections: PulseConnection[]

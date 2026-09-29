@@ -12,11 +12,47 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_documentation_repository, get_workspace, resolve_repo_root
+from app.api.deps import (
+    get_documentation_repository,
+    get_storage_repository,
+    get_workspace,
+    resolve_repo_root,
+)
+
+
+def _pulse_roots(db: Session, workspace_id: int) -> list[tuple[int | None, str]]:
+    """The trees a Pulse run scans: the documentation repository and the inbox.
+
+    New documents arrive in the inbox and are analysed there before being
+    filed out of it, so the inbox belongs in the scan; the documentation
+    repository stays in because a run should also notice what changed in the
+    collection itself. The documentation repository comes first: it is the
+    fallback for items written before runs scanned the inbox.
+    """
+    roots: list[tuple[int | None, str]] = []
+    repo = get_documentation_repository(db, workspace_id)
+    roots.append((repo.id, resolve_repo_root(repo)))
+    storage = get_storage_repository(db, workspace_id)
+    if storage is not None and storage.id != repo.id:
+        try:
+            roots.append((storage.id, resolve_repo_root(storage)))
+        except Exception:
+            pass
+    return roots
+
+
+def _item_root(db: Session, workspace_id: int, item: PulseItem) -> str:
+    """The tree an item's path resolves against: its own repository when it
+    named one, the documentation repository for the older rows that did not."""
+    if item.repository_id is not None:
+        repo = db.get(Repository, item.repository_id)
+        if repo is not None and repo.workspace_id == workspace_id:
+            return resolve_repo_root(repo)
+    return resolve_repo_root(get_documentation_repository(db, workspace_id))
 from app.db import get_db
 from app.llm import get_provider
 from app.llm.base import LLMError, LLMNotConfigured
-from app.models import PulseItem, PulseRun, WorkspacePulseSettings
+from app.models import PulseItem, PulseRun, Repository, WorkspacePulseSettings
 from app.schemas import (
     PulseApplyOut,
     PulseApplyRequest,
@@ -121,13 +157,16 @@ def create_pulse_run(
     did not opt into.
     """
     get_workspace(db, workspace_id)
-    repo = get_documentation_repository(db, workspace_id)
-    if payload.repository_id is not None and payload.repository_id != repo.id:
+    # The run scans the documentation repository and the inbox alike; the
+    # named repository, when the client sends one, only has to be among them.
+    roots = _pulse_roots(db, workspace_id)
+    known = {repository_id for repository_id, _ in roots}
+    if payload.repository_id is not None and payload.repository_id not in known:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Pulse only applies to the documentation repository.",
+            "Pulse scans the documentation repository and the inbox; "
+            "the repository sent is neither.",
         )
-    root = resolve_repo_root(repo)
     mode = _get_settings(db, workspace_id).mode
 
     try:
@@ -140,7 +179,7 @@ def create_pulse_run(
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
 
     try:
-        run = run_pulse(provider, db, workspace_id, root, mode=mode)
+        run = run_pulse(provider, db, workspace_id, roots, mode=mode)
     except LLMError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM error: {exc}") from exc
 
@@ -183,9 +222,6 @@ def apply_pulse_run(
 ) -> PulseApplyOut:
     """Approve selected suggestions (or all of them) and write them to disk."""
     run = _get_run(db, workspace_id, run_id)
-    repo = get_documentation_repository(db, workspace_id)
-    root = resolve_repo_root(repo)
-
     wanted = set(payload.item_ids)
     applied: list[str] = []
     skipped: list[dict[str, str]] = []
@@ -197,8 +233,11 @@ def apply_pulse_run(
         if wanted and item.id not in wanted:
             skipped.append({"path": item.file_path, "reason": "not selected"})
             continue
+        # Each item writes into the repository it was found in: a run covers
+        # the documentation repository and the inbox, and one root for all of
+        # them would write an inbox suggestion into the docs tree.
         try:
-            applied.append(apply_pulse_item(root, item))
+            applied.append(apply_pulse_item(_item_root(db, workspace_id, item), item))
         except PulseError as exc:
             skipped.append({"path": item.file_path, "reason": str(exc)})
 
@@ -238,10 +277,8 @@ def apply_pulse_item_route(
             status.HTTP_409_CONFLICT, "This item was skipped and cannot be applied."
         )
 
-    repo = get_documentation_repository(db, workspace_id)
-    root = resolve_repo_root(repo)
     try:
-        applied_path = apply_pulse_item(root, item, parts)
+        applied_path = apply_pulse_item(_item_root(db, workspace_id, item), item, parts)
     except PulseError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     db.commit()

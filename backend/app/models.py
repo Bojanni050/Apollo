@@ -762,8 +762,16 @@ class PulseItem(Base):
     run_id: Mapped[int] = mapped_column(
         ForeignKey("pulse_runs.id", ondelete="CASCADE"), index=True
     )
-    # Path relative to the documentation repository root, as the user sees it.
+    # Path relative to the repository the item was found in, as the user
+    # sees it. Runs scan both the documentation repository and the inbox
+    # storage, so the path alone no longer says which tree it belongs to.
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Which of those two repositories the path is relative to. Nullable for
+    # rows written before runs scanned the inbox; the routes read it and
+    # fall back to the documentation repository when it is empty.
+    repository_id: Mapped[int | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL"), nullable=True
+    )
     # Short description of what the document is about, per the model.
     summary: Mapped[str | None] = mapped_column(Text)
     # Thematic tags proposed for the document.

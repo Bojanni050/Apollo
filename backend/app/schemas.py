@@ -630,6 +630,11 @@ class PulseItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     file_path: str
+    # The repository the path is relative to: a run covers the documentation
+    # repository and the inbox, and the client needs to know which tree to
+    # open the document from. Absent for items written before runs scanned
+    # the inbox; the client then opens it from the documentation repository.
+    repository_id: int | None = None
     summary: str | None = None
     tags: list = Field(default_factory=list)
     connections: list = Field(default_factory=list)

@@ -89,15 +89,26 @@ def run_due_scans() -> int:
             ws = db.get(Workspace, workspace_id)
             if ws is None:
                 continue
-            repo = next(
-                (r for r in ws.repositories if r.kind == "documentation"), None
+            # The scheduled scan sees the same trees a manual one does:
+            # the documentation repository and the inbox storage (documents
+            # wait in the inbox to be analysed, and a scheduled pass that
+            # skipped them would analyse nothing on a fresh workspace).
+            doc_repo = next(
+                (r for r in ws.repositories if r.kind == "documentation" and not r.is_storage),
+                None,
             )
-            if repo is None:
+            if doc_repo is None:
                 continue
-            root = str(repo.local_path)
+            roots: list[tuple[int | None, str]] = [(doc_repo.id, str(doc_repo.local_path))]
+            storage = next(
+                (r for r in ws.repositories if r.is_storage),
+                None,
+            )
+            if storage is not None and storage.id != doc_repo.id:
+                roots.append((storage.id, str(storage.local_path)))
             try:
                 provider = get_provider(role="background")
-                run = run_pulse(provider, db, workspace_id, root, mode=row.mode)
+                run = run_pulse(provider, db, workspace_id, roots, mode=row.mode)
                 db.commit()
                 started += 1
                 logger.info(
