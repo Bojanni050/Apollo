@@ -4,6 +4,7 @@ __pycache__/
 venv/
 .env
 *.db
+*.db.bak
 *.log
 .pytest_cache/
 node_modules/
@@ -60,3 +61,6 @@ backend/models/
 _*.out
 _*.err
 _*.tmp
+
+# Ad hoc stderr redirects from manual debugging (e.g. `... 2> h.err`).
+*.err
