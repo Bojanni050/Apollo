@@ -35,8 +35,9 @@ class OpenAICompatibleProvider:
 
         if not self.base_url or not self.model:
             raise LLMNotConfigured(
-                "No LLM provider configured. Set LLM_BASE_URL and LLM_MODEL in .env "
-                "(LLM_API_KEY only if your endpoint requires one)."
+                "No AI model configured yet. Open Settings in the app and set a "
+                "base URL and model \u2014 a local model (Ollama, LM Studio) works "
+                "too and needs no API key."
             )
 
     @property
