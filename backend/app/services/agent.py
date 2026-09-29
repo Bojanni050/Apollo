@@ -113,6 +113,26 @@ class Agent:
             _log_report(report)
 
             response: LLMResponse = self.provider.chat(messages, tools=tools)
+            # An empty reply -- no content, no tool calls -- is usually a
+            # transient provider hiccup, not a considered answer. One retry
+            # with the same planned messages gives the model a second chance
+            # before the user is told it returned nothing. The empty attempt
+            # is appended to the history so the retry does not silently
+            # discard what the model already saw.
+            if not response.content and not response.tool_calls:
+                turns.append(
+                    Turn(
+                        messages=[_assistant_turn(response)],
+                        kind="history",
+                        priority=len(turns),
+                        label="empty assistant turn",
+                    )
+                )
+                messages, report = budget.plan(
+                    system=system, turns=turns, tools=tools, current_query=user_message
+                )
+                _log_report(report)
+                response = self.provider.chat(messages, tools=tools)
             assistant_turn = _assistant_turn(response)
             turns.append(
                 Turn(
@@ -204,7 +224,9 @@ class Agent:
         ctx: ToolContext,
         executed: list[dict[str, Any]],
     ) -> AgentResult:
-        content = response.content or "(The model returned an empty response.)"
+        content = response.content or (
+            "(The AI model returned an empty answer — please try again.)"
+        )
         citations = _dedupe(ctx.citations)
 
         db.add(

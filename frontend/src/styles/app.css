@@ -342,6 +342,69 @@ input:focus, textarea:focus, select:focus {
   grid-template-columns: var(--col-nav-width) var(--col-contents-width) 1fr 0px;
 }
 
+/* When the window leaves the document too little room, the navigation column
+   folds away entirely (see navCollapsed in App.tsx) and the grid drops its
+   track. The menu button and the flyout overlay take over; the contents list
+   keeps its own width so the arrangement stays recognisable. */
+.mindstack-layout.nav-collapsed,
+.mindstack-layout.nav-collapsed.context-closed {
+  grid-template-columns: 0px var(--col-contents-width) 1fr var(--col-context-width);
+}
+.mindstack-layout.nav-collapsed.context-closed {
+  grid-template-columns: 0px var(--col-contents-width) 1fr 0px;
+}
+.mindstack-layout.nav-collapsed .col-resizer-nav {
+  display: none;
+}
+
+/* The only trace of the navigation once it has collapsed: a small menu button
+   pinned to the top-left, above the contents list. */
+.nav-flyout-btn {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 60;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-chrome);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.nav-flyout-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* The collapsed navigation as an overlay: the column's own look, floating over
+   the layout, closed by the backdrop or the button. */
+.nav-flyout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.25);
+}
+.nav-flyout {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 71;
+  width: min(320px, 85vw);
+  background: var(--bg-nav);
+  border-right: 1px solid var(--border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+}
+.nav-flyout .nav-column {
+  border-right: none;
+}
+
+
 /* ==========================================================================
    Column resizers
    The dividers between the two list columns and the document. Absolute rather
@@ -363,6 +426,16 @@ input:focus, textarea:focus, select:focus {
   align-items: center;
   justify-content: center;
   touch-action: none; /* let the drag reach us instead of scrolling the page */
+}
+
+/* The context panel's divider sits on the panel's own left edge, pinned to
+   the right side of the layout: `left` would need the full three-column width
+   recomputed on every drag, `right` tracks the panel edge for free. */
+.col-resizer-context {
+  left: auto;
+  right: var(--col-context-width);
+  transform: translateX(50%);
+  z-index: 6;
 }
 
 /* The visual bar. Transparent at rest, because the columns already draw a 1px
@@ -2544,6 +2617,70 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-md);
   color: var(--text);
   line-height: 1.5;
+}
+/* Markdown inside an assistant bubble: the renderer emits plain elements, so
+   they need their own spacing and size here -- without this a code block or a
+   list ran into the surrounding text as if it were one paragraph. */
+.context-msg.assistant .msg-content pre {
+  background: var(--bg-chrome-subtle, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.context-msg.assistant .msg-content pre code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.context-msg.assistant .msg-content code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: var(--bg-chrome-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.context-msg.assistant .msg-content ul,
+.context-msg.assistant .msg-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.context-msg.assistant .msg-content h1,
+.context-msg.assistant .msg-content h2,
+.context-msg.assistant .msg-content h3,
+.context-msg.assistant .msg-content h4,
+.context-msg.assistant .msg-content h5,
+.context-msg.assistant .msg-content h6 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 8px 0 4px;
+  color: var(--text);
+}
+.context-msg.assistant .msg-content blockquote {
+  margin: 6px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-faint);
+}
+.context-msg.assistant .msg-content p {
+  margin: 4px 0;
+}
+.context-msg.assistant .msg-content table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.context-msg.assistant .msg-content th,
+.context-msg.assistant .msg-content td {
+  border: 1px solid var(--border);
+  padding: 3px 7px;
+  text-align: left;
 }
 .msg-sender {
   font-size: 11px;

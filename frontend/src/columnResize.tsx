@@ -74,6 +74,14 @@ export const MAX_COMBINED_FRACTION = 0.75
 export interface ColumnWidths {
   nav: number
   contents: number
+  /**
+   * The context sidebar's width. Unlike the two list columns this one has a
+   * hard floor (CONTEXT_MIN: the AI Chat needs 380px to stay readable) and a
+   * ceiling (CONTEXT_MAX), so a drag cannot collapse the chat or crowd out
+   * the document entirely. Zero means "not customised": the panel then
+   * follows the clamp() default from app.css.
+   */
+  context: number
 }
 
 /**
@@ -95,6 +103,8 @@ export function defaultWidths(viewportWidth: number): ColumnWidths {
     {
       nav: Math.round(viewportWidth * NAV_FRACTION),
       contents: Math.round(viewportWidth * CONTENTS_FRACTION),
+      // Zero: not customised, so the panel follows the CSS clamp() default.
+      context: 0,
     },
     viewportWidth,
   )
@@ -122,7 +132,13 @@ function readStored(): StoredLayout | null {
     // layout on every load.
     if (!Number.isFinite(parsed?.nav) || !Number.isFinite(parsed?.contents)) return null
     return {
-      widths: { nav: parsed.nav, contents: parsed.contents },
+      widths: {
+        nav: parsed.nav,
+        contents: parsed.contents,
+        // v4 added the context width; older stores have none, and 0 means
+        // "follow the CSS clamp() default" rather than a literal zero.
+        context: Number.isFinite(parsed?.context) ? parsed.context : 0,
+      },
       customised: parsed.customised === true,
     }
   } catch {
@@ -147,28 +163,33 @@ export function clampWidths(widths: ColumnWidths, viewportWidth: number): Column
   )
   const nav = Math.max(MIN_NAV, Math.round(widths.nav))
   const contents = Math.max(MIN_CONTENTS, Math.round(widths.contents))
-  if (nav + contents <= ceiling) return { nav, contents }
+  // The context panel: 0 means "not customised" and keeps the CSS clamp()
+  // default; any explicit width is held between the chat's readable floor and
+  // the ceiling that stops it crowding the document.
+  const context = widths.context <= 0 ? 0 : Math.min(CONTEXT_MAX, Math.max(CONTEXT_MIN, Math.round(widths.context)))
+  if (nav + contents <= ceiling) return { nav, contents, context }
 
   const excess = nav + contents - ceiling
   // Shrink the navigation first: it is the column with the least to lose, and
   // the contents list benefits from more room the longer it gets.
   const navAfter = Math.max(MIN_NAV, nav - excess)
-  if (navAfter + contents <= ceiling) return { nav: navAfter, contents }
+  if (navAfter + contents <= ceiling) return { nav: navAfter, contents, context }
   // The contents column cannot give back the rest, so take it from there.
   const contentsAfter = Math.max(MIN_CONTENTS, contents - excess)
-  if (nav + contentsAfter <= ceiling) return { nav, contents: contentsAfter }
+  if (nav + contentsAfter <= ceiling) return { nav, contents: contentsAfter, context }
   // Both are at their minimum. `ceiling` is at least MIN_NAV + MIN_CONTENTS,
   // so this is only reachable on a very narrow window.
-  return { nav: MIN_NAV, contents: Math.max(MIN_CONTENTS, ceiling - MIN_NAV) }
+  return { nav: MIN_NAV, contents: Math.max(MIN_CONTENTS, ceiling - MIN_NAV), context }
 }
 
-type Handle = 'nav' | 'contents'
+type Handle = 'nav' | 'contents' | 'context'
 
 interface DragState {
   handle: Handle
   startX: number
   startNav: number
   startContents: number
+  startContext: number
 }
 
 /**
@@ -235,10 +256,14 @@ export function useColumnResizers() {
       const d = drag.current
       if (!d) return
       const delta = e.clientX - d.startX
+      // Dragging the context divider left makes the panel wider, so the
+      // delta's sign flips relative to the two left-side handles.
       const proposed =
         d.handle === 'nav'
-          ? { nav: d.startNav + delta, contents: d.startContents }
-          : { nav: d.startNav, contents: d.startContents + delta }
+          ? { nav: d.startNav + delta, contents: d.startContents, context: d.startContext }
+          : d.handle === 'contents'
+            ? { nav: d.startNav, contents: d.startContents + delta, context: d.startContext }
+            : { nav: d.startNav, contents: d.startContents, context: d.startContext - delta }
       setChosen(clampWidths(proposed, window.innerWidth))
     }
     const end = () => {
@@ -263,17 +288,21 @@ export function useColumnResizers() {
       if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
-      drag.current = { handle, startX: e.clientX, startNav: widths.nav, startContents: widths.contents }
+      drag.current = { handle, startX: e.clientX, startNav: widths.nav, startContents: widths.contents, startContext: widths.context }
       document.body.classList.add('is-col-resizing')
     },
-    [widths.nav, widths.contents],
+    [widths.nav, widths.contents, widths.context],
   )
 
   const nudge = useCallback(
     (handle: Handle, delta: number) =>
       setChosen((w) =>
         clampWidths(
-          handle === 'nav' ? { ...w, nav: w.nav + delta } : { ...w, contents: w.contents + delta },
+          handle === 'nav'
+            ? { ...w, nav: w.nav + delta }
+            : handle === 'contents'
+              ? { ...w, contents: w.contents + delta }
+              : { ...w, context: (w.context || contextWidth(window.innerWidth)) - delta },
           window.innerWidth,
         ),
       ),
@@ -297,7 +326,7 @@ export function useColumnResizers() {
 
 interface ResizerProps {
   /** Which column grows or shrinks. */
-  side: 'nav' | 'contents'
+  side: 'nav' | 'contents' | 'context'
   /** Distance from the layout's left edge to this divider, in pixels. */
   width: number
   onPointerDown: (e: ReactPointerEvent) => void
@@ -317,7 +346,12 @@ const NUDGE_COARSE = 48
  * alone would make the layout unreachable without a mouse.
  */
 export function ColumnResizer({ side, width, onPointerDown, onNudge, onReset }: ResizerProps) {
-  const label = side === 'nav' ? 'Resize navigation column' : 'Resize contents column'
+  const label =
+    side === 'nav'
+      ? 'Resize navigation column'
+      : side === 'contents'
+        ? 'Resize contents column'
+        : 'Resize context panel'
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
