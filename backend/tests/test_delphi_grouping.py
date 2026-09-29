@@ -50,8 +50,8 @@ def _cluster_response(groups: list[dict]) -> LLMResponse:
     return LLMResponse(content=json.dumps({"groups": groups}))
 
 
-def _draft(name: str, paths: list[str], why: str = WHY) -> GroupDraft:
-    return GroupDraft(name=name, paths=paths, why=why)
+def _draft(name: str, paths: list[str], why: str = WHY, area: str = "") -> GroupDraft:
+    return GroupDraft(name=name, paths=paths, why=why, area=area)
 
 
 def _doc_repo_id(workspace: dict) -> int:
@@ -166,6 +166,48 @@ class TestParsing:
     def test_nonsense_is_not_an_error(self) -> None:
         for value in (None, 42, "groups", [object()], [{"paths": "notes.md"}]):
             assert isinstance(parse_group_drafts(value, PATHS), list)
+
+    def test_an_area_is_kept_alongside_the_group(self) -> None:
+        drafts = parse_group_drafts(
+            [
+                {
+                    "name": "Scratch notes",
+                    "paths": ["notes.md", "README.md"],
+                    "why": WHY,
+                    "area": "Architecture",
+                }
+            ],
+            PATHS,
+        )
+
+        assert drafts[0].area == "Architecture"
+
+    def test_no_area_is_a_real_answer(self) -> None:
+        """A cross-cutting group with no stable home is not the same as a
+        model that forgot the field."""
+        drafts = parse_group_drafts(
+            [{"name": "Scratch notes", "paths": ["notes.md", "README.md"], "why": WHY}],
+            PATHS,
+        )
+
+        assert drafts[0].area == ""
+
+    def test_a_group_cannot_be_its_own_area(self) -> None:
+        """A model proposing the same name for both is treated as no area at
+        all, rather than a group whose parent is itself."""
+        drafts = parse_group_drafts(
+            [
+                {
+                    "name": "Scratch notes",
+                    "paths": ["notes.md", "README.md"],
+                    "why": WHY,
+                    "area": "Scratch Notes",
+                }
+            ],
+            PATHS,
+        )
+
+        assert drafts[0].area == ""
 
 
 # ---------------------------------------------------------------------------
@@ -431,5 +473,107 @@ def test_a_document_the_reader_took_over_is_not_moved_back(
     assert proposals[0].left_alone == ["notes.md"]
     assert proposals[0].placed == ["README.md"]
 
+
+# ---------------------------------------------------------------------------
+# Areas: the stable top level a topic can belong under
+# ---------------------------------------------------------------------------
+
+
+def test_a_new_area_is_created_and_the_topic_belongs_under_it(
+    session: Session, workspace: dict
+) -> None:
+    repo = _doc_repo_id(workspace)
+
+    propose_groups(
+        session,
+        workspace["id"],
+        repo,
+        [_draft("Geheugenbeleid", ["notes.md", "README.md"], area="Architectuur")],
+    )
+
+    groups = list_groups(session, workspace["id"])
+    area = next(g for g in groups if g.name == "Architectuur")
+    topic = next(g for g in groups if g.name == "Geheugenbeleid")
+    assert area.source == "ai"
+    # A new area is a bigger claim than a new topic: it starts unreviewed, the
+    # same as any other Delphi group, so the board can ask before it counts.
+    assert area.reviewed is False
+    assert area.parent_group_id is None
+    assert topic.parent_group_id == area.id
+
+
+def test_a_second_pass_reuses_the_same_area(session: Session, workspace: dict) -> None:
+    repo = _doc_repo_id(workspace)
+    draft = _draft("Geheugenbeleid", ["notes.md", "README.md"], area="Architectuur")
+
+    propose_groups(session, workspace["id"], repo, [draft])
+    propose_groups(session, workspace["id"], repo, [draft])
+
+    names = [g.name for g in list_groups(session, workspace["id"])]
+    assert names.count("Architectuur") == 1
+
+
+def test_an_existing_area_the_reader_made_is_used_as_is(
+    session: Session, workspace: dict
+) -> None:
+    """An area the reader already set up (by hand, or accepted earlier) is
+    reused untouched -- it does not get re-proposed or re-reviewed."""
+    from app.services.filing import set_group_folder
+
+    repo = _doc_repo_id(workspace)
+    area = create_group(session, workspace["id"], "Architectuur")
+    set_group_folder(session, workspace["id"], area.id, "Architectuur")
+
+    propose_groups(
+        session,
+        workspace["id"],
+        repo,
+        [_draft("Geheugenbeleid", ["notes.md", "README.md"], area="Architectuur")],
+    )
+
+    groups = list_groups(session, workspace["id"])
+    assert [g for g in groups if g.name == "Architectuur"][0].reviewed is True
+    topic = next(g for g in groups if g.name == "Geheugenbeleid")
+    assert topic.parent_group_id == area.id
+
+
+def test_a_topics_own_area_choice_is_not_overridden(
+    session: Session, workspace: dict
+) -> None:
+    """The reader's arrangement wins: a topic already under one area is left
+    there even if a later pass proposes a different one."""
+    repo = _doc_repo_id(workspace)
+    propose_groups(
+        session,
+        workspace["id"],
+        repo,
+        [_draft("Geheugenbeleid", ["notes.md"], area="Architectuur")],
+    )
+    first_area = next(
+        g for g in list_groups(session, workspace["id"]) if g.name == "Architectuur"
+    )
+
+    propose_groups(
+        session,
+        workspace["id"],
+        repo,
+        [_draft("Geheugenbeleid", ["notes.md", "README.md"], area="Product")],
+    )
+
+    topic = next(
+        g for g in list_groups(session, workspace["id"]) if g.name == "Geheugenbeleid"
+    )
+    assert topic.parent_group_id == first_area.id
+
+
+def test_no_area_leaves_the_topic_unaffiliated(session: Session, workspace: dict) -> None:
+    repo = _doc_repo_id(workspace)
+
+    propose_groups(
+        session, workspace["id"], repo, [_draft("Scratch", ["notes.md", "README.md"])]
+    )
+
+    topic = next(g for g in list_groups(session, workspace["id"]) if g.name == "Scratch")
+    assert topic.parent_group_id is None
 
 

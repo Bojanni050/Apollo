@@ -16,6 +16,7 @@ routes and asserts there is nothing here that can move or remove a document.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -27,7 +28,7 @@ from app.api.deps import (
 from app.db import get_db
 from app.llm import get_provider
 from app.llm.base import LLMError, LLMNotConfigured
-from app.models import DocSignal
+from app.models import DocSignal, Group
 from app.schemas import (
     AnalyseOut,
     AnalyseRequest,
@@ -124,11 +125,24 @@ def analyze_collection(
     # is a second request, and it is allowed to fail on its own: the findings are
     # already recorded and are worth the reader's attention whether or not a
     # group could be proposed for them.
+    #
+    # The workspace's existing areas (hoofdgebieden) are named for the prompt
+    # so Delphi prefers one of them over inventing a new one -- an area is a
+    # group with a folder and no parent of its own.
+    areas = list(
+        db.scalars(
+            select(Group.name).where(
+                Group.workspace_id == workspace_id,
+                Group.folder.is_not(None),
+                Group.parent_group_id.is_(None),
+            )
+        ).all()
+    )
     proposals = propose_groups(
         db,
         workspace_id,
         repo.id,
-        propose_clusters(provider, result.signals, result.paths),
+        propose_clusters(provider, result.signals, result.paths, areas),
     )
 
     return AnalyseOut(

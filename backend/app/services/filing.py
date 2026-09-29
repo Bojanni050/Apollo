@@ -34,7 +34,7 @@ from app.models import (
     Repository,
 )
 from app.services.indexing import document_chunk_identifier
-from app.services.placement import PlacementError
+from app.services.placement import PlacementError, resolved_folder
 from app.services.proposals import ProposalError, plan_move
 
 #: The folder the archive stands for. One name, fixed, because "the archive" is
@@ -113,12 +113,18 @@ def plan_filing(
 ) -> ChangeProposal | None:
     """Propose that a document move into this group's folder. Or propose nothing.
 
+    "This group's folder" is :func:`~app.services.placement.resolved_folder`,
+    not the raw column: a topic under an area files into the area's folder
+    plus its own (``Architectuur/Geheugenbeleid``), so the composition has to
+    happen here too, not only where the board displays it.
+
     Returns None in every case where proposing would be noise or wrong: the group
     has no folder, the document already sits in it, or an identical proposal is
     still waiting. The caller reads None as "nothing to review", not as a
     failure -- the placement itself has already succeeded by then.
     """
-    if not group.folder:
+    folder = resolved_folder(group)
+    if not folder:
         return None
 
     source = (file_path or "").strip().replace("\\", "/")
@@ -127,7 +133,7 @@ def plan_filing(
 
     # Already filed in this folder: putting a document in the group it already
     # belongs to is the same as leaving it there.
-    if source.startswith(f"{group.folder}/"):
+    if source.startswith(f"{folder}/"):
         return None
 
     repo = db.scalar(
@@ -142,7 +148,7 @@ def plan_filing(
 
     # One pending proposal per (document, target), so a second drag cannot leave
     # the reader choosing between two cards that propose the same move.
-    wanted_target = f"{group.folder}/{source.rsplit('/', 1)[-1]}"
+    wanted_target = f"{folder}/{source.rsplit('/', 1)[-1]}"
     for proposal in db.scalars(
         select(ChangeProposal).where(
             ChangeProposal.workspace_id == workspace_id,
@@ -163,7 +169,7 @@ def plan_filing(
         change = plan_move(
             resolve_repo_root(repo),
             source,
-            group.folder,
+            folder,
             # The folder is established by accepting, not before: a group nobody
             # has filed anything into has no directory yet, and that is correct.
             allow_missing_dir=True,
@@ -180,7 +186,7 @@ def plan_filing(
         title=f"File into {group.name}: {source.rsplit('/', 1)[-1]}",
         reason=(
             f"You put this document in the group {group.name!r}, which lives in "
-            f"the folder {group.folder!r}. Accepting moves the file there; "
+            f"the folder {folder!r}. Accepting moves the file there; "
             f"declining leaves it exactly where it is."
         ),
         changes=[

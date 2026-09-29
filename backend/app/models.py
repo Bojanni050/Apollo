@@ -348,8 +348,25 @@ class Group(TimestampMixin, Base):
     reviewed: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default=text("true"), nullable=False
     )
+    #: The area (hoofdgebied) this group's documents belong under, or NULL for
+    #: a group that is itself an area (or a plain, unaffiliated view -- the
+    #: two look the same in this column and are told apart by whether `folder`
+    #: is set). One level only: a group that is someone's parent here is never
+    #: itself given a parent, so "area" stays a flat, stable set rather than a
+    #: tree Delphi could grow arbitrarily deep.
+    #:
+    #: SET NULL on delete, not CASCADE: removing an area ungroups its topics
+    #: back to plain views, the same as any other group deletion never touches
+    #: the documents inside it.
+    parent_group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_groups.id", ondelete="SET NULL"), index=True
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="groups")
+    parent: Mapped["Group | None"] = relationship(
+        remote_side=[id], back_populates="children"
+    )
+    children: Mapped[list["Group"]] = relationship(back_populates="parent")
     placements: Mapped[list["GroupPlacement"]] = relationship(
         back_populates="group", cascade="all, delete-orphan", order_by="GroupPlacement.id"
     )

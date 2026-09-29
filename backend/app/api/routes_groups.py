@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_workspace
 from app.db import get_db
 from app.schemas import (
+    ApplyAreaTemplateRequest,
     GroupCreate,
     GroupDocumentOut,
     GroupMoveOut,
@@ -26,6 +27,7 @@ from app.schemas import (
     GroupPlacementRequest,
     GroupUpdate,
 )
+from app.services.area_templates import UnknownTemplateError, apply_area_template
 from app.services.filing import plan_filing, set_group_folder
 from app.services.placement import (
     PlacementError,
@@ -42,6 +44,7 @@ from app.services.placement import (
     place_document,
     remove_document,
     rename_group,
+    set_group_parent,
 )
 
 router = APIRouter(prefix="/workspaces/{workspace_id}", tags=["groups"])
@@ -69,6 +72,7 @@ def _group_out(group, document_count: int) -> GroupOut:
         document_count=document_count,
         folder=group.folder,
         reviewed=group.reviewed,
+        parent_group_id=group.parent_group_id,
     )
 
 
@@ -99,6 +103,7 @@ def create(
             source=payload.source,
             is_archive=payload.is_archive,
             layout=payload.layout,
+            parent_group_id=payload.parent_group_id,
         )
         if payload.folder is not None:
             # Through the one function that validates it, so a group created with
@@ -107,6 +112,27 @@ def create(
     except PlacementError as exc:
         raise _fail(exc) from exc
     return _group_out(group, 0)
+
+
+@router.post("/groups/apply-template", response_model=list[GroupOut])
+def apply_template(
+    workspace_id: int, payload: ApplyAreaTemplateRequest, db: Session = Depends(get_db)
+) -> list[GroupOut]:
+    """Create the areas (hoofdgebieden) a starting template names.
+
+    Idempotent: an area the template names that already exists (by name) is
+    left as it is and simply reported alongside the ones just created, so
+    applying a template twice, or over areas made by hand under the same
+    names, still ends with all of them present.
+    """
+    get_workspace(db, workspace_id)
+    try:
+        areas = apply_area_template(db, workspace_id, payload.template)
+    except UnknownTemplateError as exc:
+        raise _fail(exc) from exc
+    return [
+        _group_out(area, len(group_documents(db, workspace_id, area.id))) for area in areas
+    ]
 
 
 @router.get("/groups/{group_id}/documents", response_model=list[GroupDocumentOut])
@@ -154,6 +180,8 @@ def update(
         # undo a folder the reader had set up.
         if "folder" in payload.model_fields_set:
             group = set_group_folder(db, workspace_id, group_id, payload.folder)
+        if "parent_group_id" in payload.model_fields_set:
+            group = set_group_parent(db, workspace_id, group_id, payload.parent_group_id)
     except PlacementError as exc:
         raise _fail(exc) from exc
     return _group_out(group, len(group_documents(db, workspace_id, group_id)))

@@ -60,6 +60,9 @@ class GroupView:
     #: Whether the reader has accepted this group. False only for a Delphi
     #: proposal nobody has acted on yet.
     reviewed: bool
+    #: The area (hoofdgebied) this group belongs under, or None for a group
+    #: that is itself an area or an unaffiliated view.
+    parent_group_id: int | None
 
 
 #: The name of the single archive group. One, not several: "the archive" is a
@@ -133,9 +136,30 @@ def list_groups(db: Session, workspace_id: int) -> list[GroupView]:
             document_count=counts.get(g.id, 0),
             folder=g.folder,
             reviewed=g.reviewed,
+            parent_group_id=g.parent_group_id,
         )
         for g in groups
     ]
+
+
+def _assert_valid_parent(db: Session, workspace_id: int, parent_group_id: int) -> Group:
+    """The group a topic wants as its area, or a reason it cannot be one.
+
+    One level only: an area is never itself given a parent, so a chain of
+    "topic under topic under topic" -- which Delphi could otherwise grow
+    arbitrarily deep -- is refused at the one place both creation and rename
+    go through, rather than relied on to just not happen.
+    """
+    parent = db.scalar(
+        select(Group).where(Group.id == parent_group_id, Group.workspace_id == workspace_id)
+    )
+    if parent is None:
+        raise PlacementError("The area for this group was not found.")
+    if parent.parent_group_id is not None:
+        raise PlacementError(
+            f"{parent.name!r} is itself a topic under an area, and cannot also be one."
+        )
+    return parent
 
 
 def create_group(
@@ -147,6 +171,7 @@ def create_group(
     source: str = "user",
     is_archive: bool = False,
     layout: str = "grid",
+    parent_group_id: int | None = None,
 ) -> Group:
     """Create a group. Its position defaults to the end of its section.
 
@@ -164,6 +189,11 @@ def create_group(
     )
     if existing is not None:
         raise PlacementError(f"A group named {clean!r} already exists.")
+
+    if parent_group_id is not None:
+        if is_archive:
+            raise PlacementError("The archive cannot belong under an area.")
+        _assert_valid_parent(db, workspace_id, parent_group_id)
 
     # Archiving is a single destination, so creating a second one is refused
     # rather than silently merged: two archives would make "restore" ambiguous.
@@ -193,6 +223,7 @@ def create_group(
         # made the decision by making it. Only a Delphi proposal starts
         # unreviewed, so the board can ask "accept or reject" about it.
         reviewed=(source != "ai"),
+        parent_group_id=parent_group_id,
     )
     if is_archive:
         # Set here rather than only in ``get_or_create_archive`` so that both
@@ -253,6 +284,53 @@ def rename_group(
     return group
 
 
+def set_group_parent(
+    db: Session, workspace_id: int, group_id: int, parent_group_id: int | None
+) -> Group:
+    """Put a group under an area, or take it out from under one again.
+
+    A separate function from :func:`rename_group`, for the same reason
+    :func:`~app.services.filing.set_group_folder` is: "not mentioned" and
+    "explicitly cleared" are different requests, and folding both into one
+    optional parameter defaulting to None would collapse them into one.
+    """
+    group = get_group(db, workspace_id, group_id)
+    if parent_group_id is None:
+        group.parent_group_id = None
+    else:
+        if group.is_archive:
+            raise PlacementError("The archive cannot belong under an area.")
+        if parent_group_id == group_id:
+            raise PlacementError("A group cannot be its own area.")
+        if group.children:
+            raise PlacementError(
+                f"{group.name!r} already has topics under it, so it cannot also "
+                "become one itself."
+            )
+        _assert_valid_parent(db, workspace_id, parent_group_id)
+        group.parent_group_id = parent_group_id
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+def resolved_folder(group: Group) -> str | None:
+    """Where this group's documents actually belong, area and all.
+
+    A topic under an area composes its own folder onto its area's
+    (``Architectuur/Geheugenbeleid``); a topic with no folder of its own
+    contributes nothing and files straight into the area
+    (``Architectuur``); a group with no area is unaffected. Reads
+    ``group.parent`` -- a relationship, not a query -- so callers that
+    already have the ORM object pay nothing extra for this.
+    """
+    if group.parent is not None and group.parent.folder:
+        if group.folder:
+            return f"{group.parent.folder}/{group.folder}"
+        return group.parent.folder
+    return group.folder
+
+
 def accept_group(db: Session, workspace_id: int, group_id: int) -> Group:
     """Mark a Delphi proposal as kept.
 
@@ -276,8 +354,16 @@ def delete_group(db: Session, workspace_id: int, group_id: int) -> None:
     which is why this is a hard guarantee rather than a convention: the
     repository's files are never enumerated here, so there is nothing to delete
     even if the caller got it wrong.
+
+    An area's topics are detached, not deleted with it: the column's
+    ``ON DELETE SET NULL`` is real, but SQLite (the local/dev database) does
+    not enforce foreign keys by default, so relying on it there would make
+    this behave differently in development than in the Postgres this ships
+    on. Doing it here in Python makes both agree.
     """
     group = get_group(db, workspace_id, group_id)
+    for child in group.children:
+        child.parent_group_id = None
     db.delete(group)
     db.commit()
 
@@ -499,6 +585,7 @@ __all__ = [
     "ARCHIVE_GROUP_NAME",
     "GroupView",
     "PlacementError",
+    "accept_group",
     "create_group",
     "delete_group",
     "get_group",
@@ -510,4 +597,6 @@ __all__ = [
     "place_document",
     "remove_document",
     "rename_group",
+    "resolved_folder",
+    "set_group_parent",
 ]

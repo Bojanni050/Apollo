@@ -435,6 +435,9 @@ class GroupOut(BaseModel):
     #: False only for a Delphi proposal the reader has not accepted or rejected
     #: yet. Always true for a group the reader made themselves.
     reviewed: bool = True
+    #: The area (hoofdgebied) this group belongs under, or None for a group
+    #: that is itself an area or an unaffiliated view.
+    parent_group_id: int | None = None
 
 
 class GroupCreate(BaseModel):
@@ -449,6 +452,10 @@ class GroupCreate(BaseModel):
     # No folder by default: a new group is a view, and giving it a folder would
     # make the very first document dropped into it propose a move.
     folder: str | None = Field(default=None, max_length=200)
+    #: The area to create this group under, if any. Must already exist and be
+    #: an area itself (no folder-under-a-folder chains); enforced where the
+    #: group is actually created, not here.
+    parent_group_id: int | None = None
 
 
 class GroupUpdate(BaseModel):
@@ -459,7 +466,8 @@ class GroupUpdate(BaseModel):
     "you did not say" and "remove the folder" are different intentions, and
     guessing between them would either lose a folder the reader set up or keep
     one they just removed. That needs ``model_fields_set``, which is why the
-    route below checks it rather than reading the attribute.
+    route below checks it rather than reading the attribute. ``parent_group_id``
+    follows the same rule, for the same reason.
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -467,6 +475,15 @@ class GroupUpdate(BaseModel):
     layout: str | None = None
     #: Absent leaves the folder alone; an explicit null clears it.
     folder: str | None = Field(default=None, max_length=200)
+    #: Absent leaves the area alone; an explicit null takes the group out from
+    #: under it.
+    parent_group_id: int | None = None
+
+
+class ApplyAreaTemplateRequest(BaseModel):
+    """Which starting set of areas (hoofdgebieden) to create."""
+
+    template: str
 
 
 class GroupMoveOut(BaseModel):

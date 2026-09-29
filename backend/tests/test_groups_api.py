@@ -447,3 +447,62 @@ def test_deleting_a_group_leaves_the_file(
     assert _before(doc_repo) == before
     assert (doc_repo / "notes.md").is_file()
     assert client.get(base).json() == []
+
+
+# ---------------------------------------------------------------------------
+# Areas and templates
+# ---------------------------------------------------------------------------
+
+
+def test_a_group_can_be_created_under_an_area(client: TestClient, workspace: dict) -> None:
+    base = f"/api/workspaces/{workspace['id']}/groups"
+    area_id = client.post(base, json={"name": "Architectuur"}).json()["id"]
+
+    topic = client.post(
+        base, json={"name": "Geheugenbeleid", "parent_group_id": area_id}
+    )
+
+    assert topic.status_code == 201
+    assert topic.json()["parent_group_id"] == area_id
+
+
+def test_applying_a_template_creates_its_areas(client: TestClient, workspace: dict) -> None:
+    response = client.post(
+        f"/api/workspaces/{workspace['id']}/groups/apply-template",
+        json={"template": "software"},
+    )
+
+    assert response.status_code == 200
+    names = {area["name"] for area in response.json()}
+    assert names == {"Architectuur", "Product", "Besluiten", "Onderzoek"}
+    assert all(area["reviewed"] for area in response.json())
+    assert all(area["folder"] == area["name"] for area in response.json())
+
+    listed = {g["name"] for g in client.get(f"/api/workspaces/{workspace['id']}/groups").json()}
+    assert names <= listed
+
+
+def test_applying_a_template_twice_does_not_duplicate_areas(
+    client: TestClient, workspace: dict
+) -> None:
+    base = f"/api/workspaces/{workspace['id']}/groups/apply-template"
+    client.post(base, json={"template": "research"})
+
+    client.post(base, json={"template": "research"})
+
+    names = [
+        g["name"]
+        for g in client.get(f"/api/workspaces/{workspace['id']}/groups").json()
+        if g["name"] in ("Literatuur", "Methode", "Resultaten", "Besluiten")
+    ]
+    assert sorted(names) == ["Besluiten", "Literatuur", "Methode", "Resultaten"]
+
+
+def test_an_unknown_template_is_refused(client: TestClient, workspace: dict) -> None:
+    response = client.post(
+        f"/api/workspaces/{workspace['id']}/groups/apply-template",
+        json={"template": "nonexistent"},
+    )
+
+    assert response.status_code == 400
+    assert "Unknown template" in response.json()["detail"]

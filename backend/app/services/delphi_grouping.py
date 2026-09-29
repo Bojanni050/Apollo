@@ -65,6 +65,11 @@ class GroupDraft:
     #: The evidence, in one or two sentences, pointing at the findings it came
     #: from. Required, for the same reason a signal needs one.
     why: str
+    #: The area (hoofdgebied) this topic belongs under -- an existing one by
+    #: name, or a new one the model proposes when nothing existing fits. Empty
+    #: means no area: the topic stays an unaffiliated view, same as before
+    #: areas existed at all.
+    area: str = ""
 
 
 @dataclass
@@ -137,11 +142,19 @@ def parse_group_drafts(raw: object, known_paths: set[str]) -> list[GroupDraft]:
         why = str(entry.get("why") or entry.get("reason") or "").strip()[:_MAX_WHY]
         if not why:
             continue
+        # Same rules as the group's own name -- an area name is a group name,
+        # just a different group. Empty is a real answer (no area), so it is
+        # kept rather than treated the same as an invalid one.
+        area = _clean_name(entry.get("area"))
+        if area and area.casefold() == name.casefold():
+            # A topic cannot be its own area; treating this as "no area" is
+            # safer than silently making one group its own parent.
+            area = ""
         fingerprint = (name, tuple(sorted(paths)))
         if fingerprint in seen:
             continue
         seen.add(fingerprint)
-        drafts.append(GroupDraft(name=name, paths=paths, why=why))
+        drafts.append(GroupDraft(name=name, paths=paths, why=why, area=area))
     return drafts
 
 
@@ -150,7 +163,26 @@ def parse_group_drafts(raw: object, known_paths: set[str]) -> list[GroupDraft]:
 # ---------------------------------------------------------------------------
 
 
-def _cluster_system_prompt() -> str:
+def _cluster_system_prompt(areas: list[str]) -> str:
+    if areas:
+        area_rule = (
+            "- Every group also gets an area: the stable top-level place it belongs "
+            "under on disk. Prefer one of the existing areas listed below when it "
+            "genuinely fits. Only name a new area when nothing existing does -- a "
+            "new area is a bigger claim than a new topic, and the reader reviews it "
+            "before it takes effect. A group may also have no area at all (\"area\": "
+            '"") when it is a cross-cutting view that does not belong under any one '
+            "of them.\n"
+            f"Existing areas: {json.dumps(areas, ensure_ascii=False)}.\n"
+        )
+    else:
+        area_rule = (
+            "- Every group also gets an area: the stable top-level place it belongs "
+            "under on disk (a subject far broader than the group itself -- think "
+            '"Architecture" or "Product", not the group\'s own name). There are no '
+            "areas yet, so name one only when a group clearly calls for a stable "
+            'home; otherwise leave it empty ("area": "").\n'
+        )
     return (
         "You group the documents of a collection that a reader would want to look "
         "at together. You are given the findings from a reading of that "
@@ -166,10 +198,12 @@ def _cluster_system_prompt() -> str:
         "anything.\n"
         "- A group needs a why of one or two sentences pointing at the findings it "
         "came from. A group nobody can check is worse than no group.\n"
+        f"{area_rule}"
         "- Do not force a document into a group. A document the findings do not "
         "connect to anything belongs in no group, and that is a normal answer.\n"
         'Answer with JSON only, shaped as {"groups": [{"name": "...", '
-        '"paths": ["..."], "why": "..."}]}. No markdown fences, no commentary.'
+        '"paths": ["..."], "why": "...", "area": "..."}]}. No markdown fences, '
+        "no commentary."
     )
 
 
@@ -219,8 +253,13 @@ def propose_clusters(
     provider: LLMProvider,
     findings: list[SignalDraft],
     known_paths: list[str],
+    areas: list[str] | None = None,
 ) -> list[GroupDraft]:
     """Group the documents the findings connect.
+
+    ``areas`` names the workspace's existing top-level areas, so the model can
+    place a topic under one of them instead of always leaving it unaffiliated
+    or inventing a new one for something that already has a home.
 
     Returns an empty list rather than raising when the model is unreachable or
     answers with something unusable: the findings are already recorded and are
@@ -237,7 +276,7 @@ def propose_clusters(
     try:
         response = provider.chat(
             [
-                {"role": "system", "content": _cluster_system_prompt()},
+                {"role": "system", "content": _cluster_system_prompt(areas or [])},
                 {
                     "role": "user",
                     "content": _cluster_user_prompt(findings, known_paths),
@@ -273,6 +312,36 @@ def _reader_placed(db: Session, workspace_id: int, repository_id: int) -> set[st
     )
 
 
+def _ensure_area(db: Session, workspace_id: int, name: str) -> Group | None:
+    """The area with this name, proposed as Delphi's if it does not exist yet.
+
+    None rather than an error when the name is already taken by something that
+    cannot be an area (a topic that already has its own area): a mismatch here
+    is a reason to leave the topic unaffiliated, not to fail the whole pass
+    over one bad area name.
+
+    An area this creates starts unreviewed, the same as any other Delphi
+    group (see ``create_group``) -- a new top-level place on disk is a bigger
+    claim than a new topic, and the reader sees it on the board as exactly
+    that before it takes effect.
+    """
+    existing = db.scalar(
+        select(Group).where(Group.workspace_id == workspace_id, Group.name == name)
+    )
+    if existing is not None:
+        return existing if existing.parent_group_id is None else None
+    try:
+        area = create_group(db, workspace_id, name, source="ai")
+    except PlacementError:
+        return None
+    from app.services.filing import set_group_folder  # local: avoids an import cycle
+
+    try:
+        return set_group_folder(db, workspace_id, area.id, name)
+    except PlacementError:
+        return area
+
+
 def _ensure_group(db: Session, workspace_id: int, draft: GroupDraft) -> Group:
     """The group with this name, created as Delphi's if it does not exist yet.
 
@@ -285,13 +354,24 @@ def _ensure_group(db: Session, workspace_id: int, draft: GroupDraft) -> Group:
     The description is not rewritten either -- the reader may have edited it, and
     a reason that stops being theirs because a second pass ran would be worse
     than a slightly stale one.
+
+    The area is resolved the same cautious way: attached only to a group that
+    has none yet. A topic the reader (or an earlier pass, since corrected) put
+    under a different area keeps that area -- the reader's arrangement wins,
+    same as it does for membership.
     """
+    area = _ensure_area(db, workspace_id, draft.area) if draft.area else None
+
     existing = db.scalar(
         select(Group).where(
             Group.workspace_id == workspace_id, Group.name == draft.name
         )
     )
     if existing is not None:
+        if area is not None and existing.parent_group_id is None and existing.id != area.id:
+            existing.parent_group_id = area.id
+            db.commit()
+            db.refresh(existing)
         return existing
     return create_group(
         db,
@@ -299,6 +379,7 @@ def _ensure_group(db: Session, workspace_id: int, draft: GroupDraft) -> Group:
         draft.name,
         description=draft.why,
         source="ai",
+        parent_group_id=area.id if area is not None else None,
         layout="grid",
     )
 

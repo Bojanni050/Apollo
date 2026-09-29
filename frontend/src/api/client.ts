@@ -430,6 +430,11 @@ export interface Group {
   folder: string | null
   /** False only for a Delphi proposal nobody has accepted or rejected yet. */
   reviewed: boolean
+  /**
+   * The area (hoofdgebied) this group belongs under, or null for a group
+   * that is itself an area (folder set, no parent) or an unaffiliated view.
+   */
+  parent_group_id: number | null
 }
 
 export interface GroupCreate {
@@ -440,7 +445,13 @@ export interface GroupCreate {
   layout?: GroupLayout
   /** Omitted leaves it a view; null is the same thing here. */
   folder?: string | null
+  /** The area to create this group under, if any. Must already be an area
+   *  itself (a group with a folder and no parent of its own). */
+  parent_group_id?: number | null
 }
+
+/** A starting set of areas (hoofdgebieden) a workspace can adopt. */
+export type AreaTemplate = 'software' | 'book' | 'research'
 
 export interface GroupDocument {
   /**
@@ -1000,6 +1011,13 @@ export const api = {
   /** Keep a group Delphi proposed. Marks it reviewed; nothing else changes. */
   acceptGroup: (workspaceId: number, groupId: number) =>
     request<Group>(`/workspaces/${workspaceId}/groups/${groupId}/accept`, { method: 'POST' }),
+  /** Create a starting set of areas (hoofdgebieden). Idempotent: an area the
+   *  template names that already exists is left as it is. */
+  applyAreaTemplate: (workspaceId: number, template: AreaTemplate) =>
+    request<Group[]>(`/workspaces/${workspaceId}/groups/apply-template`, {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    }),
   groupDocuments: (workspaceId: number, groupId: number) =>
     request<GroupDocument[]>(`/workspaces/${workspaceId}/groups/${groupId}/documents`),
   // The server records a placement made here as the reader's own; there is no

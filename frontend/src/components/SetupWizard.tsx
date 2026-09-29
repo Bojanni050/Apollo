@@ -38,7 +38,7 @@
  * the security boundary.
  */
 import { useState } from 'react'
-import { ApiError, api, type Workspace } from '../api/client'
+import { ApiError, api, type AreaTemplate, type Workspace } from '../api/client'
 import { FolderPickerModal } from './FolderPickerModal'
 import { InboxDropzone } from './InboxDropzone'
 
@@ -126,6 +126,29 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
   /** Apollo's own folder is a real choice, made through the same call, so the
    *  repository exists either way -- not a dismissal that leaves it missing. */
   const useDefaultFolder = () => void chooseWorkingFolder('')
+
+  // -- step 2, optional half: a starting structure ------------------------------
+  // The stable top level (hoofdgebieden) a workspace's groups live under. A
+  // template is nothing but a name for "create these few areas" -- picking one
+  // is the same act as creating them by hand later, just faster for a reader
+  // who already knows the shape of their project. Skippable, like everything
+  // else in this step: nothing here is required to finish.
+  const [applyingTemplate, setApplyingTemplate] = useState(false)
+  const [appliedTemplate, setAppliedTemplate] = useState<AreaTemplate | null>(null)
+
+  const applyTemplate = async (template: AreaTemplate) => {
+    if (!created) return
+    setApplyingTemplate(true)
+    setError(null)
+    try {
+      await api.applyAreaTemplate(created.id, template)
+      setAppliedTemplate(template)
+    } catch (err) {
+      message(err, 'That structure could not be applied.')
+    } finally {
+      setApplyingTemplate(false)
+    }
+  }
 
   // -- step 1: the workspace -------------------------------------------------
   if (step === 'workspace') {
@@ -270,6 +293,46 @@ export function SetupWizard({ onWorkspaceCreated }: Props) {
                 <label className="form-label">Your folder</label>
                 <p className="setup-picked">{workingPath}</p>
                 {workingWarning && <p className="hint">{workingWarning}</p>}
+              </div>
+
+              <div className="setup-optional">
+                <h3>Optional &mdash; a starting structure</h3>
+                <p className="faint">
+                  Give the workspace a few stable top-level areas to start
+                  from, or skip this and build them up yourself as you go.
+                </p>
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className={`btn${appliedTemplate === 'software' ? ' primary' : ''}`}
+                    disabled={applyingTemplate}
+                    onClick={() => void applyTemplate('software')}
+                  >
+                    Software project
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn${appliedTemplate === 'book' ? ' primary' : ''}`}
+                    disabled={applyingTemplate}
+                    onClick={() => void applyTemplate('book')}
+                  >
+                    Book
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn${appliedTemplate === 'research' ? ' primary' : ''}`}
+                    disabled={applyingTemplate}
+                    onClick={() => void applyTemplate('research')}
+                  >
+                    Research
+                  </button>
+                </div>
+                {appliedTemplate && (
+                  <p className="hint">
+                    Areas created. Delphi can still propose new ones later;
+                    you decide whether to keep them.
+                  </p>
+                )}
               </div>
 
               <div className="setup-optional">

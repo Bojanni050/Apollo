@@ -409,6 +409,14 @@ export function GroupsBoard({
           {groups.map((group) => {
             const docs = members[group.id] ?? []
             const isTarget = dragOverId === group.id
+            // An area is the stable top level: a folder of its own, and no
+            // area of its own above it. Everything else is either a topic
+            // (has one) or a plain, unaffiliated view (has neither).
+            const isArea = !group.is_archive && !!group.folder && group.parent_group_id === null
+            const area =
+              group.parent_group_id !== null
+                ? groups.find((g) => g.id === group.parent_group_id)
+                : null
             return (
               <section
                 key={group.id}
@@ -418,6 +426,7 @@ export function GroupsBoard({
                   isTarget ? 'group-card--droptarget' : '',
                   selectedGroupId === group.id ? 'group-card--selected' : '',
                   !group.reviewed ? 'group-card--pending' : '',
+                  isArea ? 'group-card--area' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -431,6 +440,7 @@ export function GroupsBoard({
               >
                 <header className="group-card-header">
                   <h3 className="group-card-name">{group.name}</h3>
+                  {isArea && <span className="group-card-area-badge">Area</span>}
                   <span className="group-card-count">
                     {docs.length} {docs.length === 1 ? 'document' : 'documents'}
                   </span>
@@ -515,6 +525,10 @@ export function GroupsBoard({
                   </div>
                 )}
 
+                {/* Which area this topic belongs under, when it has one. Not
+                    shown for an area itself -- an area has no area. */}
+                {area && <p className="group-card-area-tag">in {area.name}</p>}
+
                 {group.description && (
                   <p className="group-card-description">{group.description}</p>
                 )}
@@ -534,7 +548,7 @@ export function GroupsBoard({
                 {!group.reviewed && (
                   <div className="group-card-review">
                     <span className="group-card-review-note">
-                      Not reviewed yet
+                      {isArea ? 'New area, not reviewed yet' : 'Not reviewed yet'}
                     </span>
                     <div className="btn-row">
                       <button

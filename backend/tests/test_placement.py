@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models import Group, GroupPlacement
+from app.services.filing import set_group_folder
 from app.services.placement import (
     PlacementError,
     accept_group,
@@ -29,6 +30,8 @@ from app.services.placement import (
     place_document,
     remove_document,
     rename_group,
+    resolved_folder,
+    set_group_parent,
 )
 
 
@@ -365,6 +368,129 @@ def test_a_group_from_another_workspace_is_not_reachable(
 
     with pytest.raises(PlacementError, match="not found"):
         remove_document(session, other["id"], group.id, _doc_repo_id(workspace), "notes.md")
+
+
+# ---------------------------------------------------------------------------
+# Areas: the stable top level a topic can belong under
+# ---------------------------------------------------------------------------
+
+
+def test_a_topic_under_an_area_composes_its_folder(
+    session: Session, workspace: dict
+) -> None:
+    area = create_group(session, workspace["id"], "Architectuur")
+    area = set_group_folder(session, workspace["id"], area.id, "Architectuur")
+    topic = create_group(
+        session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id
+    )
+    topic = set_group_folder(session, workspace["id"], topic.id, "Geheugenbeleid")
+
+    assert resolved_folder(topic) == "Architectuur/Geheugenbeleid"
+
+
+def test_a_topic_under_an_area_with_no_folder_of_its_own_files_into_the_area(
+    session: Session, workspace: dict
+) -> None:
+    area = create_group(session, workspace["id"], "Architectuur")
+    area = set_group_folder(session, workspace["id"], area.id, "Architectuur")
+    topic = create_group(
+        session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id
+    )
+
+    assert resolved_folder(topic) == "Architectuur"
+
+
+def test_an_area_with_no_folder_yet_contributes_nothing(
+    session: Session, workspace: dict
+) -> None:
+    """An area is only a filing destination once it has a folder -- reusing an
+    area's name is not the same as it being one yet."""
+    area = create_group(session, workspace["id"], "Architectuur")
+    topic = create_group(
+        session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id
+    )
+    topic = set_group_folder(session, workspace["id"], topic.id, "Geheugenbeleid")
+
+    assert resolved_folder(topic) == "Geheugenbeleid"
+
+
+def test_a_group_with_no_area_is_unaffected(session: Session, workspace: dict) -> None:
+    group = create_group(session, workspace["id"], "Scratch")
+    group = set_group_folder(session, workspace["id"], group.id, "Scratch")
+
+    assert resolved_folder(group) == "Scratch"
+
+
+def test_an_area_cannot_itself_have_a_parent(session: Session, workspace: dict) -> None:
+    """One level only: a group that is someone's area is never itself given
+    one, so 'area' stays flat rather than a tree Delphi could grow deeper."""
+    area = create_group(session, workspace["id"], "Architectuur")
+    topic = create_group(
+        session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id
+    )
+
+    with pytest.raises(PlacementError, match="itself a topic"):
+        create_group(
+            session, workspace["id"], "Nog dieper", parent_group_id=topic.id
+        )
+
+
+def test_the_archive_cannot_belong_under_an_area(
+    session: Session, workspace: dict
+) -> None:
+    area = create_group(session, workspace["id"], "Architectuur")
+
+    with pytest.raises(PlacementError, match="archive"):
+        create_group(
+            session,
+            workspace["id"],
+            "Archief",
+            is_archive=True,
+            parent_group_id=area.id,
+        )
+
+
+def test_a_missing_area_is_refused(session: Session, workspace: dict) -> None:
+    with pytest.raises(PlacementError, match="not found"):
+        create_group(session, workspace["id"], "Geheugenbeleid", parent_group_id=999999)
+
+
+def test_set_group_parent_attaches_and_detaches(
+    session: Session, workspace: dict
+) -> None:
+    area = create_group(session, workspace["id"], "Architectuur")
+    topic = create_group(session, workspace["id"], "Geheugenbeleid")
+
+    attached = set_group_parent(session, workspace["id"], topic.id, area.id)
+    assert attached.parent_group_id == area.id
+
+    detached = set_group_parent(session, workspace["id"], topic.id, None)
+    assert detached.parent_group_id is None
+
+
+def test_a_group_with_its_own_topics_cannot_become_one(
+    session: Session, workspace: dict
+) -> None:
+    area = create_group(session, workspace["id"], "Architectuur")
+    create_group(session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id)
+    other = create_group(session, workspace["id"], "Product")
+
+    with pytest.raises(PlacementError, match="already has topics"):
+        set_group_parent(session, workspace["id"], area.id, other.id)
+
+
+def test_deleting_an_area_ungroups_its_topics(session: Session, workspace: dict) -> None:
+    """Removing an area is a group deletion like any other: it ungroups what
+    was inside it, never deletes anything."""
+    area = create_group(session, workspace["id"], "Architectuur")
+    topic = create_group(
+        session, workspace["id"], "Geheugenbeleid", parent_group_id=area.id
+    )
+
+    delete_group(session, workspace["id"], area.id)
+
+    session.refresh(topic)
+    assert topic.parent_group_id is None
 
 
 # ---------------------------------------------------------------------------

@@ -2096,6 +2096,32 @@ input:focus, textarea:focus, select:focus {
   background: transparent;
 }
 
+/* An area: the stable top level. A slightly heavier border than a plain
+   group, so the two kinds of card are tellable apart at a glance the same
+   way a folder-backed group already is from a view. */
+.group-card--area {
+  border-width: 2px;
+}
+
+.group-card-area-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.group-card-area-tag {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 .group-card-empty {
   margin: 0;
   font-size: 11.5px;
