@@ -1031,6 +1031,11 @@ export default function App() {
           {
             '--col-nav-width': `${columnWidths.nav}px`,
             '--col-contents-width': `${columnWidths.contents}px`,
+            // Zero means "not customised": the panel then keeps the CSS
+            // clamp() default rather than collapsing to nothing.
+            ...(columnWidths.context
+              ? { '--col-context-width': `${columnWidths.context}px` }
+              : {}),
           } as React.CSSProperties
         }
       >
@@ -1158,6 +1163,15 @@ export default function App() {
         />
 
         {/* Column 4: Collapsible Context Sidebar coming from the right */}
+        {contextOpen && (
+          <ColumnResizer
+            side="context"
+            width={columnWidths.context || 0}
+            onPointerDown={startColumnDrag('context')}
+            onNudge={(delta) => nudgeColumn('context', delta)}
+            onReset={resetColumnWidths}
+          />
+        )}
         <ContextSidebar
           isOpen={contextOpen}
           onClose={() => setContextOpen(false)}

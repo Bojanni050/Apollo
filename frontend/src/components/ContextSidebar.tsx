@@ -12,7 +12,7 @@ import type {
   Repository,
   Signal,
 } from '../api/client'
-import { renderDiff } from '../markdown'
+import { renderDiff, renderMarkdown } from '../markdown'
 
 interface Props {
   isOpen: boolean
@@ -902,7 +902,14 @@ export function ContextSidebar({
                     <div className="msg-sender">
                       {m.role === 'assistant' ? '✦ Delphi' : 'You'}
                     </div>
-                    <div className="msg-content">{m.content}</div>
+                    {/* The assistant answers in Markdown (headings, lists,
+                        code blocks, emphasis). Rendering it as plain text made
+                        every answer read as one unbroken blob with literal
+                        asterisks and fences; the user's own message stays as
+                        typed. */}
+                    <div className="msg-content">
+                      {m.role === 'assistant' ? renderMarkdown(m.content) : m.content}
+                    </div>
                   </div>
                 ))
               )}

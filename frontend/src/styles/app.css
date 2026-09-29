@@ -365,6 +365,16 @@ input:focus, textarea:focus, select:focus {
   touch-action: none; /* let the drag reach us instead of scrolling the page */
 }
 
+/* The context panel's divider sits on the panel's own left edge, pinned to
+   the right side of the layout: `left` would need the full three-column width
+   recomputed on every drag, `right` tracks the panel edge for free. */
+.col-resizer-context {
+  left: auto;
+  right: var(--col-context-width);
+  transform: translateX(50%);
+  z-index: 6;
+}
+
 /* The visual bar. Transparent at rest, because the columns already draw a 1px
    border there; the accent only appears on hover or while dragging so a resting
    layout shows no extra chrome. */
@@ -2534,6 +2544,70 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-md);
   color: var(--text);
   line-height: 1.5;
+}
+/* Markdown inside an assistant bubble: the renderer emits plain elements, so
+   they need their own spacing and size here -- without this a code block or a
+   list ran into the surrounding text as if it were one paragraph. */
+.context-msg.assistant .msg-content pre {
+  background: var(--bg-chrome-subtle, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.context-msg.assistant .msg-content pre code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.context-msg.assistant .msg-content code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  background: var(--bg-chrome-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.context-msg.assistant .msg-content ul,
+.context-msg.assistant .msg-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.context-msg.assistant .msg-content h1,
+.context-msg.assistant .msg-content h2,
+.context-msg.assistant .msg-content h3,
+.context-msg.assistant .msg-content h4,
+.context-msg.assistant .msg-content h5,
+.context-msg.assistant .msg-content h6 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 8px 0 4px;
+  color: var(--text);
+}
+.context-msg.assistant .msg-content blockquote {
+  margin: 6px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-faint);
+}
+.context-msg.assistant .msg-content p {
+  margin: 4px 0;
+}
+.context-msg.assistant .msg-content table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.context-msg.assistant .msg-content th,
+.context-msg.assistant .msg-content td {
+  border: 1px solid var(--border);
+  padding: 3px 7px;
+  text-align: left;
 }
 .msg-sender {
   font-size: 11px;
