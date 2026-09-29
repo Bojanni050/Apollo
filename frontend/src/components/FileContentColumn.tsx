@@ -578,7 +578,7 @@ export function FileContentColumn({
         type="button"
         className="file-floating-chat-bubble"
         onClick={onOpenAiChat}
-        title="Open AI weave assistant"
+        title="Open Delphi Weave assistant"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="9" cy="12" r="1.5"/>

@@ -480,7 +480,7 @@ export function ContextSidebar({
         <div className="context-header">
           <div className="context-title-block">
             <span className="context-title-hash">#</span>
-            <h3 className="context-title">AI weave</h3>
+            <h3 className="context-title">Delphi Weave</h3>
           </div>
 
           <div className="context-header-actions">
@@ -807,7 +807,7 @@ export function ContextSidebar({
               <div
                 className="context-mode-bar"
                 role="radiogroup"
-                aria-label="What AI weave should do"
+                aria-label="What Delphi Weave should do"
               >
                 {MODES.map((m) => (
                   <button
@@ -879,7 +879,7 @@ export function ContextSidebar({
                 activeConversation?.messages.map((m) => (
                   <div key={m.id} className={`context-msg ${m.role}`}>
                     <div className="msg-sender">
-                      {m.role === 'assistant' ? '✦ AI weave' : 'You'}
+                      {m.role === 'assistant' ? '✦ Delphi' : 'You'}
                     </div>
                     <div className="msg-content">{m.content}</div>
                   </div>
@@ -892,7 +892,7 @@ export function ContextSidebar({
               <input
                 type="text"
                 className="context-chat-input"
-                placeholder="Ask AI weave..."
+                placeholder="Ask Delphi..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 disabled={sending}

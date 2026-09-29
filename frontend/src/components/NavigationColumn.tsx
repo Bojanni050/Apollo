@@ -42,6 +42,12 @@ interface Props {
   onAddRepository: () => void
   onOpenSettings: () => void
   onDeleteWorkspace: (ws: Workspace) => void
+  /**
+   * True while a Delphi Pulse scan is running. The pinned footer button is
+   * the only place Pulse exists in this column, so it is also the only place
+   * that can show the app is working: the glyph breathes while it runs.
+   */
+  pulseActive?: boolean
 }
 
 export function NavigationColumn({
@@ -56,6 +62,7 @@ export function NavigationColumn({
   onAddRepository,
   onOpenSettings,
   onDeleteWorkspace,
+  pulseActive = false,
 }: Props) {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
 
@@ -292,7 +299,7 @@ export function NavigationColumn({
       <div className="nav-footer">
         <button
           type="button"
-          className="nav-ai-pulse-btn"
+          className={`nav-ai-pulse-btn ${pulseActive ? 'pulse-active' : ''}`}
           onClick={() => onSelectSection('pulse')}
         >
           <span className="ai-pulse-left">

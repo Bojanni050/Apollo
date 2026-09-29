@@ -784,10 +784,10 @@ input:focus, textarea:focus, select:focus {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 6px 8px;
+  padding: 8px 9px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text);
   transition: background 0.12s ease;
 }
@@ -799,8 +799,23 @@ input:focus, textarea:focus, select:focus {
   gap: 7px;
 }
 .ai-pulse-glyph {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--accent-amber);
+}
+/* While a Pulse scan runs, the glyph breathes: a soft glow and scale rhythm
+   rather than a flashing badge, so the button reads "working", not "new". */
+.nav-ai-pulse-btn.pulse-active .ai-pulse-glyph {
+  animation: nav-pulse-glow 1.6s ease-in-out infinite;
+}
+@keyframes nav-pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    text-shadow: 0 0 0 rgba(197, 160, 42, 0);
+  }
+  50% {
+    transform: scale(1.35);
+    text-shadow: 0 0 6px rgba(197, 160, 42, 0.8);
+  }
 }
 
 .ai-pulse-badge {
@@ -3474,6 +3489,7 @@ input:focus, textarea:focus, select:focus {
 }
 @media (prefers-reduced-motion: reduce) {
   .embed-progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
+  .nav-ai-pulse-btn.pulse-active .ai-pulse-glyph { animation: none; opacity: 0.7; }
 }
 
 .diff-add { color: var(--diff-add-fg); background: var(--diff-add-bg); }
