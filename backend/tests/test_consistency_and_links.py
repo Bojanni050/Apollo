@@ -22,23 +22,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.llm.base import LLMProvider, LLMResponse, ToolCall
 from app.models import Conversation, Decision, OpenQuestion, Repository, Workspace
-from app.services.agent import Agent
 from app.services.consistency import check_consistency
 from app.services.tools import ToolContext, run_tool
-
-
-class ScriptedProvider(LLMProvider):
-    def __init__(self, turns: list[LLMResponse]) -> None:
-        self.turns = list(turns)
-        self.calls: list[list[dict[str, Any]]] = []
-
-    def chat(self, messages, tools=None, temperature=None, max_output_tokens=None):
-        self.calls.append(messages)
-        if not self.turns:
-            return LLMResponse(content="Default response")
-        return self.turns.pop(0)
+from tests.conftest import ScriptedProvider  # noqa: F401 — canonical fake, kept for imports
 
 
 @pytest.fixture()

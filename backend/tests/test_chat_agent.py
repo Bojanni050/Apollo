@@ -16,28 +16,10 @@ from app.models import Conversation, Message, Repository, Workspace
 from app.services.agent import Agent
 from app.services.tools import ToolContext, run_tool, tool_schemas
 
-
-class ScriptedProvider(LLMProvider):
-    """Replays prepared turns; records the messages it was given."""
-
-    def __init__(self, turns: list[LLMResponse]) -> None:
-        self.turns = list(turns)
-        self.calls: list[list[dict[str, Any]]] = []
-        self.tools_offered: list[Any] = []
-
-    def chat(self, messages, tools=None, temperature=None, max_output_tokens=None):
-        self.calls.append(messages)
-        self.tools_offered.append(tools)
-        if not self.turns:
-            return LLMResponse(content="done")
-        return self.turns.pop(0)
-
-
-def tool_turn(name: str, arguments: dict[str, Any], call_id: str = "c1") -> LLMResponse:
-    return LLMResponse(
-        content="",
-        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
-    )
+# Canonical fake provider lives in conftest (stap 1 opruimplan). Re-exported
+# here so existing `from tests.test_chat_agent import ScriptedProvider,
+# tool_turn` imports keep working.
+from tests.conftest import ScriptedProvider, tool_turn  # noqa: F401
 
 
 @pytest.fixture()

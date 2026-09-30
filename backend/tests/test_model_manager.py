@@ -412,3 +412,54 @@ class TestCatalogAndPullApi:
         assert body["status"] == "idle"
         # Nothing was downloaded, so nothing needs rebuilding.
         assert body["reindex_recommended"] is False
+
+
+class TestLlmModelMetadata:
+    """LLM model catalog metadata, moved from the old test_api.py monolith.
+
+    These pin the price/capability enrichment the settings screen depends on,
+    which has nothing to do with workspaces or documents.
+    """
+
+    def test_model_metadata_matches_the_longest_family(self) -> None:
+        from app.api.routes_system import _model_metadata
+
+        price_in, price_out, caps = _model_metadata("gpt-4o-mini-2024-07-18")
+        assert price_in == 0.15
+        assert price_out == 0.6
+        assert "vision" in caps
+
+        price_in, price_out, caps = _model_metadata("claude-3-5-haiku-20241022")
+        assert price_in == 0.8
+        assert "tools" in caps
+
+        price_in, price_out, caps = _model_metadata("gemini-2.5-flash")
+        assert price_in == 0.3
+        assert "reasoning" in caps
+
+        price_in, price_out, caps = _model_metadata("some-private-model")
+        assert price_in is None
+        assert price_out is None
+        assert caps == []
+
+    def test_models_endpoint_enriches_known_ids(self, client, monkeypatch) -> None:
+        from app.llm import openai_compat
+
+        monkeypatch.setattr(
+            openai_compat.OpenAICompatibleProvider,
+            "list_models",
+            lambda self: [
+                {"id": "gemini-2.5-flash", "context_window": 1048576},
+                {"id": "tgi-custom-7b"},
+            ],
+        )
+        response = client.post(
+            "/api/system/settings/llm/models",
+            json={"base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+        )
+        assert response.status_code == 200
+        models = {m["id"]: m for m in response.json()["models"]}
+        assert models["gemini-2.5-flash"]["input_price_per_m"] == 0.3
+        assert models["gemini-2.5-flash"]["capabilities"] == ["vision", "tools", "reasoning"]
+        assert models["tgi-custom-7b"]["input_price_per_m"] is None
+        assert models["tgi-custom-7b"]["capabilities"] == []

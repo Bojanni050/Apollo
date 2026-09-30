@@ -32,7 +32,39 @@ os.environ.pop("CORS_ORIGINS", None)
 from app import models  # noqa: E402,F401  (registers tables on Base.metadata)
 from app.config import settings  # noqa: E402
 from app.db import Base, get_db  # noqa: E402
+from app.llm.base import LLMProvider, LLMResponse, ToolCall  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+class ScriptedProvider(LLMProvider):
+    """Replays prepared turns; records the messages it was given.
+
+    Canonical fake provider for the suite. Previously duplicated in
+    test_chat_agent / test_chat_tooling / test_consistency_and_links;
+    keep all new tests importing from here (``from tests.conftest import
+    ScriptedProvider``). ``test_chat_agent`` re-exports it so existing
+    ``from tests.test_chat_agent import ScriptedProvider`` imports keep working.
+    """
+
+    def __init__(self, turns: list[LLMResponse]) -> None:
+        self.turns = list(turns)
+        self.calls: list[list[dict]] = []
+        self.tools_offered: list = []
+
+    def chat(self, messages, tools=None, temperature=None, max_output_tokens=None):
+        self.calls.append(messages)
+        self.tools_offered.append(tools)
+        if not self.turns:
+            return LLMResponse(content="done")
+        return self.turns.pop(0)
+
+
+def tool_turn(name: str, arguments: dict, call_id: str = "c1") -> LLMResponse:
+    """One assistant turn requesting a single tool call."""
+    return LLMResponse(
+        content="",
+        tool_calls=[ToolCall(id=call_id, name=name, arguments=arguments)],
+    )
 
 
 def llm_is_configured() -> bool:

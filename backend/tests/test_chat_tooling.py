@@ -16,22 +16,11 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
-from app.llm.base import LLMProvider, LLMResponse, ToolCall
+from app.llm.base import LLMResponse, ToolCall
 from app.models import Conversation, Decision, Message, OpenQuestion, Repository, Workspace
 from app.services.agent import Agent
 from app.services.tools import ToolContext, run_tool
-
-
-class ScriptedProvider(LLMProvider):
-    def __init__(self, turns: list[LLMResponse]) -> None:
-        self.turns = list(turns)
-        self.calls: list[list[dict[str, Any]]] = []
-
-    def chat(self, messages, tools=None, temperature=None, max_output_tokens=None):
-        self.calls.append(messages)
-        if not self.turns:
-            return LLMResponse(content="Default response")
-        return self.turns.pop(0)
+from tests.conftest import ScriptedProvider
 
 
 def _tool_context(session: Session, workspace: dict) -> ToolContext:
